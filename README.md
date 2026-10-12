@@ -33,15 +33,25 @@ Inspirado en los puntos fuertes de **Sublime Text** (rendimiento nativo, inicio 
    - Tokenizador léxico por streaming de alto rendimiento.
    - Soporte integrado para: **Rust**, **Python**, **C/C++**, **JavaScript/TypeScript**, **JSON**, **Markdown** y **TOML**.
 
-6. **Sistema de Extensiones y Plugins**:
+6. **Gestión de Múltiples Búferes y Pestañas (Tabs)**:
+   - Barra superior interactiva de pestañas con indicador de estado modificado (`*`).
+   - Apertura de múltiples archivos en memoria y cambio instantáneo entre pestañas.
+   - Navegación fluida con `PageUp` / `PageDown`, nueva pestaña con `Ctrl+T` y cerrar con `Ctrl+W`.
+
+7. **Portapapeles Universal (Clipboard)**:
+   - Almacenamiento en memoria con soporte multi-selección.
+   - Emisión de secuencias estándar **OSC 52** para terminales modernos y sincronización con Wayland (`wl-copy`/`wl-paste`) y X11 (`xclip`).
+   - **Pegado inteligente por líneas**: si el portapapeles contiene N líneas y hay N cursores activos, cada cursor recibe su línea correspondiente.
+
+8. **Sistema de Extensiones y Plugins**:
    - **Plugins en el proceso**: Trait `Plugin` con ganchos de ciclo de vida (`on_init`, `on_open`, `on_before_save`, `on_after_save`, `on_command`).
    - **Plugins por procesos externos (IPC)**: Ejecución segura de formateadores (como `rustfmt`, `black`, `prettier`) vía tuberías estándar `stdin`/`stdout`.
 
-7. **Interfaz de Terminal (TUI) de Doble Búfer**:
+9. **Interfaz de Terminal (TUI) de Doble Búfer**:
    - Renderizado atómico en una única llamada al sistema para eliminar por completo el parpadeo (*flicker-free*).
    - Control seguro del modo *raw* de la terminal con guardia RAII (`TerminalGuard`) que restaura la terminal incluso en caso de error.
    - Barra de estado informativa (Modo, Archivo, Modificado `[+]`, Línea/Columna, Total líneas/caracteres, Número de cursores, Lenguaje).
-   - Modales interactivos para búsqueda (`Ctrl+F`), guardar como y paleta de comandos (`Ctrl+P`).
+   - Modales interactivos para búsqueda (`Ctrl+F`), abrir archivo (`Ctrl+O`), guardar como y paleta de comandos (`Ctrl+P`).
 
 ---
 
@@ -61,7 +71,8 @@ rustext/
 │   │   ├── cursor.rs        # Cursor y CursorSet (multicursores vectoriales)
 │   │   ├── history.rs       # Transacciones y pilas de Undo/Redo
 │   │   ├── search.rs        # Búsqueda y expansión de ocurrencias (Ctrl+D)
-│   │   └── syntax.rs        # Tokenizador y resaltado sintáctico
+│   │   ├── syntax.rs        # Tokenizador y resaltado sintáctico
+│   │   └── clipboard.rs     # Portapapeles con OSC 52 y utilidades de sistema
 │   ├── plugin/              # Arquitectura de plugins
 │   │   ├── mod.rs
 │   │   ├── traits.rs        # Trait Plugin y PluginContext
@@ -71,10 +82,11 @@ rustext/
 │   │   ├── mod.rs
 │   │   ├── terminal.rs      # Modo raw, detección de tamaño y lectura de teclas
 │   │   ├── theme.rs         # Paleta de colores ANSI
-│   │   ├── screen.rs        # Dibujado de pantalla con doble búfer
+│   │   ├── screen.rs        # Dibujado de pantalla con doble búfer y pestañas
 │   │   └── prompt.rs        # Modal interactivo para búsqueda y comandos
 │   └── editor/              # Estado global y orquestación
 │       ├── mod.rs
+│       ├── document.rs      # Abstracción de pestaña / búfer abierto
 │       ├── keymap.rs        # Mapeo de teclas a acciones
 │       └── app.rs           # Bucle principal de eventos y edición
 └── tests/                   # Pruebas de integración
@@ -90,6 +102,13 @@ rustext/
 | :--- | :--- |
 | `Ctrl + S` | Guardar el archivo actual (o solicitar nombre si no tiene) |
 | `Ctrl + Q` | Salir del editor |
+| `Ctrl + T` | Nueva pestaña vacía |
+| `Ctrl + W` | Cerrar pestaña actual |
+| `PageUp` / `PageDown` | Cambiar a pestaña anterior / siguiente |
+| `Ctrl + O` | Abrir archivo por ruta en una nueva pestaña |
+| `Ctrl + C` | Copiar selección activa (o línea actual si no hay selección) |
+| `Ctrl + X` | Cortar selección activa (o línea actual si no hay selección) |
+| `Ctrl + V` | Pegar contenido del portapapeles |
 | `Ctrl + F` | Abrir buscador interactivo |
 | `Ctrl + D` | Seleccionar palabra / añadir siguiente ocurrencia como cursor |
 | `Ctrl + K` | Añadir cursor en la línea superior |

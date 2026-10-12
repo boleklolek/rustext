@@ -8,8 +8,8 @@ pub mod editor;
 
 pub use core::{
     PieceTable, TextBuffer, Position, Cursor, CursorSet, History, EditOp, Transaction,
-    SearchEngine, Language, SyntaxHighlighter,
+    SearchEngine, Language, SyntaxHighlighter, Clipboard,
 };
 pub use plugin::{Plugin, PluginContext, PluginRegistry, ProcessPluginRunner};
 pub use ui::{Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind};
-pub use editor::{Editor, EditorMode, EditorAction, Keymap};
+pub use editor::{Editor, EditorMode, EditorAction, Keymap, Document};

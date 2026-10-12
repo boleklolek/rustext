@@ -25,7 +25,17 @@ pub enum EditorAction {
     OpenSearchPrompt,
     OpenCommandPalette,
     OpenSaveAsPrompt,
+    OpenOpenFilePrompt,
     CollapseCursors,
+    // Clipboard
+    Copy,
+    Cut,
+    Paste,
+    // Tabs & Multiple Buffers
+    NewTab,
+    CloseTab,
+    NextTab,
+    PrevTab,
     Quit,
     None,
 }
@@ -43,6 +53,18 @@ impl Keymap {
             Key::Down => EditorAction::MoveDown { select: false },
             Key::Home => EditorAction::MoveLineStart { select: false },
             Key::End => EditorAction::MoveLineEnd { select: false },
+
+            // Tabs navigation
+            Key::PageDown => EditorAction::NextTab,
+            Key::PageUp => EditorAction::PrevTab,
+            Key::Ctrl('t') => EditorAction::NewTab,
+            Key::Ctrl('w') => EditorAction::CloseTab,
+            Key::Ctrl('o') => EditorAction::OpenOpenFilePrompt,
+
+            // Clipboard shortcuts
+            Key::Ctrl('c') => EditorAction::Copy,
+            Key::Ctrl('x') => EditorAction::Cut,
+            Key::Ctrl('v') => EditorAction::Paste,
 
             // Multi-cursor shortcuts
             Key::Ctrl('d') => EditorAction::SelectNextOccurrence, // Sublime / VS Code Ctrl+D

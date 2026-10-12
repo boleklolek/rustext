@@ -1,14 +1,16 @@
-//! Main editor state machine, multi-cursor edit engine, and event loop.
+//! Main editor state machine, multi-cursor edit engine, tabs, and event loop.
 //! Zero third-party dependencies, purely standard library Rust.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use super::document::Document;
 use super::keymap::{EditorAction, Keymap};
-use crate::core::buffer::TextBuffer;
-use crate::core::cursor::{Cursor, CursorSet};
-use crate::core::history::{EditOp, History, Transaction};
+use crate::core::buffer::{Position, TextBuffer};
+use crate::core::clipboard::Clipboard;
+use crate::core::cursor::Cursor;
+use crate::core::history::{EditOp, Transaction};
 use crate::core::search::SearchEngine;
 use crate::core::syntax::Language;
 use crate::plugin::{
@@ -25,14 +27,13 @@ pub enum EditorMode {
 }
 
 pub struct Editor {
-    pub buffer: TextBuffer,
-    pub cursors: CursorSet,
-    pub history: History,
+    pub documents: Vec<Document>,
+    pub active_doc_idx: usize,
+    pub clipboard: Clipboard,
     pub screen: Screen,
     pub mode: EditorMode,
     pub status_message: Option<(String, Instant)>,
     pub plugin_registry: PluginRegistry,
-    pub language: Language,
     pub tab_size: usize,
     pub should_quit: bool,
 }
@@ -40,40 +41,47 @@ pub struct Editor {
 impl Editor {
     /// Creates a new editor instance with an initial buffer.
     pub fn new(buffer: TextBuffer) -> Self {
-        let lang = if let Some(path) = buffer.file_path() {
-            Language::from_path(path)
-        } else {
-            Language::PlainText
-        };
+        let initial_doc = Document::new(buffer);
 
         let mut registry = PluginRegistry::new();
         registry.register(Box::new(TrailingWhitespacePlugin));
         registry.register(Box::new(WordCountPlugin));
 
         let mut ctx = PluginContext {
-            file_path: buffer.file_path().map(|p| p.to_path_buf()),
-            buffer_length: buffer.len_chars(),
-            line_count: buffer.len_lines(),
+            file_path: initial_doc.buffer.file_path().map(|p| p.to_path_buf()),
+            buffer_length: initial_doc.buffer.len_chars(),
+            line_count: initial_doc.buffer.len_lines(),
             cursor_count: 1,
             status_message: None,
         };
         registry.trigger_init(&mut ctx);
 
         Self {
-            buffer,
-            cursors: CursorSet::new(),
-            history: History::new(),
+            documents: vec![initial_doc],
+            active_doc_idx: 0,
+            clipboard: Clipboard::new(),
             screen: Screen::new(),
             mode: EditorMode::Normal,
             status_message: Some((
-                "Rustext ready. Ctrl+S: Save | Ctrl+F: Find | Ctrl+D: Multi-cursor | Ctrl+Q: Quit".to_string(),
+                "Rustext ready. Ctrl+T: New tab | Ctrl+W: Close | PageUp/Dn: Switch tab | Ctrl+C/V: Clipboard | Ctrl+S: Save".to_string(),
                 Instant::now(),
             )),
             plugin_registry: registry,
-            language: lang,
             tab_size: 4,
             should_quit: false,
         }
+    }
+
+    /// Reference to the active document.
+    #[inline]
+    pub fn doc(&self) -> &Document {
+        &self.documents[self.active_doc_idx]
+    }
+
+    /// Mutable reference to the active document.
+    #[inline]
+    pub fn doc_mut(&mut self) -> &mut Document {
+        &mut self.documents[self.active_doc_idx]
     }
 
     /// Sets a temporary status message visible in the status bar.
@@ -128,52 +136,110 @@ impl Editor {
     /// Executes high-level editor actions.
     pub fn execute_action(&mut self, action: EditorAction) {
         match action {
+            // Text editing
             EditorAction::InsertChar(c) => self.insert_char_multicursor(c),
             EditorAction::InsertNewline => self.insert_newline_multicursor(),
             EditorAction::InsertTab => self.insert_tab_multicursor(),
             EditorAction::Backspace => self.backspace_multicursor(),
             EditorAction::Delete => self.delete_multicursor(),
 
-            EditorAction::MoveLeft { select } => self.cursors.move_left(&self.buffer, select),
-            EditorAction::MoveRight { select } => self.cursors.move_right(&self.buffer, select),
-            EditorAction::MoveUp { select } => self.cursors.move_up(&self.buffer, select),
-            EditorAction::MoveDown { select } => self.cursors.move_down(&self.buffer, select),
-            EditorAction::MoveLineStart { select } => self.cursors.move_to_line_start(&self.buffer, select),
-            EditorAction::MoveLineEnd { select } => self.cursors.move_to_line_end(&self.buffer, select),
+            // Clipboard
+            EditorAction::Copy => self.copy(),
+            EditorAction::Cut => self.cut(),
+            EditorAction::Paste => self.paste(),
 
+            // Tabs / Multiple Buffers
+            EditorAction::NewTab => self.new_tab(),
+            EditorAction::CloseTab => self.close_tab(),
+            EditorAction::NextTab => self.next_tab(),
+            EditorAction::PrevTab => self.prev_tab(),
+            EditorAction::OpenOpenFilePrompt => {
+                self.mode = EditorMode::ModalPrompt(PromptModal::new(PromptKind::OpenFile));
+            }
+
+            // Navigation
+            EditorAction::MoveLeft { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_left(&buf, select);
+            }
+            EditorAction::MoveRight { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_right(&buf, select);
+            }
+            EditorAction::MoveUp { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_up(&buf, select);
+            }
+            EditorAction::MoveDown { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_down(&buf, select);
+            }
+            EditorAction::MoveLineStart { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_to_line_start(&buf, select);
+            }
+            EditorAction::MoveLineEnd { select } => {
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.move_to_line_end(&buf, select);
+            }
+
+            // Multi-cursors
             EditorAction::AddCursorAbove => {
-                self.cursors.add_cursor_above(&self.buffer);
-                self.set_status(format!("Active cursors: {}", self.cursors.cursors().len()));
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.add_cursor_above(&buf);
+                self.set_status(format!("Active cursors: {}", self.doc().cursors.cursors().len()));
             }
             EditorAction::AddCursorBelow => {
-                self.cursors.add_cursor_below(&self.buffer);
-                self.set_status(format!("Active cursors: {}", self.cursors.cursors().len()));
+                let buf = self.doc().buffer.clone();
+                self.doc_mut().cursors.add_cursor_below(&buf);
+                self.set_status(format!("Active cursors: {}", self.doc().cursors.cursors().len()));
             }
             EditorAction::SelectNextOccurrence => {
-                if SearchEngine::select_next_occurrence(&self.buffer, &mut self.cursors) {
-                    self.set_status(format!("Cursors: {}", self.cursors.cursors().len()));
+                let buf = self.doc().buffer.clone();
+                let mut cs = self.doc().cursors.clone();
+                if SearchEngine::select_next_occurrence(&buf, &mut cs) {
+                    self.doc_mut().cursors = cs;
+                    self.set_status(format!("Cursors: {}", self.doc().cursors.cursors().len()));
                 } else {
                     self.set_status("No further occurrences found");
                 }
             }
 
+            // History
             EditorAction::Undo => {
-                if let Some(restored) = self.history.undo(&mut self.buffer) {
-                    self.cursors.cursors_mut().clone_from_slice(&restored);
-                    self.set_status(format!("Undo (remaining: {})", self.history.undo_count()));
+                let remaining = {
+                    let doc = self.doc_mut();
+                    if let Some(restored) = doc.history.undo(&mut doc.buffer) {
+                        doc.cursors.set_cursors(restored);
+                        Some(doc.history.undo_count())
+                    } else {
+                        None
+                    }
+                };
+                if let Some(count) = remaining {
+                    self.set_status(format!("Undo (remaining: {})", count));
                 } else {
                     self.set_status("Already at oldest change");
                 }
             }
             EditorAction::Redo => {
-                if let Some(restored) = self.history.redo(&mut self.buffer) {
-                    self.cursors.cursors_mut().clone_from_slice(&restored);
-                    self.set_status(format!("Redo (remaining: {})", self.history.redo_count()));
+                let remaining = {
+                    let doc = self.doc_mut();
+                    if let Some(restored) = doc.history.redo(&mut doc.buffer) {
+                        doc.cursors.set_cursors(restored);
+                        Some(doc.history.redo_count())
+                    } else {
+                        None
+                    }
+                };
+                if let Some(count) = remaining {
+                    self.set_status(format!("Redo (remaining: {})", count));
                 } else {
                     self.set_status("Already at newest change");
                 }
             }
 
+            // File & Modal commands
             EditorAction::Save => self.save_document(),
             EditorAction::OpenSearchPrompt => {
                 self.mode = EditorMode::ModalPrompt(PromptModal::new(PromptKind::Find));
@@ -186,13 +252,14 @@ impl Editor {
             }
 
             EditorAction::CollapseCursors => {
-                let primary = self.cursors.primary();
-                self.cursors.set_single(primary.head);
+                let primary = self.doc().cursors.primary();
+                self.doc_mut().cursors.set_single(primary.head);
                 self.set_status("Collapsed to single cursor");
             }
 
             EditorAction::Quit => {
-                if self.buffer.is_dirty() {
+                let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
+                if any_dirty {
                     self.set_status("Unsaved changes! Press Ctrl+Q again to discard or Ctrl+S to save");
                     self.should_quit = true;
                 } else {
@@ -204,6 +271,223 @@ impl Editor {
         }
     }
 
+    // ---------------- Clipboard Operations ----------------
+
+    /// Copies selected text (or current lines if no selection) to the clipboard.
+    pub fn copy(&mut self) {
+        let doc = self.doc();
+        let mut parts = Vec::new();
+
+        for c in doc.cursors.cursors() {
+            if c.has_selection() {
+                let range = c.selection_range();
+                parts.push(doc.buffer.get_text_range(range.start, range.end));
+            } else {
+                let pos = doc.buffer.char_to_position(c.head);
+                if let Some(line) = doc.buffer.line(pos.line) {
+                    parts.push(line);
+                }
+            }
+        }
+
+        let full_text = parts.join("\n");
+        if !full_text.is_empty() {
+            self.clipboard.set_text(&full_text);
+            self.set_status(format!("Copied {} chars", full_text.chars().count()));
+        }
+    }
+
+    /// Cuts selected text (or current lines) to the clipboard.
+    pub fn cut(&mut self) {
+        self.copy();
+
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
+        let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
+        let mut offset_shift: isize = 0;
+
+        for cursor in cursors_snapshot {
+            let adj_anchor = (cursor.anchor as isize + offset_shift).max(0) as usize;
+            let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
+
+            if cursor.has_selection() {
+                let start = std::cmp::min(adj_anchor, adj_head);
+                let end = std::cmp::max(adj_anchor, adj_head);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
+                tx.ops.push(EditOp::Delete {
+                    offset: start,
+                    text: deleted,
+                });
+
+                let del_len = end - start;
+                offset_shift -= del_len as isize;
+                new_cursors.push(Cursor::new(start));
+            } else {
+                // Delete line
+                let pos = doc.buffer.char_to_position(adj_head);
+                let line_start = doc.buffer.position_to_char(Position::new(pos.line, 0));
+                let line_end = if pos.line + 1 < doc.buffer.len_lines() {
+                    doc.buffer.position_to_char(Position::new(pos.line + 1, 0))
+                } else {
+                    doc.buffer.len_chars()
+                };
+
+                let deleted = doc.buffer.get_text_range(line_start, line_end);
+                doc.buffer.delete_range(line_start, line_end);
+                tx.ops.push(EditOp::Delete {
+                    offset: line_start,
+                    text: deleted,
+                });
+
+                let del_len = line_end - line_start;
+                offset_shift -= del_len as isize;
+                new_cursors.push(Cursor::new(line_start));
+            }
+        }
+
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.set_status("Cut to clipboard");
+    }
+
+    /// Pastes text from clipboard, with smart multi-cursor line mapping.
+    pub fn paste(&mut self) {
+        let text = self.clipboard.get_text();
+        if text.is_empty() {
+            return;
+        }
+
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
+
+        let lines: Vec<&str> = text.lines().collect();
+        let is_multi_line_match = lines.len() == cursors_snapshot.len() && lines.len() > 1;
+
+        let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
+        let mut offset_shift: isize = 0;
+
+        for (i, cursor) in cursors_snapshot.into_iter().enumerate() {
+            let insert_str = if is_multi_line_match {
+                lines[i]
+            } else {
+                &text
+            };
+
+            let adj_anchor = (cursor.anchor as isize + offset_shift).max(0) as usize;
+            let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
+
+            if cursor.has_selection() {
+                let start = std::cmp::min(adj_anchor, adj_head);
+                let end = std::cmp::max(adj_anchor, adj_head);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
+                tx.ops.push(EditOp::Delete {
+                    offset: start,
+                    text: deleted,
+                });
+
+                doc.buffer.insert(start, insert_str);
+                tx.ops.push(EditOp::Insert {
+                    offset: start,
+                    text: insert_str.to_string(),
+                });
+
+                let del_len = end - start;
+                let add_len = insert_str.chars().count();
+                offset_shift += add_len as isize - del_len as isize;
+                new_cursors.push(Cursor::new(start + add_len));
+            } else {
+                doc.buffer.insert(adj_head, insert_str);
+                tx.ops.push(EditOp::Insert {
+                    offset: adj_head,
+                    text: insert_str.to_string(),
+                });
+
+                let add_len = insert_str.chars().count();
+                offset_shift += add_len as isize;
+                new_cursors.push(Cursor::new(adj_head + add_len));
+            }
+        }
+
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.set_status("Pasted from clipboard");
+    }
+
+    // ---------------- Tabs / Multiple Buffers ----------------
+
+    /// Opens a new empty tab.
+    pub fn new_tab(&mut self) {
+        let new_doc = Document::new(TextBuffer::new());
+        self.documents.push(new_doc);
+        self.active_doc_idx = self.documents.len() - 1;
+        self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+    }
+
+    /// Closes the current active tab.
+    pub fn close_tab(&mut self) {
+        if self.documents.len() > 1 {
+            self.documents.remove(self.active_doc_idx);
+            if self.active_doc_idx >= self.documents.len() {
+                self.active_doc_idx = self.documents.len() - 1;
+            }
+            self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+        } else {
+            self.documents[0] = Document::new(TextBuffer::new());
+            self.set_status("Buffer cleared");
+        }
+    }
+
+    /// Switches to the next tab.
+    pub fn next_tab(&mut self) {
+        if self.documents.len() > 1 {
+            self.active_doc_idx = (self.active_doc_idx + 1) % self.documents.len();
+            self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+        }
+    }
+
+    /// Switches to the previous tab.
+    pub fn prev_tab(&mut self) {
+        if self.documents.len() > 1 {
+            self.active_doc_idx = if self.active_doc_idx == 0 {
+                self.documents.len() - 1
+            } else {
+                self.active_doc_idx - 1
+            };
+            self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+        }
+    }
+
+    /// Opens a file into a tab, or switches to it if already open.
+    pub fn open_file(&mut self, path: &Path) {
+        if let Some(pos) = self.documents.iter().position(|d| d.buffer.file_path() == Some(path)) {
+            self.active_doc_idx = pos;
+            self.set_status(format!("Switched to tab {}", pos + 1));
+            return;
+        }
+
+        match TextBuffer::open(path) {
+            Ok(new_buf) => {
+                let new_doc = Document::new(new_buf);
+                self.documents.push(new_doc);
+                self.active_doc_idx = self.documents.len() - 1;
+                self.set_status(format!("Opened {}", path.display()));
+            }
+            Err(e) => {
+                self.set_status(format!("Could not open file: {}", e));
+            }
+        }
+    }
+
     /// Handles submission of interactive modal prompts.
     fn commit_prompt(&mut self, kind: PromptKind, input: &str) {
         if input.is_empty() {
@@ -212,10 +496,11 @@ impl Editor {
 
         match kind {
             PromptKind::Find => {
-                let current_head = self.cursors.primary().head;
-                if let Some((start, end)) = SearchEngine::find_next(&self.buffer, input, current_head, false) {
-                    self.cursors.set_single(start);
-                    self.cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
+                let current_head = self.doc().cursors.primary().head;
+                let buf = self.doc().buffer.clone();
+                if let Some((start, end)) = SearchEngine::find_next(&buf, input, current_head, false) {
+                    self.doc_mut().cursors.set_single(start);
+                    self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
                     self.set_status(format!("Found match at offset {}", start));
                 } else {
                     self.set_status(format!("Pattern not found: '{}'", input));
@@ -223,34 +508,25 @@ impl Editor {
             }
             PromptKind::SaveAs => {
                 let path = PathBuf::from(input);
-                if let Err(e) = self.buffer.save_as(&path) {
+                let doc = self.doc_mut();
+                if let Err(e) = doc.buffer.save_as(&path) {
                     self.set_status(format!("Error saving file: {}", e));
                 } else {
-                    self.language = Language::from_path(&path);
+                    doc.language = Language::from_path(&path);
                     self.set_status(format!("Saved to {}", input));
                 }
             }
             PromptKind::OpenFile => {
                 let path = Path::new(input);
-                match TextBuffer::open(path) {
-                    Ok(new_buf) => {
-                        self.language = Language::from_path(path);
-                        self.buffer = new_buf;
-                        self.cursors = CursorSet::new();
-                        self.history = History::new();
-                        self.set_status(format!("Opened {}", input));
-                    }
-                    Err(e) => {
-                        self.set_status(format!("Could not open file: {}", e));
-                    }
-                }
+                self.open_file(path);
             }
             PromptKind::CommandPalette => {
+                let doc = self.doc();
                 let mut ctx = PluginContext {
-                    file_path: self.buffer.file_path().map(|p| p.to_path_buf()),
-                    buffer_length: self.buffer.len_chars(),
-                    line_count: self.buffer.len_lines(),
-                    cursor_count: self.cursors.cursors().len(),
+                    file_path: doc.buffer.file_path().map(|p| p.to_path_buf()),
+                    buffer_length: doc.buffer.len_chars(),
+                    line_count: doc.buffer.len_lines(),
+                    cursor_count: doc.cursors.cursors().len(),
                     status_message: None,
                 };
 
@@ -270,34 +546,37 @@ impl Editor {
 
     /// Saves the current buffer to disk.
     pub fn save_document(&mut self) {
-        if self.buffer.file_path().is_none() {
+        if self.doc().buffer.file_path().is_none() {
             self.mode = EditorMode::ModalPrompt(PromptModal::new(PromptKind::SaveAs));
             return;
         }
 
-        // Before save hook
+        let doc = self.doc();
         let mut ctx = PluginContext {
-            file_path: self.buffer.file_path().map(|p| p.to_path_buf()),
-            buffer_length: self.buffer.len_chars(),
-            line_count: self.buffer.len_lines(),
-            cursor_count: self.cursors.cursors().len(),
+            file_path: doc.buffer.file_path().map(|p| p.to_path_buf()),
+            buffer_length: doc.buffer.len_chars(),
+            line_count: doc.buffer.len_lines(),
+            cursor_count: doc.cursors.cursors().len(),
             status_message: None,
         };
 
-        let mut content = self.buffer.to_string();
+        let mut content = self.doc().buffer.to_string();
         self.plugin_registry.trigger_before_save(&mut ctx, &mut content);
 
-        if content != self.buffer.to_string() {
-            self.buffer = TextBuffer::from_str(&content);
-            if let Some(p) = ctx.file_path.clone() {
-                self.buffer.set_file_path(p);
+        let doc = self.doc_mut();
+        if content != doc.buffer.to_string() {
+            let path = doc.buffer.file_path().map(|p| p.to_path_buf());
+            doc.buffer = TextBuffer::from_str(&content);
+            if let Some(p) = path {
+                doc.buffer.set_file_path(p);
             }
         }
 
-        match self.buffer.save() {
+        match doc.buffer.save() {
             Ok(()) => {
                 self.plugin_registry.trigger_after_save(&mut ctx);
                 let path_str = self
+                    .doc()
                     .buffer
                     .file_path()
                     .and_then(|p| p.to_str())
@@ -314,11 +593,12 @@ impl Editor {
 
     /// Inserts a character across all cursors simultaneously.
     pub fn insert_char_multicursor(&mut self, ch: char) {
-        let mut tx = Transaction::new(self.cursors.cursors().to_vec());
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
         let s = ch.to_string();
 
-        self.cursors.normalize();
-        let cursors_snapshot = self.cursors.cursors().to_vec();
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
         let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
         let mut offset_shift: isize = 0;
 
@@ -329,14 +609,14 @@ impl Editor {
             if cursor.has_selection() {
                 let start = std::cmp::min(adj_anchor, adj_head);
                 let end = std::cmp::max(adj_anchor, adj_head);
-                let deleted = self.buffer.get_text_range(start, end);
-                self.buffer.delete_range(start, end);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
                 tx.ops.push(EditOp::Delete {
                     offset: start,
                     text: deleted,
                 });
 
-                self.buffer.insert(start, &s);
+                doc.buffer.insert(start, &s);
                 tx.ops.push(EditOp::Insert {
                     offset: start,
                     text: s.clone(),
@@ -348,7 +628,7 @@ impl Editor {
 
                 new_cursors.push(Cursor::new(start + add_len));
             } else {
-                self.buffer.insert(adj_head, &s);
+                doc.buffer.insert(adj_head, &s);
                 tx.ops.push(EditOp::Insert {
                     offset: adj_head,
                     text: s.clone(),
@@ -361,17 +641,19 @@ impl Editor {
             }
         }
 
-        self.cursors.set_cursors(new_cursors);
-        tx.cursors_after = self.cursors.cursors().to_vec();
-        self.history.record(tx);
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
     }
 
     /// Inserts a newline with automatic matching indentation.
     pub fn insert_newline_multicursor(&mut self) {
-        let mut tx = Transaction::new(self.cursors.cursors().to_vec());
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
 
-        self.cursors.normalize();
-        let cursors_snapshot = self.cursors.cursors().to_vec();
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
         let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
         let mut offset_shift: isize = 0;
 
@@ -380,8 +662,8 @@ impl Editor {
             let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
 
             // Compute indentation of current line
-            let line_pos = self.buffer.char_to_position(adj_head);
-            let current_line = self.buffer.line(line_pos.line).unwrap_or_default();
+            let line_pos = doc.buffer.char_to_position(adj_head);
+            let current_line = doc.buffer.line(line_pos.line).unwrap_or_default();
             let indent: String = current_line
                 .chars()
                 .take_while(|c| *c == ' ' || *c == '\t')
@@ -393,14 +675,14 @@ impl Editor {
             if cursor.has_selection() {
                 let start = std::cmp::min(adj_anchor, adj_head);
                 let end = std::cmp::max(adj_anchor, adj_head);
-                let deleted = self.buffer.get_text_range(start, end);
-                self.buffer.delete_range(start, end);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
                 tx.ops.push(EditOp::Delete {
                     offset: start,
                     text: deleted,
                 });
 
-                self.buffer.insert(start, &insert_str);
+                doc.buffer.insert(start, &insert_str);
                 tx.ops.push(EditOp::Insert {
                     offset: start,
                     text: insert_str,
@@ -410,7 +692,7 @@ impl Editor {
                 offset_shift += add_len as isize - del_len as isize;
                 new_cursors.push(Cursor::new(start + add_len));
             } else {
-                self.buffer.insert(adj_head, &insert_str);
+                doc.buffer.insert(adj_head, &insert_str);
                 tx.ops.push(EditOp::Insert {
                     offset: adj_head,
                     text: insert_str,
@@ -421,9 +703,10 @@ impl Editor {
             }
         }
 
-        self.cursors.set_cursors(new_cursors);
-        tx.cursors_after = self.cursors.cursors().to_vec();
-        self.history.record(tx);
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
     }
 
     /// Inserts tab characters or spaces across all cursors.
@@ -435,10 +718,11 @@ impl Editor {
 
     /// Deletes character before cursor across all cursors (Backspace).
     pub fn backspace_multicursor(&mut self) {
-        let mut tx = Transaction::new(self.cursors.cursors().to_vec());
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
 
-        self.cursors.normalize();
-        let cursors_snapshot = self.cursors.cursors().to_vec();
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
         let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
         let mut offset_shift: isize = 0;
 
@@ -449,8 +733,8 @@ impl Editor {
             if cursor.has_selection() {
                 let start = std::cmp::min(adj_anchor, adj_head);
                 let end = std::cmp::max(adj_anchor, adj_head);
-                let deleted = self.buffer.get_text_range(start, end);
-                self.buffer.delete_range(start, end);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
                 tx.ops.push(EditOp::Delete {
                     offset: start,
                     text: deleted,
@@ -461,8 +745,8 @@ impl Editor {
                 new_cursors.push(Cursor::new(start));
             } else if adj_head > 0 {
                 let target_offset = adj_head - 1;
-                let deleted = self.buffer.get_text_range(target_offset, adj_head);
-                self.buffer.delete_range(target_offset, adj_head);
+                let deleted = doc.buffer.get_text_range(target_offset, adj_head);
+                doc.buffer.delete_range(target_offset, adj_head);
                 tx.ops.push(EditOp::Delete {
                     offset: target_offset,
                     text: deleted,
@@ -475,30 +759,32 @@ impl Editor {
             }
         }
 
-        self.cursors.set_cursors(new_cursors);
-        tx.cursors_after = self.cursors.cursors().to_vec();
-        self.history.record(tx);
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
     }
 
     /// Deletes character after cursor across all cursors (Delete).
     pub fn delete_multicursor(&mut self) {
-        let mut tx = Transaction::new(self.cursors.cursors().to_vec());
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
 
-        self.cursors.normalize();
-        let cursors_snapshot = self.cursors.cursors().to_vec();
+        doc.cursors.normalize();
+        let cursors_snapshot = doc.cursors.cursors().to_vec();
         let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
         let mut offset_shift: isize = 0;
 
         for cursor in cursors_snapshot {
             let adj_anchor = (cursor.anchor as isize + offset_shift).max(0) as usize;
             let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
-            let total_chars = self.buffer.len_chars();
+            let total_chars = doc.buffer.len_chars();
 
             if cursor.has_selection() {
                 let start = std::cmp::min(adj_anchor, adj_head);
                 let end = std::cmp::max(adj_anchor, adj_head);
-                let deleted = self.buffer.get_text_range(start, end);
-                self.buffer.delete_range(start, end);
+                let deleted = doc.buffer.get_text_range(start, end);
+                doc.buffer.delete_range(start, end);
                 tx.ops.push(EditOp::Delete {
                     offset: start,
                     text: deleted,
@@ -509,8 +795,8 @@ impl Editor {
                 new_cursors.push(Cursor::new(start));
             } else if adj_head < total_chars {
                 let target_offset = adj_head;
-                let deleted = self.buffer.get_text_range(target_offset, target_offset + 1);
-                self.buffer.delete_range(target_offset, target_offset + 1);
+                let deleted = doc.buffer.get_text_range(target_offset, target_offset + 1);
+                doc.buffer.delete_range(target_offset, target_offset + 1);
                 tx.ops.push(EditOp::Delete {
                     offset: target_offset,
                     text: deleted,
@@ -523,33 +809,46 @@ impl Editor {
             }
         }
 
-        self.cursors.set_cursors(new_cursors);
-        tx.cursors_after = self.cursors.cursors().to_vec();
-        self.history.record(tx);
+        let doc = self.doc_mut();
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
     }
 
     /// Renders the complete editor view.
     pub fn render(&mut self) -> io::Result<()> {
-        let primary_head = self.cursors.primary().head;
-        let primary_pos = self.buffer.char_to_position(primary_head);
-        let gutter_width = Screen::calculate_gutter_width(self.buffer.len_lines());
+        let active_idx = self.active_doc_idx;
+        let primary_head = self.documents[active_idx].cursors.primary().head;
+        let primary_pos = self.documents[active_idx].buffer.char_to_position(primary_head);
+        let total_lines = self.documents[active_idx].buffer.len_lines();
+        let total_chars = self.documents[active_idx].buffer.len_chars();
+        let is_dirty = self.documents[active_idx].buffer.is_dirty();
+        let cursor_count = self.documents[active_idx].cursors.cursors().len();
+        let lang_name = self.documents[active_idx].language.name();
+        let gutter_width = Screen::calculate_gutter_width(total_lines);
 
-        // Adjust viewport to keep primary cursor in view
-        self.screen.adjust_viewport(primary_pos.line, primary_pos.col, gutter_width);
-
-        self.screen.begin_frame();
-
-        // 1. Document canvas
-        self.screen.render_document(&self.buffer, &self.cursors, self.language);
-
-        // 2. Status bar
-        let file_name = self
+        let file_name = self.documents[active_idx]
             .buffer
             .file_path()
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or("[Untitled]");
+            .unwrap_or("[Untitled]")
+            .to_string();
 
+        let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
+
+        // Adjust viewport to keep primary cursor in view
+        self.screen.adjust_viewport(primary_pos.line, primary_pos.col, gutter_width);
+        self.screen.begin_frame();
+
+        // 1. Tab Bar
+        self.screen.render_tab_bar(&tab_titles, active_idx);
+
+        // 2. Document canvas
+        let doc = &self.documents[active_idx];
+        self.screen.render_document(&doc.buffer, &doc.cursors, doc.language);
+
+        // 3. Status bar
         let mode_str = match &self.mode {
             EditorMode::Normal => "EDIT",
             EditorMode::ModalPrompt(_) => "PROMPT",
@@ -557,16 +856,16 @@ impl Editor {
 
         self.screen.render_status_bar(
             mode_str,
-            file_name,
-            self.buffer.is_dirty(),
+            &file_name,
+            is_dirty,
             (primary_pos.line, primary_pos.col),
-            self.cursors.cursors().len(),
-            self.buffer.len_lines(),
-            self.buffer.len_chars(),
-            self.language.name(),
+            cursor_count,
+            total_lines,
+            total_chars,
+            lang_name,
         );
 
-        // 3. Prompt or message line
+        // 4. Prompt or message line
         match &self.mode {
             EditorMode::ModalPrompt(modal) => {
                 let prompt_text = modal.formatted_display();
@@ -582,7 +881,7 @@ impl Editor {
             }
         }
 
-        // Calculate cursor screen position
+        // Calculate cursor screen position (accounting for row 0 tab bar)
         let (cursor_screen_row, cursor_screen_col) = match &self.mode {
             EditorMode::ModalPrompt(modal) => {
                 let prompt_row = self.screen.rows.saturating_sub(1);
@@ -590,7 +889,8 @@ impl Editor {
                 (prompt_row, prompt_col)
             }
             EditorMode::Normal => {
-                let row = primary_pos.line.saturating_sub(self.screen.scroll_row);
+                let tab_offset = if self.screen.has_tab_bar { 1 } else { 0 };
+                let row = tab_offset + primary_pos.line.saturating_sub(self.screen.scroll_row);
                 let col = gutter_width + primary_pos.col.saturating_sub(self.screen.scroll_col);
                 (row, col)
             }

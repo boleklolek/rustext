@@ -15,6 +15,7 @@ pub struct Screen {
     pub cols: usize,
     pub scroll_row: usize,
     pub scroll_col: usize,
+    pub has_tab_bar: bool,
     pub theme: Theme,
     draw_buffer: String,
 }
@@ -28,6 +29,7 @@ impl Screen {
             cols,
             scroll_row: 0,
             scroll_col: 0,
+            has_tab_bar: true,
             theme: Theme::modern_dark(),
             draw_buffer: String::with_capacity(rows * cols * 4),
         }
@@ -40,9 +42,13 @@ impl Screen {
         self.cols = cols;
     }
 
-    /// Available height for document text (excluding status and prompt lines).
+    /// Available height for document text (excluding tab bar, status, and prompt lines).
     pub fn text_area_height(&self) -> usize {
-        self.rows.saturating_sub(2)
+        if self.has_tab_bar {
+            self.rows.saturating_sub(3)
+        } else {
+            self.rows.saturating_sub(2)
+        }
     }
 
     /// Adjusts scroll offsets so that the cursor position is within the visible viewport.
@@ -203,6 +209,27 @@ impl Screen {
 
             self.draw_buffer.push_str("\r\n");
         }
+    }
+
+    /// Renders the top tab bar displaying open buffers.
+    pub fn render_tab_bar(&mut self, tab_titles: &[String], active_idx: usize) {
+        self.draw_buffer.push_str("\x1b[48;5;234m"); // Tab bar background
+
+        let mut rendered_len = 0;
+        for (i, title) in tab_titles.iter().enumerate() {
+            let is_active = i == active_idx;
+            let tab_str = if is_active {
+                format!("\x1b[48;5;238m\x1b[1;37m {} {} \x1b[48;5;234m", i + 1, title)
+            } else {
+                format!("\x1b[38;5;244m {} {} ", i + 1, title)
+            };
+            self.draw_buffer.push_str(&tab_str);
+            rendered_len += 4 + title.chars().count();
+        }
+
+        let padding = self.cols.saturating_sub(rendered_len);
+        self.draw_buffer.push_str(&" ".repeat(padding));
+        self.draw_buffer.push_str("\x1b[0m\r\n");
     }
 
     /// Renders the editor status bar.

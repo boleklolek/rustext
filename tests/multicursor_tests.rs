@@ -7,11 +7,11 @@ fn test_multicursor_simultaneous_typing() {
     let mut editor = Editor::new(buf);
 
     // Set cursors at the start of each line
-    editor.cursors.set_single(0); // at 'a'
-    editor.cursors.add_cursor(Cursor::new(7)); // at 'b'
-    editor.cursors.add_cursor(Cursor::new(14)); // at 'c'
+    editor.doc_mut().cursors.set_single(0); // at 'a'
+    editor.doc_mut().cursors.add_cursor(Cursor::new(7)); // at 'b'
+    editor.doc_mut().cursors.add_cursor(Cursor::new(14)); // at 'c'
 
-    assert_eq!(editor.cursors.cursors().len(), 3);
+    assert_eq!(editor.doc().cursors.cursors().len(), 3);
 
     // Type "pub " at all cursors
     for ch in "pub ".chars() {
@@ -19,16 +19,51 @@ fn test_multicursor_simultaneous_typing() {
     }
 
     assert_eq!(
-        editor.buffer.to_string(),
+        editor.doc().buffer.to_string(),
         "pub a = 1;\npub b = 1;\npub c = 1;"
     );
 
     // Undo the 4 characters typed
     for _ in 0..4 {
-        editor.history.undo(&mut editor.buffer);
+        let doc = editor.doc_mut();
+        doc.history.undo(&mut doc.buffer);
     }
 
-    assert_eq!(editor.buffer.to_string(), "a = 1;\nb = 1;\nc = 1;");
+    assert_eq!(editor.doc().buffer.to_string(), "a = 1;\nb = 1;\nc = 1;");
+}
+
+#[test]
+fn test_clipboard_and_tabs() {
+    let buf = TextBuffer::from_str("hello world");
+    let mut editor = Editor::new(buf);
+
+    // Select "world"
+    editor.doc_mut().cursors.set_single(6);
+    editor.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(6, 11);
+
+    // Copy to clipboard
+    editor.copy();
+    assert_eq!(editor.clipboard.get_text(), "world");
+
+    // Open a new tab
+    editor.new_tab();
+    assert_eq!(editor.documents.len(), 2);
+    assert_eq!(editor.active_doc_idx, 1);
+
+    // Paste in new tab
+    editor.paste();
+    assert_eq!(editor.doc().buffer.to_string(), "world");
+
+    // Switch back to tab 0
+    editor.prev_tab();
+    assert_eq!(editor.active_doc_idx, 0);
+    assert_eq!(editor.doc().buffer.to_string(), "hello world");
+
+    // Close tab 1
+    editor.next_tab();
+    editor.close_tab();
+    assert_eq!(editor.documents.len(), 1);
+    assert_eq!(editor.doc().buffer.to_string(), "hello world");
 }
 
 #[test]

@@ -37,6 +37,7 @@ impl TerminalGuard {
         let status = Command::new("stty")
             .arg("-echo")
             .arg("-icanon")
+            .arg("-isig")
             .arg("min")
             .arg("1")
             .arg("time")
