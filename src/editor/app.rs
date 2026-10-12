@@ -899,4 +899,101 @@ impl Editor {
         self.screen.end_frame(cursor_screen_row, cursor_screen_col)?;
         Ok(())
     }
+
+    /// Runs the editor in native desktop GUI window mode.
+    /// Interacts directly with OS windowing (X11 / Win32 / Cocoa) with zero external dependencies.
+    pub fn run_gui(&mut self) -> io::Result<()> {
+        let initial_width = 1024;
+        let initial_height = 640;
+        let mut window = crate::window::NativeWindow::new("Rustext", initial_width, initial_height)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        let mut fb = crate::gfx::Framebuffer::new(initial_width, initial_height);
+        let renderer = crate::gfx::GfxRenderer::new();
+
+        while !self.should_quit && !window.should_close() {
+            // Drain all pending window events
+            loop {
+                let event = window.poll_event();
+                match event {
+                    crate::window::WindowEvent::None => break,
+                    crate::window::WindowEvent::Close => {
+                        self.should_quit = true;
+                        break;
+                    }
+                    crate::window::WindowEvent::Resize { width, height } => {
+                        fb.resize(width, height);
+                    }
+                    crate::window::WindowEvent::Char(c) => {
+                        self.handle_key(Key::Char(c));
+                    }
+                    crate::window::WindowEvent::Key(key) => {
+                        self.handle_key(key);
+                    }
+                }
+            }
+
+            if self.should_quit {
+                break;
+            }
+
+            // Adjust viewport for active document in GUI
+            let active_idx = self.active_doc_idx;
+            let primary_pos = {
+                let doc = &self.documents[active_idx];
+                doc.buffer.char_to_position(doc.cursors.primary().head)
+            };
+
+            let total_lines = self.documents[active_idx].buffer.len_lines();
+            let gutter_cols = total_lines.to_string().len().max(3);
+            let gutter_width = (gutter_cols + 2) * crate::gfx::FONT_WIDTH;
+            let content_h = fb.height.saturating_sub(renderer.tab_bar_height + renderer.status_bar_height);
+            let visible_lines = content_h / crate::gfx::FONT_HEIGHT;
+            let content_w = fb.width.saturating_sub(gutter_width + crate::gfx::FONT_WIDTH);
+            let visible_cols = content_w / crate::gfx::FONT_WIDTH;
+
+            {
+                let doc = &mut self.documents[active_idx];
+                if visible_lines > 0 {
+                    if primary_pos.line < doc.scroll_row {
+                        doc.scroll_row = primary_pos.line;
+                    } else if primary_pos.line >= doc.scroll_row + visible_lines {
+                        doc.scroll_row = primary_pos.line - visible_lines + 1;
+                    }
+                }
+                if visible_cols > 0 {
+                    if primary_pos.col < doc.scroll_col {
+                        doc.scroll_col = primary_pos.col;
+                    } else if primary_pos.col >= doc.scroll_col + visible_cols {
+                        doc.scroll_col = primary_pos.col - visible_cols + 1;
+                    }
+                }
+            }
+
+            // Render current frame into framebuffer
+            let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
+            let status_msg = self.status_message.as_ref().map(|(msg, _)| msg.as_str());
+            let modal_ref = match &self.mode {
+                EditorMode::ModalPrompt(modal) => Some(modal),
+                EditorMode::Normal => None,
+            };
+
+            renderer.render(
+                &mut fb,
+                &self.documents[active_idx],
+                &tab_titles,
+                active_idx,
+                status_msg,
+                modal_ref,
+            );
+
+            // Present framebuffer to OS window
+            window.present(&fb);
+
+            // Yield CPU (~60 FPS)
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+
+        Ok(())
+    }
 }

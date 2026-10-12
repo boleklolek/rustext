@@ -53,6 +53,13 @@ Inspirado en los puntos fuertes de **Sublime Text** (rendimiento nativo, inicio 
    - Barra de estado informativa (Modo, Archivo, Modificado `[+]`, Línea/Columna, Total líneas/caracteres, Número de cursores, Lenguaje).
    - Modales interactivos para búsqueda (`Ctrl+F`), abrir archivo (`Ctrl+O`), guardar como y paleta de comandos (`Ctrl+P`).
 
+10. **Ventanas Gráficas Nativas de Escritorio (Desktop GUI Agnóstico)**:
+    - **Linux**: Interfaz nativa directa con **X11** (`libX11.so`) vía FFI estándar.
+    - **Windows**: Interfaz nativa directa con **Win32 API** (`user32.dll`, `gdi32.dll`, `StretchDIBits`).
+    - **macOS**: Interfaz nativa con **Cocoa / AppKit** vía runtime de Objective-C (`objc_msgSend`).
+    - **Motor Gráfico de Software**: Framebuffer de 32-bit ARGB (`Vec<u32>`) con primitivas 2D aceleradas, fuente bitmap monoespaciada embebida (8x16 px) y renderizado a 60 FPS con cero dependencias.
+    - Modal de comandos y búsqueda flotante centrado con foco visual.
+
 ---
 
 ## 📂 Estructura del Código
@@ -63,7 +70,7 @@ rustext/
 ├── README.md
 ├── src/
 │   ├── lib.rs               # Biblioteca con re-exportación de componentes
-│   ├── main.rs              # Punto de entrada CLI del editor
+│   ├── main.rs              # Punto de entrada CLI del editor (soporte --gui y --tui)
 │   ├── core/                # Estructuras de datos fundamentales
 │   │   ├── mod.rs
 │   │   ├── piece_table.rs   # Estructura Piece Table
@@ -78,20 +85,32 @@ rustext/
 │   │   ├── traits.rs        # Trait Plugin y PluginContext
 │   │   ├── registry.rs      # PluginRegistry y plugins integrados
 │   │   └── process.rs       # Ejecutor de procesos externos vía pipes IPC
-│   ├── ui/                  # Interfaz de usuario en terminal
+│   ├── ui/                  # Interfaz de usuario en terminal (TUI)
 │   │   ├── mod.rs
 │   │   ├── terminal.rs      # Modo raw, detección de tamaño y lectura de teclas
 │   │   ├── theme.rs         # Paleta de colores ANSI
 │   │   ├── screen.rs        # Dibujado de pantalla con doble búfer y pestañas
 │   │   └── prompt.rs        # Modal interactivo para búsqueda y comandos
+│   ├── gfx/                 # Motor de renderizado gráfico por software
+│   │   ├── mod.rs
+│   │   ├── font.rs          # Fuente bitmap monoespaciada (8x16 píxeles)
+│   │   ├── framebuffer.rs   # Software Framebuffer ARGB (32-bit) y primitivas 2D
+│   │   └── renderer.rs      # Renderizador gráfico completo de buffers, tabs y modales
+│   ├── window/              # Ventana nativa agnóstica de plataforma (Pure std FFI)
+│   │   ├── mod.rs           # Abstracción unificada NativeWindow
+│   │   ├── events.rs        # Enumeración unificada WindowEvent
+│   │   ├── x11.rs           # Backend Linux X11 nativo
+│   │   ├── win32.rs         # Backend Windows Win32 nativo
+│   │   └── macos.rs         # Backend macOS Cocoa nativo
 │   └── editor/              # Estado global y orquestación
 │       ├── mod.rs
 │       ├── document.rs      # Abstracción de pestaña / búfer abierto
 │       ├── keymap.rs        # Mapeo de teclas a acciones
-│       └── app.rs           # Bucle principal de eventos y edición
+│       └── app.rs           # Bucle principal de eventos (TUI y GUI Desktop)
 └── tests/                   # Pruebas de integración
     ├── buffer_tests.rs
-    └── multicursor_tests.rs
+    ├── multicursor_tests.rs
+    └── gui_tests.rs
 ```
 
 ---
@@ -137,10 +156,16 @@ cargo build --release
 ```
 
 ### Iniciar el editor:
-```bash
-# Abrir editor con buffer de bienvenida
-./target/release/rustext
 
-# O abrir un archivo específico
+```bash
+# Modo Ventana Gráfica Nativa de Escritorio (Desktop GUI):
+./target/release/rustext --gui
+./target/release/rustext -g src/main.rs
+
+# Modo Terminal TUI (por defecto):
+./target/release/rustext
 ./target/release/rustext src/main.rs
+
+# Ver ayuda y opciones:
+./target/release/rustext --help
 ```
