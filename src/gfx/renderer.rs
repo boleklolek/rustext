@@ -20,6 +20,12 @@ pub struct ThemeColors {
     pub status_bar_fg: u32,
     pub selection_bg: u32,
     pub cursor: u32,
+    // Scrollbar colors
+    pub scrollbar_bg: u32,
+    pub scrollbar_border: u32,
+    pub scrollbar_thumb: u32,
+    pub scrollbar_thumb_hover: u32,
+    pub scrollbar_thumb_active: u32,
     // Syntax colors
     pub syntax_keyword: u32,
     pub syntax_type: u32,
@@ -47,6 +53,12 @@ impl ThemeColors {
             status_bar_fg: 0x00FFFFFF,
             selection_bg: 0x00264F78,
             cursor: 0x00528BFF,
+            // Scrollbar
+            scrollbar_bg: 0x001E1E1E,
+            scrollbar_border: 0x002D2D2D,
+            scrollbar_thumb: 0x00424242,
+            scrollbar_thumb_hover: 0x004F4F4F,
+            scrollbar_thumb_active: 0x00686868,
             // Syntax
             syntax_keyword: 0x00C586C0,   // Purple
             syntax_type: 0x004EC9B0,      // Cyan/Teal
@@ -73,11 +85,50 @@ impl ThemeColors {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollbarGeometry {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub thumb_y: usize,
+    pub thumb_height: usize,
+    pub visible_lines: usize,
+    pub total_lines: usize,
+    pub max_scroll: usize,
+}
+
+impl ScrollbarGeometry {
+    /// Returns whether the point (x, y) is inside the scrollbar track.
+    pub fn contains_point(&self, x: usize, y: usize) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
+    /// Returns whether the point (x, y) is inside the scrollbar draggable thumb.
+    pub fn thumb_contains_point(&self, x: usize, y: usize) -> bool {
+        self.contains_point(x, y) && y >= self.thumb_y && y < self.thumb_y + self.thumb_height
+    }
+
+    /// Translates a target thumb Y pixel position into the corresponding document scroll row.
+    pub fn row_for_thumb_y(&self, target_thumb_y: usize) -> usize {
+        let scrollable_h = self.height.saturating_sub(self.thumb_height);
+        if scrollable_h == 0 || self.max_scroll == 0 {
+            0
+        } else {
+            let clamped_y = target_thumb_y.clamp(self.y, self.y + scrollable_h);
+            let rel_y = clamped_y.saturating_sub(self.y);
+            let ratio = rel_y as f32 / scrollable_h as f32;
+            (ratio * self.max_scroll as f32).round() as usize
+        }
+    }
+}
+
 pub struct GfxRenderer {
     pub colors: ThemeColors,
     pub menu_bar_height: usize,
     pub tab_bar_height: usize,
     pub status_bar_height: usize,
+    pub scrollbar_width: usize,
 }
 
 impl GfxRenderer {
@@ -87,10 +138,100 @@ impl GfxRenderer {
             menu_bar_height: 24,
             tab_bar_height: 26,
             status_bar_height: 22,
+            scrollbar_width: 14,
         }
     }
 
-    /// Renders a complete editor frame into the software framebuffer.
+    /// Computes scrollbar dimensions and thumb position for the given document and framebuffer.
+    pub fn scrollbar_geometry(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        doc: &Document,
+        has_menu_bar: bool,
+    ) -> ScrollbarGeometry {
+        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
+        let content_y_start = menu_offset + self.tab_bar_height;
+        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
+        let track_height = content_y_end.saturating_sub(content_y_start);
+        let track_width = self.scrollbar_width;
+        let track_x = fb_w.saturating_sub(track_width);
+        let track_y = content_y_start;
+
+        let visible_lines = if FONT_HEIGHT > 0 {
+            track_height / FONT_HEIGHT
+        } else {
+            0
+        };
+        let total_lines = doc.buffer.len_lines().max(1);
+        let max_scroll = total_lines.saturating_sub(visible_lines);
+
+        let thumb_height = if total_lines == 0 || track_height == 0 {
+            track_height
+        } else {
+            let ratio = (visible_lines as f32 / total_lines as f32).min(1.0);
+            let th = (ratio * track_height as f32).round() as usize;
+            th.clamp(20, track_height)
+        };
+
+        let scrollable_h = track_height.saturating_sub(thumb_height);
+        let thumb_y = if max_scroll > 0 && scrollable_h > 0 {
+            let ratio = (doc.scroll_row as f32 / max_scroll as f32).min(1.0);
+            track_y + (ratio * scrollable_h as f32).round() as usize
+        } else {
+            track_y
+        };
+
+        ScrollbarGeometry {
+            x: track_x,
+            y: track_y,
+            width: track_width,
+            height: track_height,
+            thumb_y,
+            thumb_height,
+            visible_lines,
+            total_lines,
+            max_scroll,
+        }
+    }
+
+    /// Renders the vertical scrollbar track and draggable thumb.
+    pub fn render_scrollbar(
+        &self,
+        fb: &mut Framebuffer,
+        geom: &ScrollbarGeometry,
+        is_hovered: bool,
+        is_dragging: bool,
+    ) {
+        if geom.width == 0 || geom.height == 0 {
+            return;
+        }
+
+        // 1. Track background
+        fb.fill_rect(geom.x, geom.y, geom.width, geom.height, self.colors.scrollbar_bg);
+
+        // 2. 1px left divider border separating code canvas from scrollbar
+        fb.fill_rect(geom.x, geom.y, 1, geom.height, self.colors.scrollbar_border);
+
+        // 3. Draggable thumb with 2px horizontal margin
+        let thumb_color = if is_dragging {
+            self.colors.scrollbar_thumb_active
+        } else if is_hovered {
+            self.colors.scrollbar_thumb_hover
+        } else {
+            self.colors.scrollbar_thumb
+        };
+
+        let thumb_margin_x = 2;
+        let thumb_x = geom.x + thumb_margin_x;
+        let thumb_w = geom.width.saturating_sub(thumb_margin_x * 2);
+
+        if geom.thumb_height > 0 && thumb_w > 0 {
+            fb.fill_rect(thumb_x, geom.thumb_y, thumb_w, geom.thumb_height, thumb_color);
+        }
+    }
+
+    /// Renders a complete editor frame into the software framebuffer with default scrollbar state.
     pub fn render(
         &self,
         fb: &mut Framebuffer,
@@ -100,6 +241,32 @@ impl GfxRenderer {
         status_msg: Option<&str>,
         modal: Option<&crate::ui::prompt::PromptModal>,
         menu_bar: Option<&crate::editor::menu::MenuBar>,
+    ) {
+        self.render_with_scrollbar_state(
+            fb,
+            doc,
+            tab_titles,
+            active_tab_idx,
+            status_msg,
+            modal,
+            menu_bar,
+            false,
+            false,
+        );
+    }
+
+    /// Renders a complete editor frame into the software framebuffer with interactive scrollbar state.
+    pub fn render_with_scrollbar_state(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        tab_titles: &[String],
+        active_tab_idx: usize,
+        status_msg: Option<&str>,
+        modal: Option<&crate::ui::prompt::PromptModal>,
+        menu_bar: Option<&crate::editor::menu::MenuBar>,
+        scrollbar_hovered: bool,
+        scrollbar_dragging: bool,
     ) {
         // Clear background
         fb.clear(self.colors.background);
@@ -123,6 +290,7 @@ impl GfxRenderer {
         let content_y_end = fb.height.saturating_sub(self.status_bar_height);
         let content_height = content_y_end.saturating_sub(content_y_start);
         let visible_lines = content_height / FONT_HEIGHT;
+        let max_code_x = fb.width.saturating_sub(self.scrollbar_width);
 
         // 3. Draw Gutter background & divider
         fb.fill_rect(0, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
@@ -158,7 +326,7 @@ impl GfxRenderer {
                 let line_text = doc.buffer.line(line_idx).unwrap_or_default();
                 let text_start_x = gutter_width + FONT_WIDTH;
 
-                // Selection background
+                // Selection background (clamped to max_code_x)
                 for &(start, end) in &selections {
                     if line_idx >= start.line && line_idx <= end.line {
                         let sel_col_start = if line_idx == start.line { start.col } else { 0 };
@@ -170,13 +338,15 @@ impl GfxRenderer {
 
                         if sel_col_end > sel_col_start {
                             let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
-                            let sw = (sel_col_end - sel_col_start) * FONT_WIDTH;
-                            fb.fill_rect(sx, py, sw, FONT_HEIGHT, self.colors.selection_bg);
+                            if sx < max_code_x {
+                                let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
+                                fb.fill_rect(sx, py, sw, FONT_HEIGHT, self.colors.selection_bg);
+                            }
                         }
                     }
                 }
 
-                // Highlighted syntax tokens
+                // Highlighted syntax tokens (clamped to max_code_x)
                 let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
                 let mut col_accum = 0;
 
@@ -188,19 +358,21 @@ impl GfxRenderer {
 
                         if col >= doc.scroll_col {
                             let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
-                            if px + FONT_WIDTH <= fb.width {
+                            if px + FONT_WIDTH <= max_code_x {
                                 fb.draw_char(ch, px, py, token_color, None);
                             }
                         }
                     }
                 }
 
-                // Draw Cursors on this line
+                // Draw Cursors on this line (clamped to max_code_x)
                 for pos in &cursor_positions {
                     if pos.line == line_idx && pos.col >= doc.scroll_col {
                         let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
-                        // 2-pixel wide cursor bar
-                        fb.fill_rect(cx, py, 2, FONT_HEIGHT, self.colors.cursor);
+                        if cx + 2 <= max_code_x {
+                            // 2-pixel wide cursor bar
+                            fb.fill_rect(cx, py, 2, FONT_HEIGHT, self.colors.cursor);
+                        }
                     }
                 }
             } else {
@@ -209,15 +381,19 @@ impl GfxRenderer {
             }
         }
 
-        // 6. Draw Status Bar at bottom
+        // 6. Draw Interactive Scrollbar
+        let scroll_geom = self.scrollbar_geometry(fb.width, fb.height, doc, menu_bar.is_some());
+        self.render_scrollbar(fb, &scroll_geom, scrollbar_hovered, scrollbar_dragging);
+
+        // 7. Draw Status Bar at bottom
         self.render_status_bar(fb, doc, status_msg);
 
-        // 7. Draw Prompt Modal overlay if present
+        // 8. Draw Prompt Modal overlay if present
         if let Some(m) = modal {
             self.render_prompt_overlay(fb, m);
         }
 
-        // 8. Draw Open Dropdown Menu if present (drawn on top)
+        // 9. Draw Open Dropdown Menu if present (drawn on top)
         if let Some(mb) = menu_bar {
             self.render_menu_dropdown(fb, mb);
         }

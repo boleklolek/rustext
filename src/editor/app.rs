@@ -1403,6 +1403,10 @@ impl Editor {
         let renderer = crate::gfx::GfxRenderer::new();
         let mut mouse_x = 0;
         let mut mouse_y = 0;
+        let mut is_dragging_scrollbar = false;
+        let mut scrollbar_drag_offset_y = 0;
+        let mut scrollbar_hovered = false;
+        let mut adjust_viewport = true;
         let mut needs_redraw = true;
         let mut cached_title = String::new();
 
@@ -1651,62 +1655,108 @@ impl Editor {
                                 if let Some(action) = self.menu_bar.handle_mouse_click(x, y, crate::gfx::FONT_WIDTH) {
                                     self.execute_action(action);
                                 } else if !self.menu_bar.is_open() {
-                                // 2. Check Tab Bar
-                                let tab_bar_y = renderer.menu_bar_height;
-                                let tab_bar_h = renderer.tab_bar_height;
-                                if y >= tab_bar_y && y < tab_bar_y + tab_bar_h {
-                                    let mut cur_x = 8;
-                                    let mut clicked = false;
-                                    for idx in 0..self.documents.len() {
-                                        let title = self.documents[idx].tab_title();
-                                        let tab_text = format!(" {} {} × ", idx + 1, title);
-                                        let tab_w = tab_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
-                                        if x >= cur_x && x < cur_x + tab_w {
-                                            let close_x = cur_x + tab_w - 2 * crate::gfx::FONT_WIDTH - 4;
-                                            if x >= close_x {
-                                                self.close_tab_at(idx);
-                                            } else {
-                                                self.active_doc_idx = idx;
-                                            }
-                                            clicked = true;
-                                            break;
+                                    // 2. Check Scrollbar Hit Test FIRST
+                                    let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                                    if scroll_geom.contains_point(x, y) {
+                                        if scroll_geom.thumb_contains_point(x, y) {
+                                            is_dragging_scrollbar = true;
+                                            scrollbar_drag_offset_y = y.saturating_sub(scroll_geom.thumb_y);
+                                        } else if y < scroll_geom.thumb_y {
+                                            // Click track above thumb -> Page Up
+                                            let visible = scroll_geom.visible_lines.max(1);
+                                            self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
+                                        } else {
+                                            // Click track below thumb -> Page Down
+                                            let visible = scroll_geom.visible_lines.max(1);
+                                            self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(scroll_geom.max_scroll);
                                         }
-                                        cur_x += tab_w + 2;
-                                    }
-                                    if !clicked && x >= cur_x && x < cur_x + 24 {
-                                        self.new_tab();
-                                    }
-                                } else {
-                                    // 3. Check Editor Code Canvas
-                                    let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
-                                    let total_lines = self.doc().buffer.len_lines();
-                                    let gutter_cols = total_lines.to_string().len().max(3);
-                                    let gutter_width = (gutter_cols + 2) * crate::gfx::FONT_WIDTH;
-                                    if y >= content_y_start {
-                                        let row = (y - content_y_start) / crate::gfx::FONT_HEIGHT;
-                                        let target_line = self.doc().scroll_row + row;
-                                        if target_line < total_lines {
-                                            let text_start_x = gutter_width + crate::gfx::FONT_WIDTH;
-                                            let col = if x >= text_start_x {
-                                                (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
-                                            } else {
-                                                0
-                                            };
-                                            let pos = Position::new(target_line, col);
-                                            let char_offset = self.doc().buffer.position_to_char(pos);
-                                            self.doc_mut().cursors.set_single(char_offset);
+                                        adjust_viewport = false;
+                                        needs_redraw = true;
+                                    } else {
+                                        // 3. Check Tab Bar
+                                        let tab_bar_y = renderer.menu_bar_height;
+                                        let tab_bar_h = renderer.tab_bar_height;
+                                        if y >= tab_bar_y && y < tab_bar_y + tab_bar_h {
+                                            let mut cur_x = 8;
+                                            let mut clicked = false;
+                                            for idx in 0..self.documents.len() {
+                                                let title = self.documents[idx].tab_title();
+                                                let tab_text = format!(" {} {} × ", idx + 1, title);
+                                                let tab_w = tab_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
+                                                if x >= cur_x && x < cur_x + tab_w {
+                                                    let close_x = cur_x + tab_w - 2 * crate::gfx::FONT_WIDTH - 4;
+                                                    if x >= close_x {
+                                                        self.close_tab_at(idx);
+                                                    } else {
+                                                        self.active_doc_idx = idx;
+                                                        adjust_viewport = true;
+                                                    }
+                                                    clicked = true;
+                                                    break;
+                                                }
+                                                cur_x += tab_w + 2;
+                                            }
+                                            if !clicked && x >= cur_x && x < cur_x + 24 {
+                                                self.new_tab();
+                                                adjust_viewport = true;
+                                            }
+                                        } else {
+                                            // 4. Check Editor Code Canvas
+                                            let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
+                                            let total_lines = self.doc().buffer.len_lines();
+                                            let gutter_cols = total_lines.to_string().len().max(3);
+                                            let gutter_width = (gutter_cols + 2) * crate::gfx::FONT_WIDTH;
+                                            let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width);
+                                            if y >= content_y_start && x < max_code_x {
+                                                let row = (y - content_y_start) / crate::gfx::FONT_HEIGHT;
+                                                let target_line = self.doc().scroll_row + row;
+                                                if target_line < total_lines {
+                                                    let text_start_x = gutter_width + crate::gfx::FONT_WIDTH;
+                                                    let col = if x >= text_start_x {
+                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                    } else {
+                                                        0
+                                                    };
+                                                    let pos = Position::new(target_line, col);
+                                                    let char_offset = self.doc().buffer.position_to_char(pos);
+                                                    self.doc_mut().cursors.set_single(char_offset);
+                                                    adjust_viewport = true;
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
+                    crate::window::WindowEvent::MouseUp { .. } => {
+                        if is_dragging_scrollbar {
+                            is_dragging_scrollbar = false;
+                            needs_redraw = true;
+                        }
+                    }
                     crate::window::WindowEvent::MouseMove { x, y } => {
                         let old_my = mouse_y;
                         mouse_x = x;
                         mouse_y = y;
                         if self.mode == EditorMode::Normal {
+                            let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                            if is_dragging_scrollbar {
+                                let target_thumb_y = y.saturating_sub(scrollbar_drag_offset_y);
+                                let new_row = scroll_geom.row_for_thumb_y(target_thumb_y);
+                                if self.doc().scroll_row != new_row {
+                                    self.doc_mut().scroll_row = new_row;
+                                    adjust_viewport = false;
+                                    needs_redraw = true;
+                                }
+                            } else {
+                                let hovered = scroll_geom.contains_point(x, y);
+                                if hovered != scrollbar_hovered {
+                                    scrollbar_hovered = hovered;
+                                    needs_redraw = true;
+                                }
+                            }
+
                             let in_menu_zone = self.menu_bar.is_open() || y < renderer.menu_bar_height || old_my < renderer.menu_bar_height;
                             if in_menu_zone {
                                 self.menu_bar.handle_mouse_move(x, y, crate::gfx::FONT_WIDTH);
@@ -1726,6 +1776,7 @@ impl Editor {
                             *scroll_offset = scroll_offset.saturating_sub(1);
                         } else {
                             self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
+                            adjust_viewport = false;
                         }
                     }
                     crate::window::WindowEvent::ScrollDown { .. } => {
@@ -1744,10 +1795,12 @@ impl Editor {
                             }
                         } else {
                             self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
+                            adjust_viewport = false;
                         }
                     }
                     crate::window::WindowEvent::Char(c) => {
                         needs_redraw = true;
+                        adjust_viewport = true;
                         if self.menu_bar.is_open() {
                             self.menu_bar.close();
                         }
@@ -1755,6 +1808,7 @@ impl Editor {
                     }
                     crate::window::WindowEvent::Key(key) => {
                         needs_redraw = true;
+                        adjust_viewport = true;
                         match key {
                             Key::Esc if self.menu_bar.is_open() => {
                                 self.menu_bar.close();
@@ -1777,7 +1831,6 @@ impl Editor {
                             }
                         }
                     }
-                    _ => {}
                 }
             }
 
@@ -1806,7 +1859,7 @@ impl Editor {
             let content_w = fb.width.saturating_sub(gutter_width + crate::gfx::FONT_WIDTH);
             let visible_cols = content_w / crate::gfx::FONT_WIDTH;
 
-            {
+            if adjust_viewport {
                 let doc = &mut self.documents[active_idx];
                 if visible_lines > 0 {
                     if primary_pos.line < doc.scroll_row {
@@ -1822,6 +1875,7 @@ impl Editor {
                         doc.scroll_col = primary_pos.col - visible_cols + 1;
                     }
                 }
+                adjust_viewport = false;
             }
 
             // Update OS native window title with active file and dirty status
@@ -1833,11 +1887,11 @@ impl Editor {
                 cached_title = current_title;
             }
 
-            // Render current frame into framebuffer
+            // Render current frame into framebuffer with scrollbar hover/drag state
             let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
             let status_msg = self.status_message.as_ref().map(|(msg, _)| msg.as_str());
 
-            renderer.render(
+            renderer.render_with_scrollbar_state(
                 &mut fb,
                 &self.documents[active_idx],
                 &tab_titles,
@@ -1845,6 +1899,8 @@ impl Editor {
                 status_msg,
                 None,
                 Some(&self.menu_bar),
+                scrollbar_hovered,
+                is_dragging_scrollbar,
             );
 
             // Render Prompt Modal if active (with interactive hover state)

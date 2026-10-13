@@ -388,6 +388,119 @@ fn test_extension_dialog_rendering_and_editor_mode() {
     assert_eq!(header_pixel, 0x002D2D2D);
 }
 
+#[test]
+fn test_scrollbar_geometry_and_proportions() {
+    let renderer = GfxRenderer::new();
+    let fb_w = 800;
+    let fb_h = 600;
+
+    // 1. Short document (10 lines)
+    let short_doc = Document::new(TextBuffer::from_str("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10"));
+    let geom_short = renderer.scrollbar_geometry(fb_w, fb_h, &short_doc, true);
+
+    assert_eq!(geom_short.x, fb_w - renderer.scrollbar_width);
+    assert_eq!(geom_short.width, renderer.scrollbar_width);
+    assert_eq!(geom_short.y, renderer.menu_bar_height + renderer.tab_bar_height);
+    // Since visible_lines exceeds 10 lines, max_scroll should be 0 and thumb fills the track
+    assert_eq!(geom_short.max_scroll, 0);
+    assert_eq!(geom_short.thumb_y, geom_short.y);
+    assert_eq!(geom_short.thumb_height, geom_short.height);
+
+    // 2. Large document (1000 lines)
+    let thousand_lines = (0..1000).map(|i| format!("Line {}", i)).collect::<Vec<_>>().join("\n");
+    let mut long_doc = Document::new(TextBuffer::from_str(&thousand_lines));
+    let geom_long_top = renderer.scrollbar_geometry(fb_w, fb_h, &long_doc, true);
+
+    assert!(geom_long_top.max_scroll > 900);
+    assert!(geom_long_top.thumb_height >= 20);
+    assert!(geom_long_top.thumb_height < geom_long_top.height);
+    assert_eq!(geom_long_top.thumb_y, geom_long_top.y);
+
+    // Hit test checks
+    assert!(geom_long_top.contains_point(795, 100));
+    assert!(!geom_long_top.contains_point(780, 100)); // outside track (to the left)
+    assert!(geom_long_top.thumb_contains_point(795, geom_long_top.y + 5));
+
+    // Scroll down to 50%
+    long_doc.scroll_row = geom_long_top.max_scroll / 2;
+    let geom_long_mid = renderer.scrollbar_geometry(fb_w, fb_h, &long_doc, true);
+    assert!(geom_long_mid.thumb_y > geom_long_top.thumb_y);
+
+    // Bidirectional translation: row_for_thumb_y
+    let calculated_row = geom_long_mid.row_for_thumb_y(geom_long_mid.thumb_y);
+    let diff = (calculated_row as isize - long_doc.scroll_row as isize).abs();
+    assert!(diff <= 2, "Calculated row {} should be close to actual scroll row {}", calculated_row, long_doc.scroll_row);
+}
+
+#[test]
+fn test_scrollbar_rendering_in_framebuffer() {
+    let renderer = GfxRenderer::new();
+    let mut fb = Framebuffer::new(800, 600);
+
+    let thousand_lines = (0..500).map(|i| format!("fn function_{}() -> i32 {{ {} }}", i, i)).collect::<Vec<_>>().join("\n");
+    let doc = Document::new(TextBuffer::from_str(&thousand_lines));
+    let tabs = vec!["big_file.rs".to_string()];
+
+    // 1. Normal state rendering
+    renderer.render_with_scrollbar_state(&mut fb, &doc, &tabs, 0, None, None, None, false, false);
+
+    let geom = renderer.scrollbar_geometry(800, 600, &doc, false);
+    // Divider line at geom.x
+    let divider_pixel = fb.get_pixel(geom.x, geom.y + 10);
+    assert_eq!(divider_pixel, renderer.colors.scrollbar_border);
+
+    // Thumb pixel inside thumb
+    let thumb_pixel = fb.get_pixel(geom.x + 4, geom.thumb_y + 5);
+    assert_eq!(thumb_pixel, renderer.colors.scrollbar_thumb);
+
+    // Track pixel below thumb
+    let track_pixel = fb.get_pixel(geom.x + 4, geom.thumb_y + geom.thumb_height + 20);
+    assert_eq!(track_pixel, renderer.colors.scrollbar_bg);
+
+    // 2. Hover state rendering
+    renderer.render_with_scrollbar_state(&mut fb, &doc, &tabs, 0, None, None, None, true, false);
+    let hovered_thumb_pixel = fb.get_pixel(geom.x + 4, geom.thumb_y + 5);
+    assert_eq!(hovered_thumb_pixel, renderer.colors.scrollbar_thumb_hover);
+
+    // 3. Dragging state rendering
+    renderer.render_with_scrollbar_state(&mut fb, &doc, &tabs, 0, None, None, None, true, true);
+    let dragging_thumb_pixel = fb.get_pixel(geom.x + 4, geom.thumb_y + 5);
+    assert_eq!(dragging_thumb_pixel, renderer.colors.scrollbar_thumb_active);
+}
+
+#[test]
+fn test_scrollbar_interaction_page_up_down_and_drag() {
+    let renderer = GfxRenderer::new();
+    let hundred_lines = (0..200).map(|i| format!("Line number {}", i)).collect::<Vec<_>>().join("\n");
+    let mut doc = Document::new(TextBuffer::from_str(&hundred_lines));
+    let geom = renderer.scrollbar_geometry(800, 600, &doc, true);
+
+    assert_eq!(doc.scroll_row, 0);
+
+    // Click below thumb -> Page Down
+    let click_y_below = geom.thumb_y + geom.thumb_height + 50;
+    assert!(geom.contains_point(geom.x + 5, click_y_below));
+    assert!(!geom.thumb_contains_point(geom.x + 5, click_y_below));
+
+    let visible = geom.visible_lines.max(1);
+    doc.scroll_row = (doc.scroll_row + visible).min(geom.max_scroll);
+    assert_eq!(doc.scroll_row, visible);
+
+    // Click above thumb -> Page Up
+    let new_geom = renderer.scrollbar_geometry(800, 600, &doc, true);
+    assert!(new_geom.thumb_y > geom.thumb_y);
+    let click_y_above = geom.thumb_y + 2;
+    assert!(click_y_above < new_geom.thumb_y);
+
+    doc.scroll_row = doc.scroll_row.saturating_sub(visible);
+    assert_eq!(doc.scroll_row, 0);
+
+    // Drag simulation
+    let drag_target_thumb_y = new_geom.y + (new_geom.height.saturating_sub(new_geom.thumb_height)) / 2;
+    let dragged_row = new_geom.row_for_thumb_y(drag_target_thumb_y);
+    assert!(dragged_row > 0 && dragged_row < geom.max_scroll);
+}
+
 
 
 
