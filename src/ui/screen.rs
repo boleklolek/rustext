@@ -147,8 +147,7 @@ impl Screen {
                 let mut rendered_cols = 0;
 
                 for span in spans {
-                    let span_chars: Vec<char> = span.text.chars().collect();
-                    for &ch in &span_chars {
+                    for ch in span.text.chars() {
                         let doc_col = col_offset;
                         col_offset += 1;
 

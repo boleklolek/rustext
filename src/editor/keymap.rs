@@ -26,6 +26,11 @@ pub enum EditorAction {
     OpenCommandPalette,
     OpenSaveAsPrompt,
     OpenOpenFilePrompt,
+    OpenAboutDialog,
+    OpenExtensionsManager,
+    ReloadExtensions,
+    CreateSampleExtension,
+    ExecuteExtensionCommand(String),
     CollapseCursors,
     // Clipboard
     Copy,
@@ -87,6 +92,9 @@ impl Keymap {
             Key::Ctrl('f') => EditorAction::OpenSearchPrompt,
             Key::Ctrl('p') => EditorAction::OpenCommandPalette,
             Key::Ctrl('q') => EditorAction::Quit,
+
+            // Help & About
+            Key::F(1) => EditorAction::OpenAboutDialog,
 
             // Escape collapses multi-cursors to single cursor
             Key::Esc => EditorAction::CollapseCursors,

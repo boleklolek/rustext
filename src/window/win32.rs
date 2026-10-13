@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 use std::ptr;
 
-use super::events::WindowEvent;
+use super::events::{MouseButton, WindowEvent};
 use crate::gfx::Framebuffer;
 use crate::ui::terminal::Key;
 
@@ -79,10 +79,18 @@ const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
 const WS_VISIBLE: u32 = 0x10000000;
 const PM_REMOVE: u32 = 0x0001;
 const WM_DESTROY: u32 = 0x0002;
+const WM_SIZE: u32 = 0x0005;
 const WM_CLOSE: u32 = 0x0010;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_CHAR: u32 = 0x0102;
-const WM_SIZE: u32 = 0x0005;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONDOWN: u32 = 0x0204;
+const WM_RBUTTONUP: u32 = 0x0205;
+const WM_MBUTTONDOWN: u32 = 0x0207;
+const WM_MBUTTONUP: u32 = 0x0208;
+const WM_MOUSEWHEEL: u32 = 0x020A;
 const DIB_RGB_COLORS: u32 = 0;
 const SRCCOPY: u32 = 0x00CC0020;
 
@@ -117,6 +125,7 @@ unsafe extern "system" {
     fn GetDC(hwnd: HWND) -> HDC;
     fn ReleaseDC(hwnd: HWND, hdc: HDC) -> i32;
     fn DestroyWindow(hwnd: HWND) -> i32;
+    fn SetWindowTextW(hwnd: HWND, lp_string: *const u16) -> i32;
     fn GetAsyncKeyState(v_key: i32) -> i16;
     fn StretchDIBits(
         hdc: HDC,
@@ -201,6 +210,14 @@ impl Win32Window {
         }
     }
 
+    /// Dynamically updates the native window title bar.
+    pub fn set_title(&mut self, title: &str) {
+        unsafe {
+            let wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+            SetWindowTextW(self.hwnd, wide.as_ptr());
+        }
+    }
+
     pub fn poll_event(&mut self) -> WindowEvent {
         unsafe {
             let mut msg = std::mem::zeroed::<MSG>();
@@ -226,12 +243,52 @@ impl Win32Window {
                         }
                     }
                     WM_CHAR => {
-                        let ch = (msg.wparam as u8) as char;
+                        let raw_byte = msg.wparam as u8;
                         let is_ctrl = (GetAsyncKeyState(0x11) as i32 & 0x8000) != 0; // VK_CONTROL
                         if is_ctrl {
-                            return WindowEvent::Key(Key::Ctrl(ch.to_ascii_lowercase()));
-                        } else if ch >= ' ' {
-                            return WindowEvent::Char(ch);
+                            let ch = if raw_byte >= 1 && raw_byte <= 26 {
+                                (b'a' + raw_byte - 1) as char
+                            } else {
+                                (raw_byte as char).to_ascii_lowercase()
+                            };
+                            return WindowEvent::Key(Key::Ctrl(ch));
+                        } else if raw_byte >= b' ' {
+                            return WindowEvent::Char(raw_byte as char);
+                        }
+                    }
+                    WM_LBUTTONDOWN => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseDown { x, y, button: MouseButton::Left };
+                    }
+                    WM_LBUTTONUP => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseUp { x, y, button: MouseButton::Left };
+                    }
+                    WM_RBUTTONDOWN => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseDown { x, y, button: MouseButton::Right };
+                    }
+                    WM_MBUTTONDOWN => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseDown { x, y, button: MouseButton::Middle };
+                    }
+                    WM_MOUSEMOVE => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseMove { x, y };
+                    }
+                    WM_MOUSEWHEEL => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        let delta = ((msg.wparam >> 16) & 0xFFFF) as i16;
+                        if delta > 0 {
+                            return WindowEvent::ScrollUp { x, y };
+                        } else {
+                            return WindowEvent::ScrollDown { x, y };
                         }
                     }
                     WM_KEYDOWN => {
@@ -249,6 +306,9 @@ impl Win32Window {
                             0x21 => return WindowEvent::Key(Key::PageUp),
                             0x22 => return WindowEvent::Key(Key::PageDown),
                             0x2E => return WindowEvent::Key(Key::Delete),
+                            0x70..=0x7B => {
+                                return WindowEvent::Key(Key::F((msg.wparam - 0x70 + 1) as u8))
+                            }
                             _ => {}
                         }
                     }

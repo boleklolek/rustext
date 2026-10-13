@@ -29,12 +29,13 @@ fn test_gfx_renderer_multi_tabs_and_prompt() {
     let renderer = GfxRenderer::new();
     let tabs = vec!["tab1.rs".to_string(), "tab2.rs".to_string()];
 
-    // Render normal state
-    renderer.render(&mut fb, &doc, &tabs, 0, Some("Normal Mode"), None);
+    // Render normal state with menu bar
+    let menu = rustext::editor::MenuBar::new();
+    renderer.render(&mut fb, &doc, &tabs, 0, Some("Normal Mode"), None, Some(&menu));
 
-    // Pixel at top tab bar should have tab colors
-    let tab_pixel = fb.get_pixel(20, 10);
-    assert_ne!(tab_pixel, 0x00000000);
+    // Pixel at menu bar header should have menu colors
+    let menu_pixel = fb.get_pixel(12, 10);
+    assert_ne!(menu_pixel, 0x00000000);
 
     // Render with search modal
     let mut modal = PromptModal::new(PromptKind::Find);
@@ -43,11 +44,30 @@ fn test_gfx_renderer_multi_tabs_and_prompt() {
     modal.insert_char('s');
     modal.insert_char('t');
 
-    renderer.render(&mut fb, &doc, &tabs, 1, None, Some(&modal));
+    renderer.render(&mut fb, &doc, &tabs, 1, None, Some(&modal), Some(&menu));
 
     // Floating prompt modal center should have modal background color
-    let prompt_pixel = fb.get_pixel(400, 55);
-    assert_eq!(prompt_pixel, 0x00252526);
+    let prompt_box_pixel = fb.get_pixel(400, 55);
+    assert_eq!(prompt_box_pixel, 0x00252526);
+}
+
+#[test]
+fn test_menu_bar_interactions() {
+    use rustext::editor::{EditorAction, MenuBar};
+
+    let mut menu = MenuBar::new();
+    assert_eq!(menu.is_open(), false);
+
+    // Click on "Archivo" header (x = 12, y = 10)
+    let action = menu.handle_mouse_click(12, 10, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.is_open(), true);
+    assert_eq!(menu.active_category, Some(0));
+
+    // Click on "Guardar" item (x = 20, y = 24 + 2 + 2*22 + 5 = 75)
+    let action = menu.handle_mouse_click(20, 75, 8);
+    assert_eq!(action, Some(EditorAction::Save));
+    assert_eq!(menu.is_open(), false);
 }
 
 #[test]
@@ -57,3 +77,317 @@ fn test_theme_colors() {
     assert_eq!(theme.status_bar_bg, 0x00007ACC);
     assert_eq!(theme.cursor, 0x00528BFF);
 }
+
+#[test]
+fn test_menu_bar_boundary_and_underflow_safety() {
+    use rustext::editor::{EditorAction, MenuBar};
+
+    let mut menu = MenuBar::new();
+
+    // Open first category
+    menu.handle_mouse_click(12, 10, 8);
+    assert_eq!(menu.is_open(), true);
+    assert_eq!(menu.active_category, Some(0));
+
+    // Test exact boundary values of y that previously triggered underflow
+    // y = 24 (menu.height), y = 25 (menu.height + 1), y = 26 (menu.height + 2)
+    for y in [0, 23, 24, 25, 26, 27, 200, 1000] {
+        for x in [0, 8, 20, 260, 500] {
+            // Must not panic on any mouse move coordinates!
+            menu.handle_mouse_move(x, y, 8);
+        }
+    }
+
+    // Ensure hovering on padding (y = 24, 25) clears or doesn't select an item
+    menu.active_category = Some(0);
+    menu.handle_mouse_move(20, 24, 8);
+    assert_eq!(menu.hovered_item, None);
+    menu.handle_mouse_move(20, 25, 8);
+    assert_eq!(menu.hovered_item, None);
+
+    // Hover on first item (y = 26 + 10 = 36) of category 0 ("Archivo", drop_x = 8..268)
+    menu.handle_mouse_move(20, 36, 8);
+    assert_eq!(menu.hovered_item, Some(0));
+
+    // Clicking exactly at y = 24 or y = 25 inside dropdown area shouldn't crash or trigger item 0
+    let action = menu.handle_mouse_click(20, 24, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.is_open(), true);
+
+    let action = menu.handle_mouse_click(20, 25, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.is_open(), true);
+
+    // Clicking separator should return None and keep menu open or not trigger action
+    // "Archivo" items: 0: Nueva, 1: Abrir, 2: Guardar, 3: Guardar Como, 4: Separator
+    let sep_y = 24 + 2 + 4 * 22 + 5;
+    let action = menu.handle_mouse_click(20, sep_y, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.is_open(), true);
+
+    // Re-open category 0 and test clicking item 0 ("Nueva Pestaña")
+    let action = menu.handle_mouse_click(20, 36, 8);
+    assert_eq!(action, Some(EditorAction::NewTab));
+    assert_eq!(menu.is_open(), false);
+
+    // Re-open menu to test clicking outside dropdown closes it
+    menu.handle_mouse_click(12, 10, 8);
+    assert_eq!(menu.is_open(), true);
+    let action = menu.handle_mouse_click(400, 200, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.is_open(), false);
+}
+
+#[test]
+fn test_about_dialog_rendering_and_mode() {
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(rustext::core::TextBuffer::from_str("hello world"));
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    // Open About Dialog via action
+    editor.execute_action(EditorAction::OpenAboutDialog);
+    assert_eq!(editor.mode, EditorMode::AboutDialog);
+
+    // Render About Dialog in Framebuffer
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    renderer.render_about_dialog(&mut fb, false, false);
+
+    // Pixel in the dialog header area should have dark titlebar color
+    let header_pixel = fb.get_pixel(400, (600 - 450) / 2 + 10);
+    assert_eq!(header_pixel, 0x002D2D2D);
+
+    // Pixel in body should have body color 0x001E1E1E
+    let body_pixel = fb.get_pixel(400, (600 - 450) / 2 + 100);
+    assert_ne!(body_pixel, 0x00000000);
+
+    // Esc closes dialog
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    // F1 re-opens dialog
+    editor.handle_key(Key::F(1));
+    assert_eq!(editor.mode, EditorMode::AboutDialog);
+
+    // Enter closes dialog
+    editor.handle_key(Key::Enter);
+    assert_eq!(editor.mode, EditorMode::Normal);
+}
+
+#[test]
+fn test_command_palette_floating_window_and_commands() {
+    use rustext::editor::EditorAction;
+    use rustext::ui::prompt::{PromptKind, PromptModal};
+
+    let mut modal = PromptModal::new(PromptKind::CommandPalette);
+    let all_cmds = modal.matching_commands();
+    assert!(all_cmds.len() >= 15);
+
+    // Check that "Acerca de Rustext" is in standard commands
+    let about_cmd = all_cmds.iter().find(|c| c.name == "Acerca de Rustext");
+    assert!(about_cmd.is_some());
+    assert_eq!(about_cmd.unwrap().action, EditorAction::OpenAboutDialog);
+
+    // Filter by typing "acerca"
+    modal.insert_char('a');
+    modal.insert_char('c');
+    modal.insert_char('e');
+    modal.insert_char('r');
+    modal.insert_char('c');
+    modal.insert_char('a');
+    let filtered = modal.matching_commands();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].name, "Acerca de Rustext");
+
+    // Render command palette window
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    renderer.render_prompt_overlay_with_hover(&mut fb, &modal, false);
+
+    // Title bar of floating window
+    let header_pixel = fb.get_pixel(400, 28 + 10);
+    assert_eq!(header_pixel, 0x002D2D2D);
+}
+
+#[test]
+fn test_file_dialog_navigation_and_saving() {
+    use rustext::editor::Editor;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+    use rustext::ui::prompt::{expand_tilde, get_quick_bookmarks, PromptKind, PromptModal};
+    use std::fs;
+
+    // 1. Bookmarks & Tilde expansion
+    let bookmarks = get_quick_bookmarks();
+    assert!(!bookmarks.is_empty(), "Quick bookmarks should detect at least project directory");
+
+    let tilde_path = expand_tilde("~/prueba.txt");
+    assert!(!tilde_path.to_string_lossy().starts_with('~'));
+
+    // 2. Initialize file dialog modal
+    let cur_dir = std::env::current_dir().unwrap();
+    let mut modal = PromptModal::new_with_dir(PromptKind::SaveAs, cur_dir.clone(), Some("nuevo.txt"));
+    assert!(modal.is_file_dialog());
+    assert_eq!(modal.input, "nuevo.txt");
+    assert!(!modal.dir_entries.is_empty(), "Current dir should contain entries");
+
+    // Test selection navigation
+    modal.select_next_entry(10);
+    assert_eq!(modal.selected_entry_idx, 1);
+    modal.select_prev_entry();
+    assert_eq!(modal.selected_entry_idx, 0);
+
+    // Test navigation up and back
+    let initial_dir = modal.current_dir.clone();
+    modal.navigate_up();
+    assert_ne!(modal.current_dir, initial_dir);
+    modal.navigate_to(initial_dir.clone());
+    assert_eq!(modal.current_dir, initial_dir);
+
+    // 3. Render file dialog in Framebuffer
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    renderer.render_file_dialog(&mut fb, &modal, false);
+
+    // Pixel in dialog header should be dark titlebar color
+    let box_y = (600 - 480) / 2;
+    let header_pixel = fb.get_pixel(400, box_y + 10);
+    assert_eq!(header_pixel, 0x002D2D2D);
+
+    // 4. Test recursive directory creation and saving in arbitrary folder
+    let temp_base = std::env::temp_dir().join("rustext_save_test");
+    let nested_target = temp_base.join("carpetas").join("subcarpetas").join("archivo_guardado.rs");
+    if temp_base.exists() {
+        let _ = fs::remove_dir_all(&temp_base);
+    }
+
+    let mut editor = Editor::new(rustext::core::TextBuffer::from_str("fn test_func() -> bool { true }"));
+    
+    // Simulate SaveAs modal pointing to the deep nested path
+    let mut save_modal = PromptModal::new_with_dir(PromptKind::SaveAs, temp_base.clone(), None);
+    save_modal.input = nested_target.to_string_lossy().to_string();
+    editor.commit_prompt(&save_modal);
+
+    // Verify file and parent directories were created
+    assert!(nested_target.exists(), "Target file must be saved successfully");
+    let content = fs::read_to_string(&nested_target).unwrap();
+    assert_eq!(content, "fn test_func() -> bool { true }");
+
+    // Test opening the file back into editor
+    editor.open_file(&nested_target);
+    assert_eq!(editor.doc().buffer.to_string(), "fn test_func() -> bool { true }");
+
+    // Clean up
+    let _ = fs::remove_dir_all(&temp_base);
+}
+
+#[test]
+fn test_extension_manager_conf_parsing_and_execution() {
+    use rustext::plugin::{ExtensionInfo, ExtensionManager};
+    use std::path::PathBuf;
+
+    let conf = r#"
+[extension]
+id = formateador_json
+name = Formateador JSON
+version = 1.2.0
+author = Bolek
+description = Formatea y embellece texto JSON
+enabled = true
+on_save = false
+exec = python3 format.py
+args = --indent 4
+
+[commands]
+cmd_format = Formatear JSON | Ctrl+Alt+F
+cmd_minify = Minificar JSON
+"#;
+
+    let info = ExtensionInfo::from_conf_str(conf, PathBuf::from("/tmp/ext_test"));
+    assert_eq!(info.id, "formateador_json");
+    assert_eq!(info.name, "Formateador JSON");
+    assert_eq!(info.version, "1.2.0");
+    assert_eq!(info.author, "Bolek");
+    assert_eq!(info.description, "Formatea y embellece texto JSON");
+    assert!(info.enabled);
+    assert!(!info.on_save);
+    assert_eq!(info.commands.len(), 2);
+    assert_eq!(info.commands[0].id, "cmd_format");
+    assert_eq!(info.commands[0].label, "Formatear JSON");
+    assert_eq!(info.commands[0].shortcut, "Ctrl+Alt+F");
+    assert_eq!(info.commands[1].id, "cmd_minify");
+    assert_eq!(info.commands[1].label, "Minificar JSON");
+
+    // Test ExtensionManager
+    let mut mgr = ExtensionManager::new();
+    mgr.extensions.push(info);
+
+    let base_count = mgr.get_active_commands().len();
+    assert_eq!(base_count, 4);
+
+    // Toggle disabled
+    let new_state = mgr.toggle_extension(mgr.extensions.len() - 1);
+    assert!(!new_state);
+    assert_eq!(mgr.get_active_commands().len(), 2);
+
+    // Toggle enabled again
+    let new_state2 = mgr.toggle_extension(mgr.extensions.len() - 1);
+    assert!(new_state2);
+    assert_eq!(mgr.get_active_commands().len(), 4);
+}
+
+#[test]
+fn test_extension_dialog_rendering_and_editor_mode() {
+    use rustext::editor::app::{Editor, EditorMode};
+    use rustext::editor::keymap::EditorAction;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(rustext::core::TextBuffer::from_str("Hello World"));
+
+    // 1. Open Extensions Manager via action
+    editor.execute_action(EditorAction::OpenExtensionsManager);
+    assert_eq!(editor.mode, EditorMode::ExtensionsManager { selected_idx: 0, scroll_offset: 0 });
+
+    // 2. Test keyboard navigation in Extensions Manager
+    editor.handle_key(Key::Down);
+    if let EditorMode::ExtensionsManager { selected_idx, .. } = editor.mode {
+        if editor.extension_manager.extensions.len() > 1 {
+            assert_eq!(selected_idx, 1);
+        }
+    }
+
+    editor.handle_key(Key::Up);
+    if let EditorMode::ExtensionsManager { selected_idx, .. } = editor.mode {
+        assert_eq!(selected_idx, 0);
+    }
+
+    // Toggle with Space
+    if !editor.extension_manager.extensions.is_empty() {
+        let initial_state = editor.extension_manager.extensions[0].enabled;
+        editor.handle_key(Key::Char(' '));
+        assert_eq!(editor.extension_manager.extensions[0].enabled, !initial_state);
+        // Toggle back
+        editor.handle_key(Key::Char(' '));
+        assert_eq!(editor.extension_manager.extensions[0].enabled, initial_state);
+    }
+
+    // Exit with Esc
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    // 3. Render extensions dialog in Framebuffer
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    renderer.render_extensions_dialog(&mut fb, &editor.extension_manager, 0, 0, false);
+
+    // Dialog titlebar pixel
+    let win_y = (600 - 480) / 2;
+    let header_pixel = fb.get_pixel(400, win_y + 10);
+    assert_eq!(header_pixel, 0x002D2D2D);
+}
+
+
+
+

@@ -12,8 +12,11 @@ pub use core::{
     PieceTable, TextBuffer, Position, Cursor, CursorSet, History, EditOp, Transaction,
     SearchEngine, Language, SyntaxHighlighter, Clipboard,
 };
-pub use plugin::{Plugin, PluginContext, PluginRegistry, ProcessPluginRunner};
+pub use plugin::{
+    ExtensionCommand, ExtensionInfo, ExtensionManager, Plugin, PluginContext, PluginRegistry,
+    ProcessPluginRunner,
+};
 pub use ui::{Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind};
 pub use gfx::{Framebuffer, GfxRenderer, ThemeColors};
-pub use window::{NativeWindow, WindowEvent};
+pub use window::{NativeWindow, WindowEvent, MouseButton};
 pub use editor::{Editor, EditorMode, EditorAction, Keymap, Document};

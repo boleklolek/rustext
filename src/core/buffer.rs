@@ -72,6 +72,11 @@ impl TextBuffer {
     /// Saves the buffer content to its associated file path.
     pub fn save(&mut self) -> io::Result<()> {
         if let Some(path) = &self.file_path {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
             let content = self.to_string();
             let mut file = fs::File::create(path)?;
             file.write_all(content.as_bytes())?;
@@ -202,6 +207,15 @@ impl TextBuffer {
     /// Retrieves text within a character range.
     pub fn get_text_range(&self, start_char: usize, end_char: usize) -> String {
         self.table.slice_chars(start_char, end_char)
+    }
+
+    /// Retrieves a single character at a character offset, if within bounds.
+    pub fn char_at(&self, char_idx: usize) -> Option<char> {
+        if char_idx < self.len_chars() {
+            self.table.slice_chars(char_idx, char_idx + 1).chars().next()
+        } else {
+            None
+        }
     }
 
     /// Retrieves the content of a specific line as a String (excluding the trailing newline).

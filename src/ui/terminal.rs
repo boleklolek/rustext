@@ -9,6 +9,7 @@ use std::process::Command;
 pub enum Key {
     Char(char),
     Ctrl(char),
+    Alt(char),
     Enter,
     Backspace,
     Tab,
@@ -22,6 +23,7 @@ pub enum Key {
     PageUp,
     PageDown,
     Delete,
+    F(u8),
     Unknown,
 }
 

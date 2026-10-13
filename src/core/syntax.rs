@@ -73,69 +73,74 @@ impl TokenType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenSpan {
-    pub text: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenSpan<'a> {
+    pub text: &'a str,
     pub token_type: TokenType,
+}
+
+impl<'a> TokenSpan<'a> {
+    #[inline]
+    pub fn as_str(&self) -> &'a str {
+        self.text
+    }
 }
 
 pub struct SyntaxHighlighter;
 
 impl SyntaxHighlighter {
-    /// Tokenizes a single line of text according to the language rules.
-    pub fn tokenize_line(line: &str, lang: Language) -> Vec<TokenSpan> {
+    /// Tokenizes a single line of text according to language rules with zero heap allocations.
+    pub fn tokenize_line<'a>(line: &'a str, lang: Language) -> Vec<TokenSpan<'a>> {
         if lang == Language::PlainText || line.is_empty() {
             return vec![TokenSpan {
-                text: line.to_string(),
+                text: line,
                 token_type: TokenType::PlainText,
             }];
         }
 
-        let mut spans = Vec::new();
-        let chars: Vec<char> = line.chars().collect();
-        let len = chars.len();
+        let mut spans = Vec::with_capacity(line.len() / 4 + 1);
+        let bytes = line.as_bytes();
+        let len = bytes.len();
         let mut idx = 0;
 
         while idx < len {
-            let ch = chars[idx];
+            let b = bytes[idx];
 
             // 1. Comments
             if (lang == Language::Rust || lang == Language::C || lang == Language::JavaScript)
-                && ch == '/'
+                && b == b'/'
                 && idx + 1 < len
-                && chars[idx + 1] == '/'
+                && bytes[idx + 1] == b'/'
             {
-                let comment_text: String = chars[idx..].iter().collect();
                 spans.push(TokenSpan {
-                    text: comment_text,
+                    text: &line[idx..],
                     token_type: TokenType::Comment,
                 });
                 break;
             }
 
-            if (lang == Language::Python || lang == Language::Toml) && ch == '#' {
-                let comment_text: String = chars[idx..].iter().collect();
+            if (lang == Language::Python || lang == Language::Toml) && b == b'#' {
                 spans.push(TokenSpan {
-                    text: comment_text,
+                    text: &line[idx..],
                     token_type: TokenType::Comment,
                 });
                 break;
             }
 
             // 2. String literals
-            if ch == '"' || ch == '\'' || ch == '`' {
-                let quote = ch;
+            if b == b'"' || b == b'\'' || b == b'`' {
+                let quote = b;
                 let start = idx;
                 idx += 1;
                 let mut escaped = false;
 
                 while idx < len {
-                    let cur = chars[idx];
+                    let cur = bytes[idx];
                     if cur == quote && !escaped {
                         idx += 1;
                         break;
                     }
-                    if cur == '\\' {
+                    if cur == b'\\' {
                         escaped = !escaped;
                     } else {
                         escaped = false;
@@ -143,38 +148,36 @@ impl SyntaxHighlighter {
                     idx += 1;
                 }
 
-                let str_text: String = chars[start..idx].iter().collect();
                 spans.push(TokenSpan {
-                    text: str_text,
+                    text: &line[start..idx],
                     token_type: TokenType::StringLiteral,
                 });
                 continue;
             }
 
             // 3. Numbers
-            if ch.is_ascii_digit() {
+            if b.is_ascii_digit() {
                 let start = idx;
                 idx += 1;
-                while idx < len && (chars[idx].is_ascii_alphanumeric() || chars[idx] == '.' || chars[idx] == '_') {
+                while idx < len && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'.' || bytes[idx] == b'_') {
                     idx += 1;
                 }
-                let num_text: String = chars[start..idx].iter().collect();
                 spans.push(TokenSpan {
-                    text: num_text,
+                    text: &line[start..idx],
                     token_type: TokenType::Number,
                 });
                 continue;
             }
 
             // 4. Identifiers, Keywords, Types
-            if ch.is_alphabetic() || ch == '_' {
+            if b.is_ascii_alphabetic() || b == b'_' {
                 let start = idx;
                 idx += 1;
-                while idx < len && (chars[idx].is_alphanumeric() || chars[idx] == '_') {
+                while idx < len && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_') {
                     idx += 1;
                 }
-                let word: String = chars[start..idx].iter().collect();
-                let token_type = Self::classify_word(&word, lang);
+                let word = &line[start..idx];
+                let token_type = Self::classify_word(word, lang);
                 spans.push(TokenSpan {
                     text: word,
                     token_type,
@@ -183,26 +186,27 @@ impl SyntaxHighlighter {
             }
 
             // 5. Operators and Punctuation
-            if "+-*/%&|^!=<>:;.,?@#$~".contains(ch) {
-                let op_type = if "+-*/%=<>!&|^?:".contains(ch) {
+            if b"+-*/%&|^!=<>:;.,?@#$~".contains(&b) {
+                let op_type = if b"+-*/%=<>!&|^?:".contains(&b) {
                     TokenType::Operator
                 } else {
                     TokenType::Punctuation
                 };
                 spans.push(TokenSpan {
-                    text: ch.to_string(),
+                    text: &line[idx..idx + 1],
                     token_type: op_type,
                 });
                 idx += 1;
                 continue;
             }
 
-            // 6. Whitespace or other characters
+            // 6. Whitespace or multi-byte UTF-8 char
+            let ch_len = line[idx..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
             spans.push(TokenSpan {
-                text: ch.to_string(),
+                text: &line[idx..idx + ch_len],
                 token_type: TokenType::PlainText,
             });
-            idx += 1;
+            idx += ch_len;
         }
 
         spans

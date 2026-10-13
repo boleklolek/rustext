@@ -12,7 +12,7 @@ pub mod win32;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
-pub use events::WindowEvent;
+pub use events::{MouseButton, WindowEvent};
 
 #[cfg(target_os = "linux")]
 pub use x11::X11Window as NativeWindow;

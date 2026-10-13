@@ -6,7 +6,7 @@
 use std::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_void, CString};
 use std::ptr;
 
-use super::events::WindowEvent;
+use super::events::{MouseButton, WindowEvent};
 use crate::gfx::Framebuffer;
 use crate::ui::terminal::Key;
 
@@ -103,10 +103,52 @@ struct XAnyEvent {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+struct XButtonEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: *mut Display,
+    window: XWindow,
+    root: XWindow,
+    subwindow: XWindow,
+    time: c_ulong,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    button: c_uint,
+    same_screen: c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct XMotionEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: *mut Display,
+    window: XWindow,
+    root: XWindow,
+    subwindow: XWindow,
+    time: c_ulong,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    is_hint: c_char,
+    same_screen: c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 union XEvent {
     type_: c_int,
     any: XAnyEvent,
     key: XKeyEvent,
+    button: XButtonEvent,
+    motion: XMotionEvent,
     configure: XConfigureEvent,
     client: XClientMessageEvent,
     pad: [c_long; 24],
@@ -114,12 +156,19 @@ union XEvent {
 
 // --- X11 Constants ---
 const KEY_PRESS: c_int = 2;
+const BUTTON_PRESS: c_int = 4;
+const BUTTON_RELEASE: c_int = 5;
+const MOTION_NOTIFY: c_int = 6;
+const DESTROY_NOTIFY: c_int = 17;
 const CONFIGURE_NOTIFY: c_int = 22;
 const CLIENT_MESSAGE: c_int = 33;
 
 const KEY_PRESS_MASK: c_long = 1 << 0;
-const STRUCTURE_NOTIFY_MASK: c_long = 1 << 17;
+const BUTTON_PRESS_MASK: c_long = 1 << 2;
+const BUTTON_RELEASE_MASK: c_long = 1 << 3;
+const POINTER_MOTION_MASK: c_long = 1 << 6;
 const EXPOSURE_MASK: c_long = 1 << 15;
+const STRUCTURE_NOTIFY_MASK: c_long = 1 << 17;
 
 const Z_PIXMAP: c_int = 2;
 
@@ -177,6 +226,7 @@ unsafe extern "C" {
         width: c_uint,
         height: c_uint,
     ) -> c_int;
+    fn XDestroyWindow(display: *mut Display, w: XWindow) -> c_int;
     fn XDestroyImage(ximage: *mut XImage) -> c_int;
     fn XLookupString(
         event_struct: *mut XKeyEvent,
@@ -229,8 +279,13 @@ impl X11Window {
             let c_title = CString::new(title).map_err(|e| e.to_string())?;
             XStoreName(display, window, c_title.as_ptr());
 
-            // Select events: KeyPress, Window resizing, Close event
-            let event_mask = KEY_PRESS_MASK | STRUCTURE_NOTIFY_MASK | EXPOSURE_MASK;
+            // Select events: KeyPress, Window resizing, Close event, Mouse Clicks & Motion
+            let event_mask = KEY_PRESS_MASK
+                | STRUCTURE_NOTIFY_MASK
+                | EXPOSURE_MASK
+                | BUTTON_PRESS_MASK
+                | BUTTON_RELEASE_MASK
+                | POINTER_MOTION_MASK;
             XSelectInput(display, window, event_mask);
 
             // Hook close window button [X]
@@ -260,6 +315,16 @@ impl X11Window {
         }
     }
 
+    /// Dynamically sets the native window title.
+    pub fn set_title(&mut self, title: &str) {
+        unsafe {
+            if let Ok(c_title) = CString::new(title) {
+                XStoreName(self.display, self.window, c_title.as_ptr());
+                XFlush(self.display);
+            }
+        }
+    }
+
     /// Polls a single pending window event (non-blocking).
     pub fn poll_event(&mut self) -> WindowEvent {
         unsafe {
@@ -285,6 +350,7 @@ impl X11Window {
                     );
 
                     let is_ctrl = (key_event.state & 4) != 0;
+                    let is_alt = (key_event.state & 8) != 0;
 
                     // Special keys
                     match keysym {
@@ -301,15 +367,42 @@ impl X11Window {
                         0xFF55 => return WindowEvent::Key(Key::PageUp),
                         0xFF56 => return WindowEvent::Key(Key::PageDown),
                         0xFFFF => return WindowEvent::Key(Key::Delete),
+                        0xFFBE..=0xFFC9 => {
+                            return WindowEvent::Key(Key::F((keysym - 0xFFBE + 1) as u8))
+                        }
                         _ => {}
+                    }
+
+                    if is_ctrl {
+                        let ctrl_char = if keysym >= b'a' as KeySym && keysym <= b'z' as KeySym {
+                            Some((keysym as u8) as char)
+                        } else if keysym >= b'A' as KeySym && keysym <= b'Z' as KeySym {
+                            Some(((keysym as u8) + 32) as char)
+                        } else if len > 0 && buf[0] >= 1 && buf[0] <= 26 {
+                            Some((b'a' + buf[0] - 1) as char)
+                        } else if len > 0 && buf[0] >= b' ' && buf[0] <= b'~' {
+                            Some((buf[0] as char).to_ascii_lowercase())
+                        } else {
+                            None
+                        };
+
+                        if let Some(ch) = ctrl_char {
+                            return WindowEvent::Key(Key::Ctrl(ch));
+                        }
+                    }
+
+                    if is_alt {
+                        if keysym >= b'a' as KeySym && keysym <= b'z' as KeySym {
+                            return WindowEvent::Key(Key::Alt((keysym as u8) as char));
+                        } else if keysym >= b'A' as KeySym && keysym <= b'Z' as KeySym {
+                            return WindowEvent::Key(Key::Alt(((keysym as u8) + 32) as char));
+                        }
                     }
 
                     if len > 0 {
                         if let Ok(s) = std::str::from_utf8(&buf[..len as usize]) {
                             if let Some(c) = s.chars().next() {
-                                if is_ctrl {
-                                    return WindowEvent::Key(Key::Ctrl(c.to_ascii_lowercase()));
-                                } else {
+                                if c >= ' ' {
                                     return WindowEvent::Char(c);
                                 }
                             }
@@ -317,6 +410,60 @@ impl X11Window {
                     }
 
                     WindowEvent::None
+                }
+                BUTTON_PRESS => {
+                    let btn_ev = event.button;
+                    let x = btn_ev.x.max(0) as usize;
+                    let y = btn_ev.y.max(0) as usize;
+                    match btn_ev.button {
+                        1 => WindowEvent::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        },
+                        2 => WindowEvent::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Middle,
+                        },
+                        3 => WindowEvent::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Right,
+                        },
+                        4 => WindowEvent::ScrollUp { x, y },
+                        5 => WindowEvent::ScrollDown { x, y },
+                        _ => WindowEvent::None,
+                    }
+                }
+                BUTTON_RELEASE => {
+                    let btn_ev = event.button;
+                    let x = btn_ev.x.max(0) as usize;
+                    let y = btn_ev.y.max(0) as usize;
+                    match btn_ev.button {
+                        1 => WindowEvent::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        },
+                        2 => WindowEvent::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Middle,
+                        },
+                        3 => WindowEvent::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Right,
+                        },
+                        _ => WindowEvent::None,
+                    }
+                }
+                MOTION_NOTIFY => {
+                    let mot_ev = event.motion;
+                    let x = mot_ev.x.max(0) as usize;
+                    let y = mot_ev.y.max(0) as usize;
+                    WindowEvent::MouseMove { x, y }
                 }
                 CONFIGURE_NOTIFY => {
                     let conf = event.configure;
@@ -334,11 +481,20 @@ impl X11Window {
                 }
                 CLIENT_MESSAGE => {
                     let client = event.client;
-                    if client.data[0] as Atom == self.wm_delete_window {
+                    let data_atom = client.data[0] as Atom;
+                    let data_atom_u32 = (client.data[0] as u32) as Atom;
+                    if data_atom == self.wm_delete_window
+                        || data_atom_u32 == self.wm_delete_window
+                        || client.message_type == self.wm_delete_window
+                    {
                         self.should_close = true;
                         return WindowEvent::Close;
                     }
                     WindowEvent::None
+                }
+                DESTROY_NOTIFY => {
+                    self.should_close = true;
+                    WindowEvent::Close
                 }
                 _ => WindowEvent::None,
             }
@@ -403,6 +559,8 @@ impl Drop for X11Window {
                 XFreeGC(self.display, self.gc);
             }
             if !self.display.is_null() {
+                XDestroyWindow(self.display, self.window);
+                XFlush(self.display);
                 XCloseDisplay(self.display);
             }
         }
