@@ -10,6 +10,7 @@ pub enum Key {
     Char(char),
     Ctrl(char),
     Alt(char),
+    CtrlShift(char),
     Enter,
     Backspace,
     Tab,

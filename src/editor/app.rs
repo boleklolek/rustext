@@ -265,6 +265,8 @@ impl Editor {
                         }
                     } else if modal.is_file_dialog() {
                         modal.select_next_entry(10);
+                    } else if modal.kind == PromptKind::GlobalSearch {
+                        modal.select_next_global_result(12);
                     }
                 }
                 Key::Up => {
@@ -274,6 +276,8 @@ impl Editor {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.is_file_dialog() {
                         modal.select_prev_entry();
+                    } else if modal.kind == PromptKind::GlobalSearch {
+                        modal.select_prev_global_result();
                     }
                 }
                 Key::PageDown => {
@@ -281,12 +285,20 @@ impl Editor {
                         for _ in 0..8 {
                             modal.select_next_entry(10);
                         }
+                    } else if modal.kind == PromptKind::GlobalSearch {
+                        for _ in 0..8 {
+                            modal.select_next_global_result(12);
+                        }
                     }
                 }
                 Key::PageUp => {
                     if modal.is_file_dialog() {
                         for _ in 0..8 {
                             modal.select_prev_entry();
+                        }
+                    } else if modal.kind == PromptKind::GlobalSearch {
+                        for _ in 0..8 {
+                            modal.select_prev_global_result();
                         }
                     }
                 }
@@ -321,6 +333,10 @@ impl Editor {
                                 self.find_next_match(&query);
                             }
                             _ => {}
+                        }
+                    } else if modal.kind == PromptKind::GlobalSearch {
+                        if c.to_ascii_lowercase() == 'c' {
+                            modal.toggle_case_sensitivity();
                         }
                     }
                 }
@@ -550,6 +566,21 @@ impl Editor {
                     }
                 }
                 self.mode = EditorMode::ModalPrompt(modal);
+            }
+            EditorAction::OpenGlobalSearchPrompt => {
+                let initial_query = if self.doc().cursors.primary().has_selection() {
+                    let range = self.doc().cursors.primary().selection_range();
+                    let sel_text = self.doc().buffer.get_text_range(range.start, range.end);
+                    if !sel_text.contains('\n') && sel_text.chars().count() <= 60 {
+                        Some(sel_text)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let root = self.sidebar.root_dir.clone();
+                self.mode = EditorMode::ModalPrompt(PromptModal::new_global_search(root, initial_query.as_deref()));
             }
             EditorAction::OpenSaveAsPrompt => {
                 let (dir, filename) = if let Some(path) = self.doc().buffer.file_path() {
@@ -1131,6 +1162,27 @@ impl Editor {
                     }
                 } else {
                     self.set_status(format!("Unknown command: '{}'", input));
+                }
+            }
+            PromptKind::GlobalSearch => {
+                if !modal.global_results.is_empty() && modal.selected_idx < modal.global_results.len() {
+                    let result = &modal.global_results[modal.selected_idx];
+                    let file_path = result.file_path.clone();
+                    let target_line = result.line_number;
+                    let target_col = result.col;
+                    let rel_path = result.relative_path.clone();
+
+                    self.open_file(&file_path);
+                    let view_h = self.screen.rows.saturating_sub(2);
+                    let doc = self.doc_mut();
+                    let line_idx = target_line.saturating_sub(1);
+                    let col_idx = target_col.saturating_sub(1);
+                    let total_lines = doc.buffer.len_lines();
+                    let safe_line = line_idx.min(total_lines.saturating_sub(1));
+                    let char_offset = doc.buffer.position_to_char(Position::new(safe_line, col_idx));
+                    doc.cursors.set_single(char_offset);
+                    doc.scroll_row = safe_line.saturating_sub(view_h / 2);
+                    self.set_status(format!("Salto a {}:{}:{}", rel_path, target_line, target_col));
                 }
             }
         }
@@ -2469,6 +2521,50 @@ impl Editor {
                                             }
                                         }
                                     }
+                                } else if modal.kind == PromptKind::GlobalSearch {
+                                    let box_w = fb.width.min(740).max(460);
+                                    let box_h = fb.height.min(500).max(360);
+                                    let box_x = (fb.width.saturating_sub(box_w)) / 2;
+                                    let box_y = 28;
+                                    let close_w = 30;
+                                    let close_x = box_x + box_w - close_w;
+
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
+
+                                    if hit_close || hit_outside {
+                                        self.mode = EditorMode::Normal;
+                                    } else {
+                                        let body_y = box_y + 24 + 1;
+                                        let input_y = body_y + 8;
+                                        let subbar_y = input_y + 24 + 8;
+                                        let subbar_h = 22;
+                                        let input_w = box_w.saturating_sub(24);
+                                        let case_btn_text = if modal.case_sensitive { "[Aa Mayús: Sí]" } else { "[Aa Mayús: No]" };
+                                        let case_w = case_btn_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
+                                        let case_x = box_x + 12 + input_w - case_w;
+
+                                        if y >= subbar_y && y < subbar_y + subbar_h && x >= case_x && x < case_x + case_w {
+                                            modal.toggle_case_sensitivity();
+                                        } else {
+                                            let list_y = subbar_y + subbar_h + 8;
+                                            let footer_h = 24;
+                                            let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + 4);
+                                            let row_h = 22;
+                                            let max_visible = list_h / row_h;
+
+                                            if x >= box_x + 12 && x < box_x + box_w - 12 && y >= list_y && y < list_y + max_visible * row_h {
+                                                let row_idx = (y - list_y) / row_h;
+                                                let item_idx = modal.scroll_offset + row_idx;
+                                                if item_idx < modal.global_results.len() {
+                                                    modal.selected_idx = item_idx;
+                                                    let modal_clone = modal.clone();
+                                                    self.mode = EditorMode::Normal;
+                                                    self.commit_prompt(&modal_clone);
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     let is_palette = modal.kind == PromptKind::CommandPalette;
                                     let box_w = fb.width.min(580).max(340);
@@ -2723,6 +2819,10 @@ impl Editor {
                             if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                                 if modal.is_file_dialog() {
                                     modal.scroll_up(3);
+                                } else if modal.kind == PromptKind::GlobalSearch {
+                                    for _ in 0..3 {
+                                        modal.select_prev_global_result();
+                                    }
                                 }
                             } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
                                 *scroll_offset = scroll_offset.saturating_sub(1);
@@ -2754,6 +2854,10 @@ impl Editor {
                                     let list_h = box_h.saturating_sub(190);
                                     let max_visible = list_h / 22;
                                     modal.scroll_down(3, max_visible);
+                                } else if modal.kind == PromptKind::GlobalSearch {
+                                    for _ in 0..3 {
+                                        modal.select_next_global_result(12);
+                                    }
                                 }
                             } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
                                 let ext_count = self.extension_manager.extensions.len();

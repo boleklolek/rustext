@@ -1430,6 +1430,230 @@ impl GfxRenderer {
         self.render_prompt_overlay_with_hover(fb, modal, false);
     }
 
+    /// Renders the interactive Project-Wide Global Search Window (`Ctrl+Shift+F`).
+    pub fn render_global_search_dialog(
+        &self,
+        fb: &mut Framebuffer,
+        modal: &crate::ui::prompt::PromptModal,
+        close_hovered: bool,
+    ) {
+        let box_w = fb.width.min(740).max(460);
+        let box_h = fb.height.min(500).max(360);
+        let box_x = (fb.width.saturating_sub(box_w)) / 2;
+        let box_y: usize = 28;
+
+        // 1. Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
+
+        // 2. Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+        } else {
+            fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        }
+
+        // 3. Title bar & window outer border
+        let header_h = 24;
+        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
+        fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
+        fb.fill_rect(box_x, box_y + header_h, box_w, box_h.saturating_sub(header_h), self.colors.modal_bg);
+        if self.rounded_corners {
+            fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
+        }
+
+        fb.draw_text("Búsqueda Global en el Proyecto (Ctrl+Shift+F)", box_x + 10, box_y + 4, 0x00FFFFFF, None);
+
+        // Header close button [×]
+        let close_w = 30;
+        let close_x = box_x + box_w - close_w;
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, box_y + 2, close_w - 4, header_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        }
+        fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
+
+        // Header bottom divider
+        fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
+
+        // 4. Input Box
+        let body_y = box_y + header_h + 1;
+        let input_margin = 12;
+        let input_x = box_x + input_margin;
+        let input_y = body_y + 8;
+        let input_w = box_w.saturating_sub(input_margin * 2);
+        let input_h = 24;
+
+        if self.rounded_corners {
+            fb.fill_rounded_rect(input_x, input_y, input_w, input_h, 4, self.colors.input_bg);
+            fb.draw_rounded_outline(input_x, input_y, input_w, input_h, 4, self.colors.input_border);
+        } else {
+            fb.fill_rect(input_x.saturating_sub(1), input_y.saturating_sub(1), input_w + 2, input_h + 2, self.colors.input_border);
+            fb.fill_rect(input_x, input_y, input_w, input_h, self.colors.input_bg);
+        }
+
+        let label = "Buscar en Proyecto: ";
+        let text_y = input_y + (input_h - FONT_HEIGHT) / 2;
+        fb.draw_text(label, input_x + 6, text_y, self.colors.accent, None);
+
+        let input_text_x = input_x + 6 + label.chars().count() * FONT_WIDTH;
+        fb.draw_text(&modal.input, input_text_x, text_y, 0x00FFFFFF, None);
+
+        let cursor_x = input_text_x + modal.cursor_col * FONT_WIDTH;
+        if cursor_x < input_x + input_w - 4 {
+            fb.fill_rect(cursor_x, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+        }
+
+        // 5. Status & Options bar
+        let subbar_y = input_y + input_h + 8;
+        let subbar_h = 22;
+
+        let stats_text = if modal.input.trim().is_empty() {
+            "Escriba para buscar en todos los archivos del proyecto...".to_string()
+        } else if modal.global_results.is_empty() {
+            "0 coincidencias encontradas".to_string()
+        } else {
+            let trunc_hint = if modal.global_truncated { " (límite 1000 alcanzado)" } else { "" };
+            format!(
+                "{} coincidencia{} en {} archivo{}{}",
+                modal.global_results.len(),
+                if modal.global_results.len() == 1 { "" } else { "s" },
+                modal.global_matching_files,
+                if modal.global_matching_files == 1 { "" } else { "s" },
+                trunc_hint
+            )
+        };
+
+        let stats_color = if modal.global_results.is_empty() {
+            0x00888888
+        } else {
+            self.colors.syntax_string
+        };
+        fb.draw_text(&stats_text, input_x, subbar_y + 3, stats_color, None);
+
+        // Case-sensitive toggle button on the right of subbar
+        let case_btn_text = if modal.case_sensitive { "[Aa Mayús: Sí]" } else { "[Aa Mayús: No]" };
+        let case_w = case_btn_text.chars().count() * FONT_WIDTH + 8;
+        let case_x = input_x + input_w - case_w;
+        let case_bg = if modal.case_sensitive { self.colors.button_bg } else { self.colors.chip_bg };
+        let case_border = if modal.case_sensitive { self.colors.accent } else { self.colors.scrollbar_border };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(case_x, subbar_y, case_w, subbar_h, 3, case_bg);
+            fb.draw_rounded_outline(case_x, subbar_y, case_w, subbar_h, 3, case_border);
+        } else {
+            fb.fill_rect(case_x, subbar_y, case_w, subbar_h, case_bg);
+        }
+        let case_tx = case_x + 4;
+        let case_ty = subbar_y + (subbar_h - FONT_HEIGHT) / 2;
+        let case_fg = if modal.case_sensitive { 0x00FFFFFF } else { 0x00AAAAAA };
+        fb.draw_text(case_btn_text, case_tx, case_ty, case_fg, None);
+
+        // 6. Results List
+        let list_y = subbar_y + subbar_h + 8;
+        let footer_h = 24;
+        let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + 4);
+        let list_w = input_w;
+        let row_h = 22;
+        let max_visible = list_h / row_h;
+
+        // Background of results panel
+        if self.rounded_corners {
+            fb.fill_rounded_rect(input_x, list_y, list_w, list_h, 4, self.colors.gutter_bg);
+            fb.draw_rounded_outline(input_x, list_y, list_w, list_h, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(input_x, list_y, list_w, list_h, self.colors.gutter_bg);
+            fb.draw_rect_outline(input_x, list_y, list_w, list_h, self.colors.scrollbar_border);
+        }
+
+        let results_len = modal.global_results.len();
+        let scroll_offset = modal.scroll_offset.min(results_len.saturating_sub(1));
+
+        let path_col_w = (list_w / 3).min(240).max(140);
+
+        for row_idx in 0..max_visible {
+            let item_idx = scroll_offset + row_idx;
+            if item_idx >= results_len {
+                break;
+            }
+
+            let item = &modal.global_results[item_idx];
+            let is_sel = item_idx == modal.selected_idx;
+            let item_y = list_y + 2 + row_idx * row_h;
+
+            if is_sel {
+                let sel_bg = self.colors.accent;
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(input_x + 2, item_y, list_w - 4, row_h - 2, 3, sel_bg);
+                } else {
+                    fb.fill_rect(input_x + 2, item_y, list_w - 4, row_h - 2, sel_bg);
+                }
+            }
+
+            let item_text_y = item_y + (row_h - 2 - FONT_HEIGHT) / 2;
+
+            // 1. Path and line badge (e.g. "src/main.rs:42")
+            let badge = format!("{}:{}", item.relative_path, item.line_number);
+            let badge_max_chars = path_col_w / FONT_WIDTH;
+            let badge_display = if badge.chars().count() > badge_max_chars {
+                let take = badge_max_chars.saturating_sub(3);
+                let tail: String = badge.chars().rev().take(take).collect::<Vec<char>>().into_iter().rev().collect();
+                format!("...{}", tail)
+            } else {
+                badge
+            };
+
+            let badge_color = if is_sel { 0x00FFFFFF } else { self.colors.syntax_type };
+            fb.draw_text(&badge_display, input_x + 6, item_text_y, badge_color, None);
+
+            // Divider line between file badge and code snippet
+            let div_x = input_x + path_col_w;
+            fb.fill_rect(div_x, item_y + 2, 1, row_h - 6, if is_sel { 0x00FFFFFF } else { self.colors.scrollbar_border });
+
+            // 2. Code snippet preview with match highlight
+            let code_x = div_x + 8;
+            let max_code_chars = (input_x + list_w).saturating_sub(code_x + 16) / FONT_WIDTH;
+            let snippet_chars: Vec<char> = item.line_text.chars().take(max_code_chars).collect();
+            let snippet_str: String = snippet_chars.iter().collect();
+
+            // Draw full snippet line text
+            let text_color = if is_sel { 0x00E0E0E0 } else { 0x00CCCCCC };
+            fb.draw_text(&snippet_str, code_x, item_text_y, text_color, None);
+
+            // Highlight match range inside snippet
+            if item.match_char_offset < snippet_chars.len() {
+                let hl_start = item.match_char_offset;
+                let hl_len = item.match_char_len.min(snippet_chars.len() - hl_start);
+                let hl_x = code_x + hl_start * FONT_WIDTH;
+                let hl_w = hl_len * FONT_WIDTH;
+                let hl_str: String = snippet_chars[hl_start..hl_start + hl_len].iter().collect();
+                let hl_bg = if is_sel { 0x00D35400 } else { 0x00F39C12 };
+                fb.fill_rect(hl_x, item_text_y, hl_w, FONT_HEIGHT, hl_bg);
+                fb.draw_text(&hl_str, hl_x, item_text_y, 0x00FFFFFF, None);
+            }
+        }
+
+        // 7. Right Scrollbar in Results List if items > max_visible
+        if results_len > max_visible {
+            let sb_w = 6;
+            let sb_x = input_x + list_w - sb_w - 2;
+            let sb_y = list_y + 4;
+            let sb_h = list_h.saturating_sub(8);
+
+            fb.fill_rect(sb_x, sb_y, sb_w, sb_h, self.colors.scrollbar_bg);
+            let thumb_h = ((max_visible as f32 / results_len as f32) * sb_h as f32).max(12.0) as usize;
+            let max_scroll = results_len - max_visible;
+            let thumb_y = sb_y + ((scroll_offset as f32 / max_scroll as f32) * (sb_h - thumb_h) as f32) as usize;
+            fb.fill_rect(sb_x, thumb_y, sb_w, thumb_h, self.colors.scrollbar_thumb);
+        }
+
+        // 8. Footer hint
+        let footer_y = list_y + list_h + 6;
+        let hint = "↑/↓: Seleccionar  •  Enter: Abrir en línea  •  Alt+C: Mayús/Minús  •  Esc: Cerrar";
+        let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
+        fb.draw_text(hint, hint_x, footer_y, 0x00858585, None);
+    }
+
     pub fn render_find_replace_dialog(
         &self,
         fb: &mut Framebuffer,
@@ -1575,6 +1799,11 @@ impl GfxRenderer {
 
         if modal.kind == crate::ui::prompt::PromptKind::Replace {
             self.render_find_replace_dialog(fb, modal, close_hovered);
+            return;
+        }
+
+        if modal.kind == crate::ui::prompt::PromptKind::GlobalSearch {
+            self.render_global_search_dialog(fb, modal, close_hovered);
             return;
         }
 

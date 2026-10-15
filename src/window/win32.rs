@@ -243,15 +243,19 @@ impl Win32Window {
                         }
                     }
                     WM_CHAR => {
-                        let raw_byte = msg.wparam as u8;
                         let is_ctrl = (GetAsyncKeyState(0x11) as i32 & 0x8000) != 0; // VK_CONTROL
+                        let is_shift = (GetAsyncKeyState(0x10) as i32 & 0x8000) != 0; // VK_SHIFT
                         if is_ctrl {
                             let ch = if raw_byte >= 1 && raw_byte <= 26 {
                                 (b'a' + raw_byte - 1) as char
                             } else {
                                 (raw_byte as char).to_ascii_lowercase()
                             };
-                            return WindowEvent::Key(Key::Ctrl(ch));
+                            if is_shift {
+                                return WindowEvent::Key(Key::CtrlShift(ch));
+                            } else {
+                                return WindowEvent::Key(Key::Ctrl(ch));
+                            }
                         } else if raw_byte >= b' ' {
                             return WindowEvent::Char(raw_byte as char);
                         }

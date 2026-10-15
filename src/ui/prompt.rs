@@ -11,6 +11,7 @@ pub enum PromptKind {
     SaveAs,
     OpenFile,
     CommandPalette,
+    GlobalSearch,
 }
 
 impl PromptKind {
@@ -21,6 +22,7 @@ impl PromptKind {
             PromptKind::SaveAs => "Guardar como: ",
             PromptKind::OpenFile => "Abrir: ",
             PromptKind::CommandPalette => "Comando: ",
+            PromptKind::GlobalSearch => "Buscar en Proyecto: ",
         }
     }
 
@@ -31,6 +33,7 @@ impl PromptKind {
             PromptKind::SaveAs => "Guardar Archivo Como",
             PromptKind::OpenFile => "Abrir Archivo",
             PromptKind::CommandPalette => "Paleta de Comandos",
+            PromptKind::GlobalSearch => "Búsqueda Global en el Proyecto (Ctrl+Shift+F)",
         }
     }
 }
@@ -52,6 +55,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Cerrar Pestaña", shortcut: "Ctrl+W", action: EditorAction::CloseTab },
         CommandItem { name: "Buscar en Documento...", shortcut: "Ctrl+F", action: EditorAction::OpenSearchPrompt },
         CommandItem { name: "Reemplazar en Documento...", shortcut: "Ctrl+H", action: EditorAction::OpenReplacePrompt },
+        CommandItem { name: "Buscar en Todo el Proyecto...", shortcut: "Ctrl+Shift+F", action: EditorAction::OpenGlobalSearchPrompt },
         CommandItem { name: "Deshacer", shortcut: "Ctrl+Z", action: EditorAction::Undo },
         CommandItem { name: "Rehacer", shortcut: "Ctrl+Y", action: EditorAction::Redo },
         CommandItem { name: "Cortar", shortcut: "Ctrl+X", action: EditorAction::Cut },
@@ -210,6 +214,13 @@ pub struct PromptModal {
     pub scroll_offset: usize,
     // Custom commands injected by extension manager
     pub custom_commands: Vec<CommandItem>,
+    // Global search fields for PromptKind::GlobalSearch
+    pub global_results: Vec<crate::core::GlobalSearchMatch>,
+    pub global_total_files: usize,
+    pub global_matching_files: usize,
+    pub global_truncated: bool,
+    pub case_sensitive: bool,
+    pub root_dir: PathBuf,
 }
 
 impl PromptModal {
@@ -223,11 +234,17 @@ impl PromptModal {
             replace_input: String::new(),
             replace_cursor_col: 0,
             active_field: 0,
-            current_dir,
+            current_dir: current_dir.clone(),
             dir_entries: Vec::new(),
             selected_entry_idx: 0,
             scroll_offset: 0,
             custom_commands: Vec::new(),
+            global_results: Vec::new(),
+            global_total_files: 0,
+            global_matching_files: 0,
+            global_truncated: false,
+            case_sensitive: false,
+            root_dir: current_dir,
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -259,14 +276,49 @@ impl PromptModal {
             replace_input: String::new(),
             replace_cursor_col: 0,
             active_field: 0,
-            current_dir: dir,
+            current_dir: dir.clone(),
             dir_entries: Vec::new(),
             selected_entry_idx: 0,
             scroll_offset: 0,
             custom_commands: Vec::new(),
+            global_results: Vec::new(),
+            global_total_files: 0,
+            global_matching_files: 0,
+            global_truncated: false,
+            case_sensitive: false,
+            root_dir: dir,
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
+        }
+        modal
+    }
+
+    pub fn new_global_search(root_dir: PathBuf, initial_query: Option<&str>) -> Self {
+        let input = initial_query.unwrap_or("").to_string();
+        let cursor_col = input.chars().count();
+        let mut modal = Self {
+            kind: PromptKind::GlobalSearch,
+            input,
+            cursor_col,
+            selected_idx: 0,
+            replace_input: String::new(),
+            replace_cursor_col: 0,
+            active_field: 0,
+            current_dir: root_dir.clone(),
+            dir_entries: Vec::new(),
+            selected_entry_idx: 0,
+            scroll_offset: 0,
+            custom_commands: Vec::new(),
+            global_results: Vec::new(),
+            global_total_files: 0,
+            global_matching_files: 0,
+            global_truncated: false,
+            case_sensitive: false,
+            root_dir,
+        };
+        if !modal.input.trim().is_empty() {
+            modal.update_global_search();
         }
         modal
     }
@@ -437,6 +489,9 @@ impl PromptModal {
         self.input = new_input;
         self.cursor_col += 1;
         self.selected_idx = 0;
+        if self.kind == PromptKind::GlobalSearch {
+            self.update_global_search();
+        }
     }
 
     pub fn backspace(&mut self) {
@@ -473,6 +528,74 @@ impl PromptModal {
 
         self.cursor_col -= 1;
         self.selected_idx = 0;
+        if self.kind == PromptKind::GlobalSearch {
+            self.update_global_search();
+        }
+    }
+
+    /// Re-runs global project search against current input query.
+    pub fn update_global_search(&mut self) {
+        let trimmed = self.input.trim();
+        if trimmed.is_empty() {
+            self.global_results.clear();
+            self.global_total_files = 0;
+            self.global_matching_files = 0;
+            self.global_truncated = false;
+            self.selected_idx = 0;
+            self.scroll_offset = 0;
+            return;
+        }
+
+        let res = crate::core::GlobalSearchEngine::search_project(
+            &self.root_dir,
+            trimmed,
+            self.case_sensitive,
+            1000,
+        );
+
+        self.global_results = res.matches;
+        self.global_total_files = res.total_files_scanned;
+        self.global_matching_files = res.matching_files_count;
+        self.global_truncated = res.truncated;
+        self.selected_idx = 0;
+        self.scroll_offset = 0;
+    }
+
+    /// Toggles case-sensitive matching and re-evaluates the query.
+    pub fn toggle_case_sensitivity(&mut self) {
+        self.case_sensitive = !self.case_sensitive;
+        self.update_global_search();
+    }
+
+    /// Moves selection to the next matching result in the list.
+    pub fn select_next_global_result(&mut self, max_visible: usize) {
+        if self.global_results.is_empty() {
+            return;
+        }
+        if self.selected_idx + 1 < self.global_results.len() {
+            self.selected_idx += 1;
+        }
+        self.adjust_global_scroll(max_visible);
+    }
+
+    /// Moves selection to the previous matching result in the list.
+    pub fn select_prev_global_result(&mut self) {
+        if self.selected_idx > 0 {
+            self.selected_idx -= 1;
+        }
+        if self.selected_idx < self.scroll_offset {
+            self.scroll_offset = self.selected_idx;
+        }
+    }
+
+    /// Adjusts scroll offset to ensure `selected_idx` remains within visible viewport.
+    pub fn adjust_global_scroll(&mut self, max_visible: usize) {
+        let max_vis = max_visible.max(1);
+        if self.selected_idx < self.scroll_offset {
+            self.scroll_offset = self.selected_idx;
+        } else if self.selected_idx >= self.scroll_offset + max_vis {
+            self.scroll_offset = self.selected_idx + 1 - max_vis;
+        }
     }
 
     pub fn move_cursor_left(&mut self) {

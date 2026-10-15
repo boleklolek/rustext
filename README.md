@@ -64,6 +64,18 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Controles de ratón: clic para conmutar/abrir archivo, expandir/contraer carpetas, botón de nueva pestaña `[+]`, refrescar `[↺]` y cerrar `[×]`.
   - Navegación completa por teclado (`↑`/`↓`, `→`/`Enter`, `←`, `Esc`).
 
+- **Búsqueda Global en Todo el Proyecto (`Ctrl + Shift + F`)**:
+  - Modal flotante con escaneo recursivo ultrarrápido sobre el árbol completo del proyecto (`root_dir`).
+  - Filtrado inteligente de binarios, archivos mayores a 10 MB y carpetas ignoradas (`.git`, `target`, `node_modules`, `.cache`, etc.).
+  - Búsqueda reactiva mientras se escribe, soporte para alternar mayúsculas/minúsculas (`Alt + C` o botón `[Aa]`).
+  - Snippets de código con resaltado ámbar de coincidencias, insignias de archivo/línea y salto inmediato de cursor y viewport al hacer clic o presionar `Enter`.
+
+- **Autocompletado Contextual Inteligente (`Ctrl + Espacio`)**:
+  - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
+  - Palabras clave nativas por lenguaje (Rust, Python, C, C++, Go, JS, TS) más identificadores extraídos en vivo de todos los búferes abiertos.
+  - Compatibilidad total con edición multicursor (aplica la palabra seleccionada en todos los cursores activos al mismo tiempo).
+  - Navegación fluida por teclado (`↑`/`↓`, `Tab`/`Enter`, `Esc`) y ratón (hover y clic).
+
 - **Diagnósticos del Compilador y Linter en Vivo**:
   - Integración nativa con `cargo check --message-format=json`, `pyflakes` y `clang`.
   - Insignias de severidad en el gutter (`[E]` Error, `[W]` Warning, `[I]` Info) y mensaje detallado en la barra de estado.
@@ -139,6 +151,8 @@ cargo run --release --bin memory_profile
 | `Ctrl + Z` / `Ctrl + Y` | Deshacer / Rehacer atómico |
 | `Ctrl + F` | Buscar en el documento |
 | `Ctrl + H` | Buscar y Reemplazar |
+| `Ctrl + Shift + F` | **Búsqueda Global en Todo el Proyecto** |
+| `Ctrl + Espacio` | **Autocompletado Contextual Inteligente** |
 | `Ctrl + P` | **Abrir Paleta de Comandos** |
 | `PageUp` / `PageDown` | Cambiar de pestaña (Anterior / Siguiente) |
 | `Tab` | Indentación o expandir snippet (`fn`, `struct`, etc.) |

@@ -13,13 +13,15 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 3. [Guía de la Interfaz Gráfica (Desktop GUI) y TUI](#3-guía-de-la-interfaz-gráfica-desktop-gui-y-tui)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [Motor de Edición y Multicursor](#5-motor-de-edición-y-multicursor)
-6. [Sistema de Snippets e Indentación Inteligente](#6-sistema-de-snippets-e-indentación-inteligente)
-7. [Diagnósticos en Vivo, Linter y Formato de Código](#7-diagnósticos-en-vivo-linter-y-formato-de-código)
-8. [Paleta de Comandos y Atajos de Teclado](#8-paleta-de-comandos-y-atajos-de-teclado)
-9. [Sistema de Configuración (`config.ini`)](#9-sistema-de-configuración-configini)
-10. [Sistema de Plugins y Extensiones](#10-sistema-de-plugins-y-extensiones)
-11. [Perfil de Memoria y Benchmarks de Rendimiento](#11-perfil-de-memoria-y-benchmarks-de-rendimiento)
-12. [Preguntas Frecuentes y Solución de Problemas](#12-preguntas-frecuentes-y-solución-de-problemas)
+6. [Autocompletado Contextual Inteligente](#6-autocompletado-contextual-inteligente)
+7. [Búsqueda Global en Todo el Proyecto](#7-búsqueda-global-en-todo-el-proyecto)
+8. [Sistema de Snippets e Indentación Inteligente](#8-sistema-de-snippets-e-indentación-inteligente)
+9. [Diagnósticos en Vivo, Linter y Formato de Código](#9-diagnósticos-en-vivo-linter-y-formato-de-código)
+10. [Paleta de Comandos y Atajos de Teclado](#10-paleta-de-comandos-y-atajos-de-teclado)
+11. [Sistema de Configuración (`config.ini`)](#11-sistema-de-configuración-configini)
+12. [Sistema de Plugins y Extensiones](#12-sistema-de-plugins-y-extensiones)
+13. [Perfil de Memoria y Benchmarks de Rendimiento](#13-perfil-de-memoria-y-benchmarks-de-rendimiento)
+14. [Preguntas Frecuentes y Solución de Problemas](#14-preguntas-frecuentes-y-solución-de-problemas)
 
 ---
 
@@ -175,7 +177,61 @@ Cuando múltiples cursores escriben simultáneamente:
 
 ---
 
-## 6. Sistema de Snippets e Indentación Inteligente
+## 6. Autocompletado Contextual Inteligente
+
+Rustext implementa un motor de autocompletado en tiempo real sin dependencias externas ni servidores pesados:
+
+### Características:
+1. **Activación Inmediata (`Ctrl + Espacio`)**: Despliega un menú emergente anclado exactamente bajo el cursor de texto (o sobre él si el cursor se encuentra cerca del borde inferior de la ventana). También accesible mediante el menú **Editar > Autocompletar**.
+2. **Candidatos de Doble Fuente**:
+   - **Palabras Clave de Lenguaje**: Palabras reservadas y tipos primitivos según el lenguaje del archivo actual (Rust, Python, C/C++, Go, JavaScript, TypeScript, Markdown, TOML/INI).
+   - **Identificadores del Proyecto**: Extrae en vivo identificadores léxicos (funciones, variables, structs, métodos, constantes) de todos los búferes y pestañas abiertas en la sesión.
+3. **Scoring y Ranking Inteligente**:
+   - Prioriza coincidencias exactas por prefijo sobre coincidencias insensibles a mayúsculas/minúsculas.
+   - Ordena por longitud de sugerencia y orden alfabético para una selección natural y rápida.
+4. **Diseño Visual**:
+   - Marco redondeado con sombra, píldora con indicador de posición `[1/N]`, etiquetas de tipo de sugerencia (`[KW]` palabra clave vs `[ID]` identificador de código).
+   - Scrollbar interno interactivo cuando existen más de 8 coincidencias.
+5. **Compatibilidad Multicursor**:
+   - Si se tienen múltiples cursores activos (`Ctrl + D`, `Ctrl + K/J`), al confirmar la sugerencia seleccionada, el autocompletado se aplica simultáneamente en todos los cursores, preservando los desplazamientos de cada uno.
+
+### Controles de Autocompletado:
+- `↑` / `↓`: Navegar hacia arriba o abajo en la lista de candidatos.
+- `Tab` / `Enter`: Insertar y confirmar la sugerencia seleccionada.
+- `Esc`: Cerrar el menú flotante sin modificar el código.
+- **Ratón**: Hover interactivo para resaltar opciones y clic para confirmar e insertar de inmediato.
+
+---
+
+## 7. Búsqueda Global en Todo el Proyecto
+
+La **Búsqueda Global en Todo el Proyecto (`Ctrl + Shift + F`)** permite localizar al instante cualquier cadena de texto o símbolo en todos los archivos del árbol del proyecto.
+
+### Características:
+1. **Escaneo Recursivo Ultrarrápido (`GlobalSearchEngine`)**:
+   - Recorre recursivamente todas las carpetas a partir de la raíz del proyecto (`root_dir`).
+   - **Filtrado Inteligente de Carpetas**: Omite directorios ruidosos o de compilación (`.git`, `target`, `node_modules`, `.cache`, `.vscode`, `.idea`, `dist`, `build`, etc.).
+   - **Detección Automática de Binarios**: Inspecciona la cabecera de los archivos; si contiene bytes nulos (`\0`), se descarta automáticamente para no procesar ejecutables ni imágenes.
+   - **Límites de Seguridad**: Salta archivos mayores a 10 MB y topa los resultados a 2,000 coincidencias para garantizar 60 FPS estables.
+2. **Búsqueda Reactiva en Tiempo Real**:
+   - Al tipear en el campo de texto, los resultados se filtran y actualizan inmediatamente en el siguiente fotograma.
+3. **Sensibilidad a Mayúsculas/Minúsculas**:
+   - Botón interactivo `[Aa]` en la cabecera del diálogo modal.
+   - Atajo de teclado `Alt + C` para alternar entre búsqueda exacta o insensible.
+4. **Resaltado y Snippets**:
+   - Cada fila muestra la insignia de archivo y número de línea (`src/core/mod.rs:42`), separador visual y el snippet del código.
+   - La coincidencia exacta dentro de la línea de código se resalta en color ámbar/dorado brillante (`0xFFD700`).
+   - Barra de estado con resumen en vivo: `N coincidencias en M archivos`.
+5. **Navegación y Apertura Inmediata**:
+   - Al pulsar `Enter` o hacer **clic con el ratón** sobre un resultado:
+     - El archivo se abre en una pestaña (conmutando a ella si ya estaba abierta).
+     - El cursor se posiciona exactamente en la línea y columna del término buscado.
+     - El área visible (viewport) se centra verticalmente en la coincidencia.
+     - El diálogo modal de búsqueda se cierra automáticamente.
+
+---
+
+## 8. Sistema de Snippets e Indentación Inteligente
 
 Rustext incluye un motor de plantillas y snippets sin dependencias externas:
 
@@ -193,7 +249,7 @@ Escriba el prefijo y presione `Tab`:
 
 ---
 
-## 7. Diagnósticos en Vivo, Linter y Formato de Código
+## 9. Diagnósticos en Vivo, Linter y Formato de Código
 
 Rustext incluye herramientas de verificación y corrección de código integradas:
 
@@ -223,7 +279,7 @@ Configure en `config.ini` `format_on_save = true` o `check_on_save = true` para 
 
 ---
 
-## 8. Paleta de Comandos y Atajos de Teclado
+## 10. Paleta de Comandos y Atajos de Teclado
 
 Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite buscar y ejecutar cualquier acción del editor mediante filtrado difuso.
 
@@ -243,6 +299,8 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | `Ctrl + V` | Pegar desde el portapapeles | Editar > Pegar |
 | `Ctrl + F` | Buscar en el documento | Editar > Buscar... |
 | `Ctrl + H` | Buscar y Reemplazar | Editar > Reemplazar... |
+| `Ctrl + Shift + F`| **Búsqueda Global en el Proyecto** | Editar > Buscar en el Proyecto... |
+| `Ctrl + Espacio` | **Autocompletado Contextual Inteligente** | Editar > Autocompletar |
 | `Ctrl + D` | Seleccionar siguiente ocurrencia | Selección > Siguiente Ocurrencia |
 | `Ctrl + K` | Añadir cursor arriba | Selección > Añadir Cursor Arriba |
 | `Ctrl + J` | Añadir cursor abajo | Selección > Añadir Cursor Abajo |
@@ -260,7 +318,7 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 
 ---
 
-## 9. Sistema de Configuración (`config.ini`)
+## 11. Sistema de Configuración (`config.ini`)
 
 Rustext almacena su configuración en un archivo INI estándar:
 - **Linux / macOS**: `~/.config/rustext/config.ini`
@@ -301,7 +359,7 @@ sidebar_width = 220
 
 ---
 
-## 10. Sistema de Plugins y Extensiones
+## 12. Sistema de Plugins y Extensiones
 
 Rustext proporciona una arquitectura de extensiones extensible sin sacrificar la filosofía de cero dependencias externas.
 
@@ -335,7 +393,7 @@ Al presionar `Ctrl + P`, el comando estará disponible instantáneamente en la P
 
 ---
 
-## 11. Perfil de Memoria y Benchmarks de Rendimiento
+## 13. Perfil de Memoria y Benchmarks de Rendimiento
 
 Para validar el rendimiento y la estabilidad de Rustext bajo cargas extremas, se diseñó un binario dedicado de profiling y benchmarking: [`src/bin/memory_profile.rs`](file:///home/bolek/Proyectos/rustext/src/bin/memory_profile.rs).
 
@@ -381,7 +439,7 @@ Para validar el rendimiento y la estabilidad de Rustext bajo cargas extremas, se
 
 ---
 
-## 12. Preguntas Frecuentes y Solución de Problemas
+## 14. Preguntas Frecuentes y Solución de Problemas
 
 ### ¿Por qué Rustext no utiliza bibliotecas de ventana como `winit` o `SDL`?
 Para eliminar cientos de dependencias de compilación y asegurar que el binario compile en cualquier máquina en 2 segundos sin requerir gestores de paquetes externos.

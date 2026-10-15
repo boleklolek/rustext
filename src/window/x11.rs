@@ -351,6 +351,7 @@ impl X11Window {
 
                     let is_ctrl = (key_event.state & 4) != 0;
                     let is_alt = (key_event.state & 8) != 0;
+                    let is_shift = (key_event.state & 1) != 0;
 
                     // Special keys
                     match keysym {
@@ -388,7 +389,11 @@ impl X11Window {
                         };
 
                         if let Some(ch) = ctrl_char {
-                            return WindowEvent::Key(Key::Ctrl(ch));
+                            if is_shift {
+                                return WindowEvent::Key(Key::CtrlShift(ch));
+                            } else {
+                                return WindowEvent::Key(Key::Ctrl(ch));
+                            }
                         }
                     }
 

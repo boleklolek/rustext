@@ -1521,6 +1521,97 @@ fn test_autocomplete_multicursor_simultaneous_commit() {
     assert!(text.contains("line2: struct") || text.contains("line2: str") || text.contains("line2: static"));
 }
 
+#[test]
+fn test_global_search_modal_lifecycle_and_filtering() {
+    use rustext::ui::prompt::{PromptKind, PromptModal};
+
+    let cur_dir = std::env::current_dir().unwrap();
+    let mut modal = PromptModal::new_global_search(cur_dir, None);
+    assert_eq!(modal.kind, PromptKind::GlobalSearch);
+    assert!(modal.global_results.is_empty());
+
+    // Type "PieceTable"
+    for c in "PieceTable".chars() {
+        modal.insert_char(c);
+    }
+    assert_eq!(modal.input, "PieceTable");
+    assert!(!modal.global_results.is_empty(), "Project should contain occurrences of PieceTable");
+    assert!(modal.global_total_files > 0);
+    assert!(modal.global_matching_files > 0);
+
+    // Initial selected index is 0
+    assert_eq!(modal.selected_idx, 0);
+
+    // Navigation down & up
+    modal.select_next_global_result(10);
+    if modal.global_results.len() > 1 {
+        assert_eq!(modal.selected_idx, 1);
+    }
+    modal.select_prev_global_result();
+    assert_eq!(modal.selected_idx, 0);
+
+    // Case sensitivity toggle
+    assert!(!modal.case_sensitive);
+    modal.toggle_case_sensitivity();
+    assert!(modal.case_sensitive);
+}
+
+#[test]
+fn test_global_search_action_and_cursor_jump() {
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+    use rustext::ui::terminal::Key;
+
+    let buf = TextBuffer::from_str("hello world");
+    let mut editor = Editor::new(buf);
+
+    // Trigger action
+    editor.execute_action(EditorAction::OpenGlobalSearchPrompt);
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, rustext::ui::prompt::PromptKind::GlobalSearch);
+        }
+        _ => panic!("Expected ModalPrompt with GlobalSearch"),
+    }
+
+    // Type query "Piece" into active modal
+    editor.handle_key(Key::Char('P'));
+    editor.handle_key(Key::Char('i'));
+    editor.handle_key(Key::Char('e'));
+    editor.handle_key(Key::Char('c'));
+    editor.handle_key(Key::Char('e'));
+
+    // Hit Enter to jump to the first matched file and position
+    editor.handle_key(Key::Enter);
+
+    assert_eq!(editor.mode, EditorMode::Normal);
+    // Buffer should now be the opened file
+    let opened_text = editor.doc().buffer.to_string();
+    assert!(opened_text.contains("PieceTable") || opened_text.contains("Piece") || opened_text.contains("piece"));
+    assert!(editor.status_message.is_some());
+    let (msg, _) = editor.status_message.as_ref().unwrap();
+    assert!(msg.starts_with("Salto a "));
+}
+
+#[test]
+fn test_global_search_gui_rendering() {
+    use rustext::ui::prompt::PromptModal;
+
+    let mut fb = Framebuffer::new(800, 600);
+    let cur_dir = std::env::current_dir().unwrap();
+    let modal = PromptModal::new_global_search(cur_dir, Some("struct"));
+    let renderer = GfxRenderer::new();
+
+    renderer.render_global_search_dialog(&mut fb, &modal, false);
+
+    // Verify dialog header pixel
+    let header_pixel = fb.get_pixel(400, 28 + 10);
+    assert_eq!(header_pixel, 0x002D2D2D);
+
+    // Verify body pixels are drawn (not blank black 0)
+    let body_pixel = fb.get_pixel(400, 28 + 80);
+    assert_ne!(body_pixel, 0x00000000);
+}
+
 
 
 
