@@ -71,6 +71,108 @@ impl ThemeColors {
         }
     }
 
+    pub fn monokai() -> Self {
+        Self {
+            background: 0x00272822,
+            gutter_bg: 0x001F201C,
+            gutter_fg: 0x0075715E,
+            gutter_border: 0x003E3D32,
+            tab_bar_bg: 0x001E1F1C,
+            tab_active_bg: 0x00272822,
+            tab_inactive_bg: 0x001A1B18,
+            tab_active_fg: 0x00F8F8F2,
+            tab_inactive_fg: 0x0075715E,
+            status_bar_bg: 0x0075715E,
+            status_bar_fg: 0x00F8F8F2,
+            selection_bg: 0x0049483E,
+            cursor: 0x00F8F8F0,
+            scrollbar_bg: 0x00272822,
+            scrollbar_border: 0x003E3D32,
+            scrollbar_thumb: 0x0059584E,
+            scrollbar_thumb_hover: 0x0075715E,
+            scrollbar_thumb_active: 0x00A6E22E,
+            syntax_keyword: 0x00F92672,
+            syntax_type: 0x0066D9EF,
+            syntax_string: 0x00E6DB74,
+            syntax_number: 0x00AE81FF,
+            syntax_comment: 0x0075715E,
+            syntax_operator: 0x00F92672,
+            syntax_punctuation: 0x00F8F8F2,
+            syntax_plain: 0x00F8F8F2,
+        }
+    }
+
+    pub fn solarized_dark() -> Self {
+        Self {
+            background: 0x00002B36,
+            gutter_bg: 0x00073642,
+            gutter_fg: 0x00586E75,
+            gutter_border: 0x00073642,
+            tab_bar_bg: 0x00073642,
+            tab_active_bg: 0x00002B36,
+            tab_inactive_bg: 0x0005222B,
+            tab_active_fg: 0x0093A1A1,
+            tab_inactive_fg: 0x00586E75,
+            status_bar_bg: 0x00268BD2,
+            status_bar_fg: 0x00FDF6E3,
+            selection_bg: 0x00073642,
+            cursor: 0x002AA198,
+            scrollbar_bg: 0x00002B36,
+            scrollbar_border: 0x00073642,
+            scrollbar_thumb: 0x00586E75,
+            scrollbar_thumb_hover: 0x00657B83,
+            scrollbar_thumb_active: 0x002AA198,
+            syntax_keyword: 0x00859900,
+            syntax_type: 0x00B58900,
+            syntax_string: 0x002AA198,
+            syntax_number: 0x00D33682,
+            syntax_comment: 0x00586E75,
+            syntax_operator: 0x00859900,
+            syntax_punctuation: 0x0093A1A1,
+            syntax_plain: 0x00839496,
+        }
+    }
+
+    pub fn light() -> Self {
+        Self {
+            background: 0x00FFFFFF,
+            gutter_bg: 0x00F6F8FA,
+            gutter_fg: 0x008C959F,
+            gutter_border: 0x00D0D7DE,
+            tab_bar_bg: 0x00EAEAEA,
+            tab_active_bg: 0x00FFFFFF,
+            tab_inactive_bg: 0x00F0F0F0,
+            tab_active_fg: 0x0024292F,
+            tab_inactive_fg: 0x0057606A,
+            status_bar_bg: 0x00007ACC,
+            status_bar_fg: 0x00FFFFFF,
+            selection_bg: 0x00B4D5FE,
+            cursor: 0x000969DA,
+            scrollbar_bg: 0x00F6F8FA,
+            scrollbar_border: 0x00D0D7DE,
+            scrollbar_thumb: 0x00D0D7DE,
+            scrollbar_thumb_hover: 0x00AFB8C1,
+            scrollbar_thumb_active: 0x000969DA,
+            syntax_keyword: 0x00CF222E,
+            syntax_type: 0x008250DF,
+            syntax_string: 0x000A3069,
+            syntax_number: 0x000550AE,
+            syntax_comment: 0x006E7781,
+            syntax_operator: 0x00CF222E,
+            syntax_punctuation: 0x0024292F,
+            syntax_plain: 0x0024292F,
+        }
+    }
+
+    pub fn by_name(name: &str) -> Self {
+        match name.to_lowercase().trim() {
+            "monokai" => Self::monokai(),
+            "solarized" | "solarized_dark" | "solarized-dark" => Self::solarized_dark(),
+            "light" | "github_light" | "github-light" | "claro" => Self::light(),
+            _ => Self::modern_dark(),
+        }
+    }
+
     pub fn token_color(&self, token_type: TokenType) -> u32 {
         match token_type {
             TokenType::Keyword => self.syntax_keyword,
@@ -129,6 +231,7 @@ pub struct GfxRenderer {
     pub tab_bar_height: usize,
     pub status_bar_height: usize,
     pub scrollbar_width: usize,
+    pub show_line_numbers: bool,
 }
 
 impl GfxRenderer {
@@ -139,6 +242,7 @@ impl GfxRenderer {
             tab_bar_height: 26,
             status_bar_height: 22,
             scrollbar_width: 14,
+            show_line_numbers: true,
         }
     }
 
@@ -284,7 +388,11 @@ impl GfxRenderer {
         // 3. Compute Viewport geometry
         let total_lines = doc.buffer.len_lines();
         let gutter_cols = total_lines.to_string().len().max(3);
-        let gutter_width = (gutter_cols + 2) * FONT_WIDTH;
+        let gutter_width = if self.show_line_numbers {
+            (gutter_cols + 2) * FONT_WIDTH
+        } else {
+            8
+        };
 
         let content_y_start = menu_offset + self.tab_bar_height;
         let content_y_end = fb.height.saturating_sub(self.status_bar_height);
@@ -293,8 +401,10 @@ impl GfxRenderer {
         let max_code_x = fb.width.saturating_sub(self.scrollbar_width);
 
         // 3. Draw Gutter background & divider
-        fb.fill_rect(0, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
-        fb.fill_rect(gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
+        if self.show_line_numbers {
+            fb.fill_rect(0, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
+            fb.fill_rect(gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
+        }
 
         // 4. Collect selections & cursor pixel positions
         let mut selections = Vec::new();
@@ -319,12 +429,18 @@ impl GfxRenderer {
 
             if line_idx < total_lines {
                 // Line Number in gutter
-                let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                fb.draw_text(&num_str, FONT_WIDTH, py, self.colors.gutter_fg, None);
+                if self.show_line_numbers {
+                    let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                    fb.draw_text(&num_str, FONT_WIDTH, py, self.colors.gutter_fg, None);
+                }
 
                 // Line Content
                 let line_text = doc.buffer.line(line_idx).unwrap_or_default();
-                let text_start_x = gutter_width + FONT_WIDTH;
+                let text_start_x = if self.show_line_numbers {
+                    gutter_width + FONT_WIDTH
+                } else {
+                    8
+                };
 
                 // Selection background (clamped to max_code_x)
                 for &(start, end) in &selections {
@@ -375,7 +491,7 @@ impl GfxRenderer {
                         }
                     }
                 }
-            } else {
+            } else if self.show_line_numbers {
                 // Tilde past end of file
                 fb.draw_char('~', FONT_WIDTH, py, self.colors.gutter_fg, None);
             }

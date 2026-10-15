@@ -2,6 +2,7 @@
 //! Zero third-party dependencies, purely standard library Rust.
 
 use crate::editor::keymap::EditorAction;
+use crate::editor::config::EditorTheme;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuItem {
@@ -92,6 +93,18 @@ impl MenuBar {
                     MenuItem::action("Pestaña Anterior", "PageUp", EditorAction::PrevTab),
                     MenuItem::separator(),
                     MenuItem::action("Paleta de Comandos...", "Ctrl+P", EditorAction::OpenCommandPalette),
+                ],
+            },
+            MenuCategory {
+                name: "Preferencias",
+                items: vec![
+                    MenuItem::action("Abrir Configuración...", "", EditorAction::OpenConfig),
+                    MenuItem::action("Recargar Configuración", "", EditorAction::ReloadConfig),
+                    MenuItem::separator(),
+                    MenuItem::action("Tema: Modern Dark", "", EditorAction::SetTheme(EditorTheme::Dark)),
+                    MenuItem::action("Tema: Monokai", "", EditorAction::SetTheme(EditorTheme::Monokai)),
+                    MenuItem::action("Tema: Solarized Dark", "", EditorAction::SetTheme(EditorTheme::SolarizedDark)),
+                    MenuItem::action("Tema: Claro (GitHub Light)", "", EditorAction::SetTheme(EditorTheme::Light)),
                 ],
             },
             MenuCategory {

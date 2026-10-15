@@ -38,6 +38,7 @@ pub struct Editor {
     pub plugin_registry: PluginRegistry,
     pub extension_manager: ExtensionManager,
     pub menu_bar: crate::editor::menu::MenuBar,
+    pub config: crate::editor::config::EditorConfig,
     pub tab_size: usize,
     pub auto_indent: bool,
     pub auto_close_brackets: bool,
@@ -64,12 +65,20 @@ impl Editor {
         registry.trigger_init(&mut ctx);
 
         let extension_manager = ExtensionManager::new();
+        let config = crate::editor::config::EditorConfig::load();
+        let tab_size = config.editor.tab_size;
+        let auto_indent = config.editor.auto_indent;
+        let auto_close_brackets = config.editor.auto_close_brackets;
+        let auto_surround = config.editor.auto_surround;
+
+        let mut screen = Screen::new();
+        screen.theme = crate::ui::Theme::by_name(&config.theme.name);
 
         Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
             clipboard: Clipboard::new(),
-            screen: Screen::new(),
+            screen,
             mode: EditorMode::Normal,
             status_message: Some((
                 "Rustext ready. Ctrl+T: New tab | Ctrl+W: Close | PageUp/Dn: Switch tab | Ctrl+C/V: Clipboard | Ctrl+S: Save".to_string(),
@@ -78,10 +87,11 @@ impl Editor {
             plugin_registry: registry,
             extension_manager,
             menu_bar: crate::editor::menu::MenuBar::new(),
-            tab_size: 4,
-            auto_indent: true,
-            auto_close_brackets: true,
-            auto_surround: true,
+            config,
+            tab_size,
+            auto_indent,
+            auto_close_brackets,
+            auto_surround,
             should_quit: false,
         }
     }
@@ -501,6 +511,26 @@ impl Editor {
                 self.execute_extension_command(&id);
             }
 
+            EditorAction::OpenConfig => {
+                let config_path = crate::editor::config::EditorConfig::config_file_path();
+                if !config_path.exists() {
+                    if let Some(parent) = config_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&config_path, crate::editor::config::EditorConfig::default_ini_content());
+                }
+                self.open_file(&config_path);
+                self.set_status("Configuración abierta (config.ini). Guarde con Ctrl+S para aplicar cambios.");
+            }
+
+            EditorAction::ReloadConfig => {
+                self.reload_config();
+            }
+
+            EditorAction::SetTheme(theme) => {
+                self.set_theme(theme.as_str());
+            }
+
             EditorAction::CollapseCursors => {
                 let primary = self.doc().cursors.primary();
                 self.doc_mut().cursors.set_single(primary.head);
@@ -519,6 +549,27 @@ impl Editor {
 
             EditorAction::None => {}
         }
+    }
+
+    /// Reloads configuration from disk and applies updated parameters immediately.
+    pub fn reload_config(&mut self) {
+        let new_cfg = crate::editor::config::EditorConfig::load();
+        self.tab_size = new_cfg.editor.tab_size;
+        self.auto_indent = new_cfg.editor.auto_indent;
+        self.auto_close_brackets = new_cfg.editor.auto_close_brackets;
+        self.auto_surround = new_cfg.editor.auto_surround;
+        self.screen.theme = crate::ui::Theme::by_name(&new_cfg.theme.name);
+        let theme_name = new_cfg.theme.name.clone();
+        self.config = new_cfg;
+        self.set_status(format!("Configuración recargada. Tema: '{}', tab_size: {}", theme_name, self.tab_size));
+    }
+
+    /// Sets the active theme and persists preference in config.ini.
+    pub fn set_theme(&mut self, theme_name: &str) {
+        self.config.theme.name = theme_name.to_string();
+        let _ = self.config.save();
+        self.screen.theme = crate::ui::Theme::by_name(theme_name);
+        self.set_status(format!("Tema cambiado a '{}'", theme_name));
     }
 
     /// Executes an extension command on the current selection or entire document buffer.
@@ -1004,13 +1055,20 @@ impl Editor {
         match doc.buffer.save() {
             Ok(()) => {
                 self.plugin_registry.trigger_after_save(&mut ctx);
-                let path_str = self
-                    .doc()
-                    .buffer
-                    .file_path()
+                let saved_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
+                let path_str = saved_path
+                    .as_ref()
                     .and_then(|p| p.to_str())
                     .unwrap_or("file");
                 self.set_status(format!("Saved {}", path_str));
+
+                // Auto-reload configuration if saving config.ini
+                if let Some(p) = saved_path {
+                    let config_path = crate::editor::config::EditorConfig::config_file_path();
+                    if p == config_path || p.ends_with("config.ini") {
+                        self.reload_config();
+                    }
+                }
             }
             Err(e) => {
                 self.set_status(format!("Error saving file: {}", e));
@@ -1557,13 +1615,18 @@ impl Editor {
     /// Runs the editor in native desktop GUI window mode.
     /// Interacts directly with OS windowing (X11 / Win32 / Cocoa) with zero external dependencies.
     pub fn run_gui(&mut self) -> io::Result<()> {
-        let initial_width = 1024;
-        let initial_height = 640;
+        let initial_width = self.config.gui.window_width.max(400);
+        let initial_height = self.config.gui.window_height.max(300);
         let mut window = crate::window::NativeWindow::new("Rustext", initial_width, initial_height)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         let mut fb = crate::gfx::Framebuffer::new(initial_width, initial_height);
-        let renderer = crate::gfx::GfxRenderer::new();
+        let mut renderer = crate::gfx::GfxRenderer::new();
+        renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
+        renderer.show_line_numbers = self.config.editor.show_line_numbers;
+        let mut active_theme_name = self.config.theme.name.clone();
+        let mut active_show_line_numbers = self.config.editor.show_line_numbers;
+
         let mut mouse_x = 0;
         let mut mouse_y = 0;
         let mut is_dragging_scrollbar = false;
@@ -1574,6 +1637,17 @@ impl Editor {
         let mut cached_title = String::new();
 
         while !self.should_quit && !window.should_close() {
+            // Check dynamic config changes
+            if self.config.theme.name != active_theme_name {
+                renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
+                active_theme_name = self.config.theme.name.clone();
+                needs_redraw = true;
+            }
+            if self.config.editor.show_line_numbers != active_show_line_numbers {
+                renderer.show_line_numbers = self.config.editor.show_line_numbers;
+                active_show_line_numbers = self.config.editor.show_line_numbers;
+                needs_redraw = true;
+            }
             // Check status message expiry (clear after 6 seconds)
             if let Some((_, created_at)) = self.status_message {
                 if created_at.elapsed() > std::time::Duration::from_secs(6) {
@@ -2114,6 +2188,13 @@ impl Editor {
             let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
             let status_msg = self.status_message.as_ref().map(|(msg, _)| msg.as_str());
 
+            let menu_bar = if self.config.gui.menu_bar {
+                Some(&self.menu_bar)
+            } else {
+                None
+            };
+            renderer.scrollbar_width = if self.config.gui.scrollbar { 14 } else { 0 };
+
             renderer.render_with_scrollbar_state(
                 &mut fb,
                 &self.documents[active_idx],
@@ -2121,7 +2202,7 @@ impl Editor {
                 active_idx,
                 status_msg,
                 None,
-                Some(&self.menu_bar),
+                menu_bar,
                 scrollbar_hovered,
                 is_dragging_scrollbar,
             );

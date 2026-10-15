@@ -33,6 +33,9 @@ pub enum EditorAction {
     CreateSampleExtension,
     ExecuteExtensionCommand(String),
     CollapseCursors,
+    OpenConfig,
+    ReloadConfig,
+    SetTheme(crate::editor::config::EditorTheme),
     // Clipboard
     Copy,
     Cut,

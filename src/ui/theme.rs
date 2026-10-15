@@ -33,6 +33,67 @@ impl Theme {
             mode_command_fg: "\x1b[1;33m",
         }
     }
+
+    /// Monokai ANSI theme.
+    pub fn monokai() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;241m",
+            line_number_bg: "\x1b[48;5;235m",
+            status_bar_bg: "\x1b[48;5;238m",
+            status_bar_fg: "\x1b[38;5;230m",
+            selection_bg: "\x1b[48;5;237m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;35m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
+    /// Solarized Dark ANSI theme.
+    pub fn solarized_dark() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;244m",
+            line_number_bg: "\x1b[48;5;234m",
+            status_bar_bg: "\x1b[48;5;24m",
+            status_bar_fg: "\x1b[38;5;254m",
+            selection_bg: "\x1b[48;5;236m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;34m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
+    /// Light ANSI theme.
+    pub fn light() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;245m",
+            line_number_bg: "\x1b[48;5;254m",
+            status_bar_bg: "\x1b[48;5;31m",
+            status_bar_fg: "\x1b[38;5;231m",
+            selection_bg: "\x1b[48;5;153m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;34m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
+    /// Resolves theme by name.
+    pub fn by_name(name: &str) -> Self {
+        match name.to_lowercase().trim() {
+            "monokai" => Self::monokai(),
+            "solarized" | "solarized_dark" | "solarized-dark" => Self::solarized_dark(),
+            "light" | "github_light" | "github-light" | "claro" => Self::light(),
+            _ => Self::modern_dark(),
+        }
+    }
 }
 
 impl Default for Theme {

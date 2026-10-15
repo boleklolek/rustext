@@ -66,6 +66,12 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Administrador de Extensiones...", shortcut: "Ctrl+Shift+X", action: EditorAction::OpenExtensionsManager },
         CommandItem { name: "Extensiones: Recargar", shortcut: "", action: EditorAction::ReloadExtensions },
         CommandItem { name: "Extensiones: Crear Extensión de Ejemplo", shortcut: "", action: EditorAction::CreateSampleExtension },
+        CommandItem { name: "Preferencias: Abrir Configuración (config.ini)", shortcut: "", action: EditorAction::OpenConfig },
+        CommandItem { name: "Preferencias: Recargar Configuración", shortcut: "", action: EditorAction::ReloadConfig },
+        CommandItem { name: "Tema: Modern Dark", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::Dark) },
+        CommandItem { name: "Tema: Monokai", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::Monokai) },
+        CommandItem { name: "Tema: Solarized Dark", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::SolarizedDark) },
+        CommandItem { name: "Tema: Claro (GitHub Light)", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::Light) },
         CommandItem { name: "Acerca de Rustext", shortcut: "F1", action: EditorAction::OpenAboutDialog },
         CommandItem { name: "Salir de Rustext", shortcut: "Ctrl+Q", action: EditorAction::Quit },
     ]

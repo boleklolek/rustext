@@ -618,6 +618,133 @@ fn test_find_replace_field_switching_and_editing() {
     assert!(display.contains("rep"));
 }
 
+#[test]
+fn test_config_ini_parsing_and_serialization() {
+    use rustext::editor::config::EditorConfig;
+
+    let default_ini = EditorConfig::default_ini_content();
+    let config = EditorConfig::parse(default_ini);
+    assert_eq!(config.editor.tab_size, 4);
+    assert!(config.editor.auto_indent);
+    assert!(config.editor.auto_close_brackets);
+    assert!(config.editor.auto_surround);
+    assert!(config.editor.show_line_numbers);
+    assert_eq!(config.theme.name, "dark");
+    assert_eq!(config.gui.window_width, 1024);
+    assert_eq!(config.gui.window_height, 640);
+    assert!(config.gui.menu_bar);
+    assert!(config.gui.status_bar);
+    assert!(config.gui.scrollbar);
+
+    // Custom configuration
+    let custom_ini = r#"
+[editor]
+tab_size = 8
+auto_indent = false
+auto_close_brackets = 0
+auto_surround = no
+show_line_numbers = off
+
+[theme]
+name = monokai
+
+[gui]
+window_width = 1440
+window_height = 900
+menu_bar = off
+status_bar = false
+scrollbar = 0
+"#;
+    let custom_cfg = EditorConfig::parse(custom_ini);
+    assert_eq!(custom_cfg.editor.tab_size, 8);
+    assert!(!custom_cfg.editor.auto_indent);
+    assert!(!custom_cfg.editor.auto_close_brackets);
+    assert!(!custom_cfg.editor.auto_surround);
+    assert!(!custom_cfg.editor.show_line_numbers);
+    assert_eq!(custom_cfg.theme.name, "monokai");
+    assert_eq!(custom_cfg.gui.window_width, 1440);
+    assert_eq!(custom_cfg.gui.window_height, 900);
+    assert!(!custom_cfg.gui.menu_bar);
+    assert!(!custom_cfg.gui.status_bar);
+    assert!(!custom_cfg.gui.scrollbar);
+
+    // Test serialization roundtrip
+    let serialized = custom_cfg.to_ini_string();
+    let roundtrip_cfg = EditorConfig::parse(&serialized);
+    assert_eq!(custom_cfg, roundtrip_cfg);
+
+    // Clamping test
+    let extreme_ini = r#"
+[editor]
+tab_size = 999
+[gui]
+window_width = 50
+window_height = 10000
+"#;
+    let clamped = EditorConfig::parse(extreme_ini);
+    assert_eq!(clamped.editor.tab_size, 16);
+    assert_eq!(clamped.gui.window_width, 320);
+    assert_eq!(clamped.gui.window_height, 4320);
+}
+
+#[test]
+fn test_theme_variants_and_switching() {
+    use rustext::editor::config::EditorTheme;
+    use rustext::gfx::ThemeColors;
+    use rustext::ui::Theme;
+
+    let dark = ThemeColors::by_name("dark");
+    let monokai = ThemeColors::by_name("monokai");
+    let solarized = ThemeColors::by_name("solarized");
+    let light = ThemeColors::by_name("light");
+
+    assert_eq!(dark.background, 0x001E1E1E);
+    assert_eq!(monokai.background, 0x00272822);
+    assert_eq!(solarized.background, 0x00002B36);
+    assert_eq!(light.background, 0x00FFFFFF);
+
+    // Verify ANSI TUI themes
+    let ansi_dark = Theme::by_name("dark");
+    let ansi_light = Theme::by_name("light");
+    assert_ne!(ansi_dark.status_bar_bg, ansi_light.status_bar_bg);
+
+    // Enum conversion
+    assert_eq!(EditorTheme::from_name("monokai"), EditorTheme::Monokai);
+    assert_eq!(EditorTheme::from_name("solarized_dark"), EditorTheme::SolarizedDark);
+    assert_eq!(EditorTheme::from_name("light"), EditorTheme::Light);
+    assert_eq!(EditorTheme::from_name("unknown"), EditorTheme::Dark);
+}
+
+#[test]
+fn test_editor_actions_config_and_theme() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::config::{EditorConfig, EditorTheme};
+    use rustext::editor::keymap::EditorAction;
+
+    let mut editor = Editor::new(TextBuffer::from_str("fn main() {}"));
+
+    // Set theme via action
+    editor.execute_action(EditorAction::SetTheme(EditorTheme::Monokai));
+    assert_eq!(editor.config.theme.name, "monokai");
+
+    // Open config file into tab
+    let temp_conf = std::env::temp_dir().join("test_rustext_config.ini");
+    std::fs::write(&temp_conf, EditorConfig::default_ini_content()).unwrap();
+    editor.open_file(&temp_conf);
+    assert_eq!(editor.documents.len(), 2);
+    assert!(editor.doc().buffer.file_path().unwrap().ends_with("test_rustext_config.ini"));
+    let _ = std::fs::remove_file(&temp_conf);
+
+    // Toggle line numbers in renderer
+    let mut fb = rustext::gfx::Framebuffer::new(800, 600);
+    let mut renderer = rustext::gfx::GfxRenderer::new();
+    renderer.show_line_numbers = false;
+    let tabs = vec!["main.rs".to_string()];
+    renderer.render(&mut fb, editor.doc(), &tabs, 0, None, None, None);
+    assert_eq!(renderer.show_line_numbers, false);
+}
+
 
 
 

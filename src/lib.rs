@@ -19,4 +19,4 @@ pub use plugin::{
 pub use ui::{Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind};
 pub use gfx::{Framebuffer, GfxRenderer, ThemeColors};
 pub use window::{NativeWindow, WindowEvent, MouseButton};
-pub use editor::{Editor, EditorMode, EditorAction, Keymap, Document};
+pub use editor::{Editor, EditorMode, EditorAction, Keymap, Document, EditorConfig, EditorTheme};
