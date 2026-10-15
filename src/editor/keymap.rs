@@ -59,6 +59,13 @@ pub enum EditorAction {
     FocusSidebar,
     // Autocomplete
     TriggerAutocomplete,
+    // Minimap
+    ToggleMinimap,
+    // Split View
+    ToggleSplitVertical,
+    ToggleSplitHorizontal,
+    SwitchSplitPane,
+    CloseSplit,
     Quit,
     None,
 }
@@ -71,6 +78,14 @@ impl Keymap {
         match key {
             // Sidebar shortcut (Sublime / VS Code Ctrl+B)
             Key::Ctrl('b') => EditorAction::ToggleSidebar,
+
+            // Minimap (Ctrl+M)
+            Key::Ctrl('m') | Key::Ctrl('M') => EditorAction::ToggleMinimap,
+
+            // Split View (Ctrl+\ for vertical, Ctrl+Shift+\ for horizontal, Alt+\ to switch pane)
+            Key::Ctrl('\\') => EditorAction::ToggleSplitVertical,
+            Key::CtrlShift('\\') | Key::CtrlShift('|') => EditorAction::ToggleSplitHorizontal,
+            Key::Alt('\\') => EditorAction::SwitchSplitPane,
 
             // Document navigation
             Key::Left => EditorAction::MoveLeft { select: false },

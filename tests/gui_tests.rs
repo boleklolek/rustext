@@ -1612,9 +1612,173 @@ fn test_global_search_gui_rendering() {
     assert_ne!(body_pixel, 0x00000000);
 }
 
+#[test]
+fn test_minimap_geometry_and_rendering() {
+    let mut fb = Framebuffer::new(800, 600);
+    let sample_code = (0..100)
+        .map(|i| format!("fn line_{}() {{\n    let x = {};\n}}", i, i))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let doc = Document::new(TextBuffer::from_str(&sample_code));
+    let renderer = GfxRenderer::new();
 
+    let mm_geom = renderer.minimap_geometry(800, 600, &doc, true);
+    assert!(mm_geom.width > 0);
+    assert_eq!(mm_geom.width, renderer.minimap_width);
+    assert!(mm_geom.height > 0);
+    assert!(mm_geom.contains_point(mm_geom.x + 10, mm_geom.y + 10));
+    assert!(!mm_geom.contains_point(10, 10));
 
+    // Slider position and bounds
+    assert!(mm_geom.slider_height > 0);
+    assert!(mm_geom.slider_y >= mm_geom.y);
+    assert!(mm_geom.slider_contains_point(mm_geom.x + 5, mm_geom.slider_y + 2));
 
+    // Line translation for mouse click
+    let line_mid = mm_geom.line_for_click_y(mm_geom.y + mm_geom.height / 2);
+    assert!(line_mid > 0 && line_mid <= doc.buffer.len_lines());
 
+    // Row calculation for slider dragging
+    let row_target = mm_geom.row_for_slider_y(mm_geom.y + 50);
+    assert!(row_target <= doc.buffer.len_lines());
 
+    // Render minimap into framebuffer
+    renderer.render_minimap(&mut fb, &doc, &mm_geom, false, false);
+    let bg_pixel = fb.get_pixel(mm_geom.x + 2, mm_geom.y + 2);
+    assert_ne!(bg_pixel, 0x00000000);
+}
 
+#[test]
+fn test_split_editor_lifecycle_and_switching() {
+    use rustext::editor::{Editor, EditorAction};
+
+    let mut editor = Editor::new(TextBuffer::from_str("// Doc 1"));
+    editor.new_tab();
+    editor.doc_mut().buffer.insert(0, "// Doc 2");
+    assert_eq!(editor.documents.len(), 2);
+    assert_eq!(editor.active_doc_idx, 1);
+
+    // Initial state: No split
+    assert!(!editor.split.is_split());
+
+    // 1. Toggle Vertical Split
+    editor.execute_action(EditorAction::ToggleSplitVertical);
+    assert!(editor.split.is_split());
+    assert_eq!(editor.split.direction, rustext::editor::split::SplitDirection::Vertical);
+    assert_eq!(editor.split.active_pane, 1);
+    assert_eq!(editor.active_doc_idx, editor.split.secondary_doc_idx);
+
+    // 2. Switch Pane (Alt+\)
+    editor.execute_action(EditorAction::SwitchSplitPane);
+    assert_eq!(editor.split.active_pane, 0);
+    assert_eq!(editor.active_doc_idx, editor.split.primary_doc_idx);
+
+    // 3. Switch back to Pane 1
+    editor.execute_action(EditorAction::SwitchSplitPane);
+    assert_eq!(editor.split.active_pane, 1);
+
+    // 4. Toggle Horizontal Split
+    editor.execute_action(EditorAction::ToggleSplitHorizontal);
+    assert!(editor.split.is_split());
+    assert_eq!(editor.split.direction, rustext::editor::split::SplitDirection::Horizontal);
+
+    // 5. Close Split
+    editor.execute_action(EditorAction::CloseSplit);
+    assert!(!editor.split.is_split());
+    assert_eq!(editor.active_doc_idx, editor.split.primary_doc_idx);
+}
+
+#[test]
+fn test_split_rendering_and_pane_geometries() {
+    let mut fb = Framebuffer::new(1024, 768);
+    let doc1 = Document::new(TextBuffer::from_str("fn first_pane() {}"));
+    let doc2 = Document::new(TextBuffer::from_str("fn second_pane() {}"));
+
+    let renderer = GfxRenderer::new();
+    let mut split = rustext::editor::split::SplitState::new();
+
+    // 1. Check pane geometries when vertical split is active
+    split.toggle_vertical(2, 0);
+    let (p0, p1, splitter) = renderer.pane_geometries(1024, 768, 0, true, &split);
+    assert_eq!(p0.x, 0);
+    assert!(p0.width > 300);
+    assert!(p1.x > p0.width);
+    assert!(splitter.is_some());
+    let (sx, sy, sw, sh) = splitter.unwrap();
+    assert_eq!(sx, p0.width);
+    assert_eq!(sw, 4);
+    assert_eq!(sh, p0.height);
+
+    // 2. Subgeometries for Pane 0 and Pane 1
+    let (sb0, mm0, max_code_x0) = renderer.pane_subgeometries(&p0, &doc1);
+    assert!(sb0.width > 0);
+    assert!(mm0.is_some());
+    assert!(max_code_x0 < p0.x + p0.width);
+
+    let (sb1, mm1, max_code_x1) = renderer.pane_subgeometries(&p1, &doc2);
+    assert!(sb1.width > 0);
+    assert!(mm1.is_some());
+    assert!(max_code_x1 < p1.x + p1.width);
+
+    // 3. Render full frame with vertical split into framebuffer
+    let tabs = vec!["doc1.rs".to_string(), "doc2.rs".to_string()];
+    renderer.render_full_frame_with_split(
+        &mut fb,
+        &doc1,
+        Some(&doc2),
+        Some(&split),
+        &tabs,
+        0,
+        Some("Split Mode Active"),
+        None,
+        None,
+        None,
+        false,
+        false,
+        false,
+        false,
+        None,
+    );
+
+    // Verify pane 0 header and pane 1 header pixels are drawn
+    let p0_hdr_pixel = fb.get_pixel(p0.x + 10, p0.y + 10);
+    assert_ne!(p0_hdr_pixel, 0x00000000);
+    let p1_hdr_pixel = fb.get_pixel(p1.x + 10, p1.y + 10);
+    assert_ne!(p1_hdr_pixel, 0x00000000);
+
+    // Verify splitter bar pixel
+    let splitter_pixel = fb.get_pixel(sx + 1, sy + 50);
+    assert_ne!(splitter_pixel, 0x00000000);
+}
+
+#[test]
+fn test_minimap_and_split_config_and_menu() {
+    use rustext::editor::config::EditorConfig;
+    use rustext::editor::menu::MenuBar;
+    use rustext::editor::EditorAction;
+
+    // Config options parsing and defaults
+    let cfg = EditorConfig::load();
+    assert!(cfg.gui.minimap);
+    assert_eq!(cfg.gui.minimap_width, 100);
+
+    let ini_str = cfg.to_ini_string();
+    assert!(ini_str.contains("minimap = true"));
+    assert!(ini_str.contains("minimap_width = 100"));
+
+    // Menu bar contains the new entries under "Ver"
+    let menu = MenuBar::new();
+    let ver_cat = &menu.categories[3];
+    assert_eq!(ver_cat.name, "Ver");
+    let has_minimap_item = ver_cat.items.iter().any(|item| item.action == Some(EditorAction::ToggleMinimap));
+    let has_split_v_item = ver_cat.items.iter().any(|item| item.action == Some(EditorAction::ToggleSplitVertical));
+    let has_split_h_item = ver_cat.items.iter().any(|item| item.action == Some(EditorAction::ToggleSplitHorizontal));
+    let has_switch_pane = ver_cat.items.iter().any(|item| item.action == Some(EditorAction::SwitchSplitPane));
+    let has_close_split = ver_cat.items.iter().any(|item| item.action == Some(EditorAction::CloseSplit));
+
+    assert!(has_minimap_item);
+    assert!(has_split_v_item);
+    assert!(has_split_h_item);
+    assert!(has_switch_pane);
+    assert!(has_close_split);
+}

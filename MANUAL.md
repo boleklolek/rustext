@@ -12,16 +12,17 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 2. [Instalación y Compilación](#2-instalación-y-compilación)
 3. [Guía de la Interfaz Gráfica (Desktop GUI) y TUI](#3-guía-de-la-interfaz-gráfica-desktop-gui-y-tui)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
-5. [Motor de Edición y Multicursor](#5-motor-de-edición-y-multicursor)
-6. [Autocompletado Contextual Inteligente](#6-autocompletado-contextual-inteligente)
-7. [Búsqueda Global en Todo el Proyecto](#7-búsqueda-global-en-todo-el-proyecto)
-8. [Sistema de Snippets e Indentación Inteligente](#8-sistema-de-snippets-e-indentación-inteligente)
-9. [Diagnósticos en Vivo, Linter y Formato de Código](#9-diagnósticos-en-vivo-linter-y-formato-de-código)
-10. [Paleta de Comandos y Atajos de Teclado](#10-paleta-de-comandos-y-atajos-de-teclado)
-11. [Sistema de Configuración (`config.ini`)](#11-sistema-de-configuración-configini)
-12. [Sistema de Plugins y Extensiones](#12-sistema-de-plugins-y-extensiones)
-13. [Perfil de Memoria y Benchmarks de Rendimiento](#13-perfil-de-memoria-y-benchmarks-de-rendimiento)
-14. [Preguntas Frecuentes y Solución de Problemas](#14-preguntas-frecuentes-y-solución-de-problemas)
+5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
+6. [Motor de Edición y Multicursor](#6-motor-de-edición-y-multicursor)
+7. [Autocompletado Contextual Inteligente](#7-autocompletado-contextual-inteligente)
+8. [Búsqueda Global en Todo el Proyecto](#8-búsqueda-global-en-todo-el-proyecto)
+9. [Sistema de Snippets e Indentación Inteligente](#9-sistema-de-snippets-e-indentación-inteligente)
+10. [Diagnósticos en Vivo, Linter y Formato de Código](#10-diagnósticos-en-vivo-linter-y-formato-de-código)
+11. [Paleta de Comandos y Atajos de Teclado](#11-paleta-de-comandos-y-atajos-de-teclado)
+12. [Sistema de Configuración (`config.ini`)](#12-sistema-de-configuración-configini)
+13. [Sistema de Plugins y Extensiones](#13-sistema-de-plugins-y-extensiones)
+14. [Perfil de Memoria y Benchmarks de Rendimiento](#14-perfil-de-memoria-y-benchmarks-de-rendimiento)
+15. [Preguntas Frecuentes y Solución de Problemas](#15-preguntas-frecuentes-y-solución-de-problemas)
 
 ---
 
@@ -92,29 +93,30 @@ cargo run --release --bin memory_profile
 La interfaz gráfica de Rustext está diseñada con una estética moderna, limpia y minimalista inspirada en Tokyo Night y Catppuccin:
 
 ```text
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ Archivo   Editar   Selección   Ver   Preferencias   Extensiones   Herramientas   Ayuda │  ← Barra de Menús Nativa
-├──────────────────┬─────────────────────────────────────────────────────────────────────┤
-│ PROYECTO [+] ↺ × │  1 main.rs ×    2 config.ini ×   [+]                                │  ← Barra de Pestañas
-├──────────────────┼─────────────────────────────────────────────────────────────────────┤
-│ ▼ src            │  1 │ pub fn main() {                                             ▲  │
-│   • lib.rs       │  2 │     let config = EditorConfig::load();                      │  │
-│   • main.rs      │  3 │     println!("Rustext iniciado");                           █  │  ← Scrollbar Interactivo
-│ ▶ editor         │  4 │ }                                                           │  │
-│ ▶ gfx            │  ~ │                                                             ▼  │
-│ • Cargo.toml     │  ~ │                                                                │
-├──────────────────┴─────────────────────────────────────────────────────────────────────┤
-│ [ EDIT ]  src/main.rs  |  Línea 3, Col 5  |  UTF-8  |  Rust  |  Cursores: 1            │  ← Barra de Estado
-└────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Archivo   Editar   Selección   Ver   Preferencias   Extensiones   Herramientas   Ayuda           │  ← Menú Nativo
+├──────────────────┬───────────────────────────────────────────┬───────────────────────────────────┤
+│ PROYECTO [+] ↺ × │ 1: main.rs [ACTIVO]                       │ 2: config.ini                     │  ← Split Editor (Ctrl+\)
+├──────────────────┼───────────────────────────────────────────┼───────────────────────────────────┤
+│ ▼ src            │ 1 │ pub fn main() {                    ▲  │ 1 │ [gui]                      ▲  │
+│   • lib.rs       │ 2 │     let config = EditorConfig();   █  │ 2 │ minimap = true           █  │  ← Deslizador Viewport
+│   • main.rs      │ 3 │     println!("Rustext listo");     │  │ 3 │ minimap_width = 100    │  │
+│ ▶ editor         │ 4 │ }                                  ▼  │ 4 │ theme = "tokyo-night"      ▼  │
+│ ▶ gfx            │ ~ │                                    ░  │ ~ │                                ░  │  ← Minimapa Sintáctico
+├──────────────────┴───────────────────────────────────────────┴───────────────────────────────────┤
+│ [ EDIT ]  src/main.rs  |  Línea 3, Col 5  |  UTF-8  |  Rust  |  Cursores: 1  |  Panel: 1/2       │  ← Barra de Estado
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Componentes de la Interfaz:
 - **Barra de Menús Superior**: Desplegables accesibles mediante clic o atajos `Alt+A` (Archivo), `Alt+E` (Editar), `Alt+V` (Ver), etc.
 - **Barra de Pestañas (Tab Bar)**: Muestra los búferes abiertos, botón de cerrar `×`, botón de nueva pestaña `[+]` y advertencia de cambios sin guardar `[+]`.
-- **Barra Lateral (File Explorer)**: Árbol interactivo de archivos y carpetas del proyecto a la izquierda.
+- **Barra Lateral (File Explorer)**: Árbol interactivo de archivos y carpetas del proyecto a la izquierda (`Ctrl + B`).
 - **Gutter y Líneas de Código**: Números de línea alineados, indicador de advertencia/error de diagnóstico y lienzo de código.
+- **Minimapa Gráfico de Código**: Columna lateral con micro-renderizado del código y deslizador translúcido de viewport para navegación visual instantánea (`Ctrl + M`).
 - **Scrollbar Vertical Interactivo**: Pista de desplazamiento con pulgar redondeado arrastrable y soporte para clics de página arriba/abajo.
-- **Barra de Estado Inferior**: Píldoras con modo de edición, nombre de archivo, posición del cursor, codificación UTF-8, lenguaje y contador de cursores.
+- **Paneles Divididos (Split Editor)**: División vertical (`Ctrl + \`) u horizontal (`Ctrl + Shift + \`) con barra separadora (splitter) arrastrable y paneles independientes.
+- **Barra de Estado Inferior**: Píldoras con modo de edición, nombre de archivo, posición del cursor, codificación UTF-8, lenguaje, contador de cursores e indicador de panel activo (`Panel: 1/2`).
 
 ---
 
@@ -146,9 +148,62 @@ El **Explorador Lateral (File Explorer Sidebar)** permite gestionar proyectos co
   - `←`: Contraer carpeta o saltar a la carpeta contenedora.
   - `Esc`: Devolver el foco al editor de código.
 
+## 5. División de Vistas (Split Editor) y Minimapa Gráfico
+
+Rustext ofrece dos herramientas visuales avanzadas para desarrolladores que gestionan bases de código extensas o requieren comparar y editar múltiples áreas de un proyecto en paralelo:
+
 ---
 
-## 5. Motor de Edición y Multicursor
+### 5.1 Minimapa Gráfico de Código (`Ctrl + M`)
+
+El **Minimapa Gráfico** proporciona una vista panorámica en miniatura de todo el código fuente del documento activo:
+
+1. **Micro-Renderizado de Sintaxis**:
+   - Cada línea de código se proyecta en una fila de micro-píxeles compactos (bloques de 2×1 px).
+   - Preserva fielmente la sangría (indentación) y espaciado de los bloques de código.
+   - Aplica el resaltado de sintaxis en tiempo real según el lexer del lenguaje (palabras clave, literales numéricos, cadenas, comentarios, identificadores y operadores).
+2. **Deslizador de Viewport Translúcido**:
+   - Una ventana deslizante semi-transparente resalta el rango exacto de líneas actualmente visibles en el área de edición principal.
+   - Cuenta con bordes superior e inferior contrastados para una clara delimitación visual.
+3. **Navegación Interactiva con Ratón**:
+   - **Clic Directo**: Al hacer clic en cualquier sección del minimapa, el viewport salta inmediatamente centrando la línea seleccionada.
+   - **Arrastre del Deslizador**: Haga clic y arrastre sobre el cuadro translúcido para desplazarse continuamente por el archivo a 60 FPS sin tirones.
+4. **Configuración y Personalización**:
+   - Puede activarse o desactivarse con `Ctrl + M` o desde el menú **Ver > Minimapa**.
+   - En `config.ini`, establezca `minimap = true` o `minimap = false`, y ajuste su ancho con `minimap_width = 100` (en píxeles).
+
+---
+
+### 5.2 División de Vistas y Paneles Independientes (Split Editor)
+
+El sistema de **Split Editor** permite dividir el lienzo de trabajo en dos paneles independientes para comparar código, editar dos secciones lejanas del mismo archivo o inspeccionar documentación y código en simultáneo:
+
+1. **Modos de División**:
+   - **División Vertical (`Ctrl + \`)**: Dispone dos paneles lado a lado (ideal para pantallas panorámicas 16:9 o ultra-wide).
+   - **División Horizontal (`Ctrl + Shift + \`)**: Apila dos paneles uno sobre otro (ideal para comparar funciones contiguas o pantallas verticales).
+   - Conmutación directa desde los atajos de teclado o a través del menú **Ver > Dividir Verticalmente / Dividir Horizontalmente**.
+2. **Conmutación de Foco y Navegación**:
+   - **Atajo `Alt + \`**: Alterna instantáneamente el foco entre el Panel 1 y el Panel 2.
+   - **Clic del Ratón**: Hacer clic en cualquier elemento de un panel (cabecera, gutter, código, scrollbar o minimapa) le transfiere el foco activo de inmediato.
+   - **Indicadores Visuales**:
+     - La cabecera del panel activo muestra el distintivo `[ACTIVO]` con tipografía resaltada.
+     - La barra de estado inferior refleja el panel enfocado mediante la píldora `Panel: 1/2` o `Panel: 2/2`.
+3. **Barra de División (Splitter) Arrastrable**:
+   - Una línea divisoria interactiva separa ambos paneles.
+   - Al posicionar el puntero del ratón sobre el splitter y arrastrarlo, el usuario puede ajustar dinámicamente la proporción del espacio asignado a cada panel.
+   - **Límites de Seguridad**: El ratio está restringido al rango `[0.15, 0.85]`, garantizando que ninguno de los paneles colapse a tamaño cero.
+4. **Independencia Total de Vistas y Búferes**:
+   - Cada panel mantiene su propio archivo activo (pueden ser dos archivos distintos de la lista de pestañas o el mismo documento abierto dos veces).
+   - **Desplazamiento Desacoplado**: Al navegar o hacer scroll en un panel, el otro conserva inalterada su posición de lectura.
+   - **Cursores y Selecciones Aisladas**: Las operaciones multicursor, selecciones de texto y búsquedas locales se ejecutan en el panel que tiene el foco.
+   - **Rueda del Ratón**: El scroll vertical con la rueda del ratón afecta automáticamente al panel que se encuentra bajo el cursor del ratón.
+5. **Cierre y Reversión**:
+   - Puede cerrar la vista dividida en cualquier momento con el menú **Ver > Cerrar División**, desde la Paleta de Comandos (`Ctrl + P`), o pulsando nuevamente el atajo de la división activa (`Ctrl + \` o `Ctrl + Shift + \`).
+   - Al cerrar la división, todas las modificaciones permanecen seguras en memoria y las pestañas se sincronizan sin pérdidas.
+
+---
+
+## 6. Motor de Edición y Multicursor
 
 Rustext incluye un motor multicursor vectorial de primera clase:
 
@@ -177,7 +232,7 @@ Cuando múltiples cursores escriben simultáneamente:
 
 ---
 
-## 6. Autocompletado Contextual Inteligente
+## 7. Autocompletado Contextual Inteligente
 
 Rustext implementa un motor de autocompletado en tiempo real sin dependencias externas ni servidores pesados:
 
@@ -203,7 +258,7 @@ Rustext implementa un motor de autocompletado en tiempo real sin dependencias ex
 
 ---
 
-## 7. Búsqueda Global en Todo el Proyecto
+## 8. Búsqueda Global en Todo el Proyecto
 
 La **Búsqueda Global en Todo el Proyecto (`Ctrl + Shift + F`)** permite localizar al instante cualquier cadena de texto o símbolo en todos los archivos del árbol del proyecto.
 
@@ -231,7 +286,7 @@ La **Búsqueda Global en Todo el Proyecto (`Ctrl + Shift + F`)** permite localiz
 
 ---
 
-## 8. Sistema de Snippets e Indentación Inteligente
+## 9. Sistema de Snippets e Indentación Inteligente
 
 Rustext incluye un motor de plantillas y snippets sin dependencias externas:
 
@@ -249,7 +304,7 @@ Escriba el prefijo y presione `Tab`:
 
 ---
 
-## 9. Diagnósticos en Vivo, Linter y Formato de Código
+## 10. Diagnósticos en Vivo, Linter y Formato de Código
 
 Rustext incluye herramientas de verificación y corrección de código integradas:
 
@@ -279,7 +334,7 @@ Configure en `config.ini` `format_on_save = true` o `check_on_save = true` para 
 
 ---
 
-## 10. Paleta de Comandos y Atajos de Teclado
+## 11. Paleta de Comandos y Atajos de Teclado
 
 Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite buscar y ejecutar cualquier acción del editor mediante filtrado difuso.
 
@@ -306,6 +361,10 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | `Ctrl + J` | Añadir cursor abajo | Selección > Añadir Cursor Abajo |
 | `Esc` | Cursor único / Cancelar modal | Selección > Cursor Único |
 | `Ctrl + B` | Alternar Explorador Lateral | Ver > Explorador Lateral |
+| `Ctrl + M` | **Alternar Minimapa Gráfico** | Ver > Minimapa |
+| `Ctrl + \` | **Alternar División Vertical (Split)** | Ver > Dividir Verticalmente |
+| `Ctrl + Shift + \`| **Alternar División Horizontal** | Ver > Dividir Horizontalmente |
+| `Alt + \` | **Cambiar Foco de Panel Dividido** | Ver > Cambiar Foco de Panel |
 | `PageUp` | Cambiar a pestaña anterior | Ver > Pestaña Anterior |
 | `PageDown` | Cambiar a pestaña siguiente | Ver > Pestaña Siguiente |
 | `Ctrl + P` | Abrir Paleta de Comandos | Ver > Paleta de Comandos... |
@@ -318,7 +377,7 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 
 ---
 
-## 11. Sistema de Configuración (`config.ini`)
+## 12. Sistema de Configuración (`config.ini`)
 
 Rustext almacena su configuración en un archivo INI estándar:
 - **Linux / macOS**: `~/.config/rustext/config.ini`
@@ -355,11 +414,13 @@ scrollbar = true
 menu_bar = true
 sidebar = true
 sidebar_width = 220
+minimap = true           # Mostrar minimapa gráfico de código lateral
+minimap_width = 100      # Ancho del minimapa en píxeles (default: 100)
 ```
 
 ---
 
-## 12. Sistema de Plugins y Extensiones
+## 13. Sistema de Plugins y Extensiones
 
 Rustext proporciona una arquitectura de extensiones extensible sin sacrificar la filosofía de cero dependencias externas.
 
@@ -393,7 +454,7 @@ Al presionar `Ctrl + P`, el comando estará disponible instantáneamente en la P
 
 ---
 
-## 13. Perfil de Memoria y Benchmarks de Rendimiento
+## 14. Perfil de Memoria y Benchmarks de Rendimiento
 
 Para validar el rendimiento y la estabilidad de Rustext bajo cargas extremas, se diseñó un binario dedicado de profiling y benchmarking: [`src/bin/memory_profile.rs`](file:///home/bolek/Proyectos/rustext/src/bin/memory_profile.rs).
 
@@ -439,7 +500,7 @@ Para validar el rendimiento y la estabilidad de Rustext bajo cargas extremas, se
 
 ---
 
-## 14. Preguntas Frecuentes y Solución de Problemas
+## 15. Preguntas Frecuentes y Solución de Problemas
 
 ### ¿Por qué Rustext no utiliza bibliotecas de ventana como `winit` o `SDL`?
 Para eliminar cientos de dependencias de compilación y asegurar que el binario compile en cualquier máquina en 2 segundos sin requerir gestores de paquetes externos.

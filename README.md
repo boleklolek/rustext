@@ -14,20 +14,19 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
 ---
 
 ```text
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ Archivo   Editar   Selección   Ver   Preferencias   Extensiones   Herramientas   Ayuda │  ← Menú Nativo
-├──────────────────┬─────────────────────────────────────────────────────────────────────┤
-│ PROYECTO [+] ↺ × │  1 main.rs ×    2 config.ini ×   [+]                                │  ← Pestañas
-├──────────────────┼─────────────────────────────────────────────────────────────────────┤
-│ ▼ src            │  1 │ pub fn main() {                                             ▲  │
-│   • lib.rs       │  2 │     let config = EditorConfig::load();                      │  │
-│   • main.rs      │  3 │     println!("Rustext listo: 0 dependencias");              █  │  ← Scrollbar Interactivo
-│ ▶ editor         │  4 │ }                                                           │  │
-│ ▶ gfx            │  ~ │                                                             ▼  │
-│ • Cargo.toml     │  ~ │                                                                │
-├──────────────────┴─────────────────────────────────────────────────────────────────────┤
-│ [ EDIT ]  src/main.rs  |  Línea 3, Col 5  |  UTF-8  |  Rust  |  Cursores: 1            │  ← Barra de Estado
-└────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Archivo   Editar   Selección   Ver   Preferencias   Extensiones   Herramientas   Ayuda           │  ← Menú Nativo
+├──────────────────┬───────────────────────────────────────────┬───────────────────────────────────┤
+│ PROYECTO [+] ↺ × │ 1: main.rs [ACTIVO]                       │ 2: config.ini                     │  ← Split Editor (Ctrl+\)
+├──────────────────┼───────────────────────────────────────────┼───────────────────────────────────┤
+│ ▼ src            │ 1 │ pub fn main() {                    ▲  │ 1 │ [gui]                      ▲  │
+│   • lib.rs       │ 2 │     let config = EditorConfig();   █  │ 2 │ minimap = true           █  │  ← Deslizador Viewport
+│   • main.rs      │ 3 │     println!("Rustext listo");     │  │ 3 │ minimap_width = 100    │  │
+│ ▶ editor         │ 4 │ }                                  ▼  │ 4 │ theme = "tokyo-night"      ▼  │
+│ ▶ gfx            │ ~ │                                    ░  │ ~ │                                ░  │  ← Minimapa Sintáctico
+├──────────────────┴───────────────────────────────────────────┴───────────────────────────────────┤
+│ [ EDIT ]  src/main.rs  |  Línea 3, Col 5  |  UTF-8  |  Rust  |  Cursores: 1  |  Panel: 1/2       │  ← Barra de Estado
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -49,6 +48,20 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Selección de siguiente ocurrencia con `Ctrl + D` (estilo Sublime Text / VS Code).
   - Añadir cursores en líneas contiguas con `Ctrl + K` (arriba) y `Ctrl + J` (abajo).
   - Transacciones atómicas reversibles con `Ctrl + Z` (Undo) y `Ctrl + Y` (Redo).
+
+- **Minimapa Gráfico de Código (`Ctrl + M`)**:
+  - Visualización condensada en miniatura de todo el código fuente en el lateral del editor.
+  - Micro-renderizado de tokens sintácticos con preservación de sangría e indentación.
+  - Deslizador de viewport translúcido interactivo que resalta la ventana visible en tiempo real.
+  - Navegación reactiva instantánea: clic en cualquier sección para saltar o arrastrar el deslizador con el ratón.
+  - Totalmente configurable desde `config.ini` (`minimap = true`, `minimap_width = 100`).
+
+- **División de Vistas y Paneles Independientes (Split Editor)**:
+  - División vertical (lado a lado, `Ctrl + \`) y horizontal (apilada, `Ctrl + Shift + \`).
+  - Cambio instantáneo de foco de panel mediante `Alt + \` o haciendo clic directo en el panel.
+  - Barra de división (splitter) arrastrable con el ratón para redistribuir el espacio en pantalla.
+  - Cada panel mantiene su propio desplazamiento vertical/horizontal, cursores independientes, cabecera de estado, gutter y minimapa/scrollbar integrados.
+  - Sincronización transparente de pestañas y archivos al alternar o cerrar la división.
 
 - **Interfaz Gráfica Moderna (Desktop GUI)**:
   - Motor de renderizado de software con Framebuffer de 32-bit ARGB.
@@ -145,6 +158,10 @@ cargo run --release --bin memory_profile
 | `Ctrl + W` | Cerrar pestaña activa |
 | `Ctrl + Q` | Salir de Rustext |
 | `Ctrl + B` | **Alternar Explorador Lateral (Árbol de Proyecto)** |
+| `Ctrl + M` | **Alternar Minimapa Gráfico de Código** |
+| `Ctrl + \` | **Alternar División Vertical de Pantalla (Split Editor)** |
+| `Ctrl + Shift + \` | **Alternar División Horizontal de Pantalla** |
+| `Alt + \` | **Cambiar Foco de Panel (Switch Split Pane)** |
 | `Ctrl + D` | **Seleccionar palabra / Añadir siguiente ocurrencia (Multicursor)** |
 | `Ctrl + K` / `Ctrl + J` | Añadir cursor en la línea superior / inferior |
 | `Esc` | Colapsar multicursores a cursor único / Cancelar modal |
@@ -197,6 +214,8 @@ scrollbar = true
 menu_bar = true
 sidebar = true
 sidebar_width = 220
+minimap = true
+minimap_width = 100
 ```
 
 ---

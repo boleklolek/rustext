@@ -102,6 +102,8 @@ pub struct GuiSettings {
     pub cursor_blink: bool,
     pub sidebar: bool,
     pub sidebar_width: usize,
+    pub minimap: bool,
+    pub minimap_width: usize,
 }
 
 impl Default for GuiSettings {
@@ -120,6 +122,8 @@ impl Default for GuiSettings {
             cursor_blink: true,
             sidebar: true,
             sidebar_width: 220,
+            minimap: true,
+            minimap_width: 100,
         }
     }
 }
@@ -207,6 +211,12 @@ sidebar = true
 
 ; Ancho en píxeles de la barra lateral (por defecto 220)
 sidebar_width = 220
+
+; Minimapa gráfico de código a la derecha (true = visible, false = oculto)
+minimap = true
+
+; Ancho en píxeles del minimapa gráfico (por defecto 100)
+minimap_width = 100
 "#
     }
 
@@ -243,6 +253,8 @@ cursor_style = {}
 cursor_blink = {}
 sidebar = {}
 sidebar_width = {}
+minimap = {}
+minimap_width = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -267,6 +279,8 @@ sidebar_width = {}
             self.gui.cursor_blink,
             self.gui.sidebar,
             self.gui.sidebar_width,
+            self.gui.minimap,
+            self.gui.minimap_width,
         )
     }
 
@@ -429,6 +443,16 @@ sidebar_width = {}
                         "sidebar_width" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 config.gui.sidebar_width = n.clamp(140, 600);
+                            }
+                        }
+                        "minimap" => {
+                            if let Some(b) = as_bool {
+                                config.gui.minimap = b;
+                            }
+                        }
+                        "minimap_width" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.minimap_width = n.clamp(40, 300);
                             }
                         }
                         _ => {}

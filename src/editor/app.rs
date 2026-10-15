@@ -47,6 +47,7 @@ pub struct Editor {
     pub diagnostics: crate::editor::diagnostic::DiagnosticCollection,
     pub sidebar: crate::editor::sidebar::FileExplorer,
     pub autocomplete: crate::editor::autocomplete::AutocompleteState,
+    pub split: crate::editor::split::SplitState,
     pub should_quit: bool,
 }
 
@@ -105,6 +106,7 @@ impl Editor {
             diagnostics: crate::editor::diagnostic::DiagnosticCollection::new(),
             sidebar,
             autocomplete: crate::editor::autocomplete::AutocompleteState::new(),
+            split: crate::editor::split::SplitState::new(),
             should_quit: false,
         }
     }
@@ -692,7 +694,96 @@ impl Editor {
                 self.trigger_autocomplete(true);
             }
 
+            EditorAction::ToggleMinimap => {
+                self.toggle_minimap();
+            }
+            EditorAction::ToggleSplitVertical => {
+                self.toggle_split_vertical();
+            }
+            EditorAction::ToggleSplitHorizontal => {
+                self.toggle_split_horizontal();
+            }
+            EditorAction::SwitchSplitPane => {
+                self.switch_split_pane();
+            }
+            EditorAction::CloseSplit => {
+                self.close_split();
+            }
+
             EditorAction::None => {}
+        }
+    }
+
+    /// Toggles visibility of the code minimap.
+    pub fn toggle_minimap(&mut self) {
+        self.config.gui.minimap = !self.config.gui.minimap;
+        self.set_status(format!("Minimapa {}", if self.config.gui.minimap { "activado" } else { "desactivado" }));
+    }
+
+    /// Toggles vertical (side-by-side) split editor view.
+    pub fn toggle_split_vertical(&mut self) {
+        let total = self.documents.len();
+        let current = self.active_doc_idx;
+        self.split.toggle_vertical(total, current);
+        if self.split.is_split() {
+            self.active_doc_idx = self.split.secondary_doc_idx;
+            self.set_status("División vertical activada (Ctrl+\\ para alternar, Alt+\\ para cambiar foco)");
+        } else {
+            self.active_doc_idx = self.split.primary_doc_idx;
+            self.set_status("División de editor cerrada");
+        }
+    }
+
+    /// Toggles horizontal (stacked) split editor view.
+    pub fn toggle_split_horizontal(&mut self) {
+        let total = self.documents.len();
+        let current = self.active_doc_idx;
+        self.split.toggle_horizontal(total, current);
+        if self.split.is_split() {
+            self.active_doc_idx = self.split.secondary_doc_idx;
+            self.set_status("División horizontal activada (Ctrl+Shift+\\ para alternar, Alt+\\ para cambiar foco)");
+        } else {
+            self.active_doc_idx = self.split.primary_doc_idx;
+            self.set_status("División de editor cerrada");
+        }
+    }
+
+    /// Switches keyboard and editing focus between the two split panes.
+    pub fn switch_split_pane(&mut self) {
+        if self.split.is_split() {
+            let new_pane = self.split.switch_pane();
+            self.active_doc_idx = if new_pane == 1 {
+                self.split.secondary_doc_idx
+            } else {
+                self.split.primary_doc_idx
+            };
+            self.set_status(format!("Foco en Panel {}", new_pane + 1));
+        }
+    }
+
+    /// Closes the secondary split pane and restores single-pane editing.
+    pub fn close_split(&mut self) {
+        if self.split.is_split() {
+            self.active_doc_idx = self.split.primary_doc_idx;
+            self.split.close_split();
+            self.set_status("División de editor cerrada");
+        }
+    }
+
+    /// Synchronizes split pane document indices with the active tab.
+    pub fn sync_split_doc_indices(&mut self) {
+        if self.split.is_split() {
+            if self.split.active_pane == 1 {
+                self.split.secondary_doc_idx = self.active_doc_idx;
+            } else {
+                self.split.primary_doc_idx = self.active_doc_idx;
+            }
+            if self.split.primary_doc_idx >= self.documents.len() {
+                self.split.primary_doc_idx = self.documents.len().saturating_sub(1);
+            }
+            if self.split.secondary_doc_idx >= self.documents.len() {
+                self.split.secondary_doc_idx = self.documents.len().saturating_sub(1);
+            }
         }
     }
 
@@ -1028,6 +1119,7 @@ impl Editor {
         let new_doc = Document::new(TextBuffer::new());
         self.documents.push(new_doc);
         self.active_doc_idx = self.documents.len() - 1;
+        self.sync_split_doc_indices();
         self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
     }
 
@@ -1038,9 +1130,11 @@ impl Editor {
             if self.active_doc_idx >= self.documents.len() {
                 self.active_doc_idx = self.documents.len() - 1;
             }
+            self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
         } else {
             self.documents[0] = Document::new(TextBuffer::new());
+            self.sync_split_doc_indices();
             self.set_status("Buffer cleared");
         }
     }
@@ -1055,9 +1149,11 @@ impl Editor {
             if self.active_doc_idx >= self.documents.len() {
                 self.active_doc_idx = self.documents.len() - 1;
             }
+            self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
         } else {
             self.documents[0] = Document::new(TextBuffer::new());
+            self.sync_split_doc_indices();
             self.set_status("Buffer cleared");
         }
     }
@@ -1066,6 +1162,7 @@ impl Editor {
     pub fn next_tab(&mut self) {
         if self.documents.len() > 1 {
             self.active_doc_idx = (self.active_doc_idx + 1) % self.documents.len();
+            self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
         }
     }
@@ -1078,6 +1175,7 @@ impl Editor {
             } else {
                 self.active_doc_idx - 1
             };
+            self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
         }
     }
@@ -1086,6 +1184,7 @@ impl Editor {
     pub fn open_file(&mut self, path: &Path) {
         if let Some(pos) = self.documents.iter().position(|d| d.buffer.file_path() == Some(path)) {
             self.active_doc_idx = pos;
+            self.sync_split_doc_indices();
             self.set_status(format!("Switched to tab {}", pos + 1));
             return;
         }
@@ -1095,6 +1194,7 @@ impl Editor {
                 let new_doc = Document::new(new_buf);
                 self.documents.push(new_doc);
                 self.active_doc_idx = self.documents.len() - 1;
+                self.sync_split_doc_indices();
                 self.set_status(format!("Opened {}", path.display()));
             }
             Err(e) => {
@@ -2215,6 +2315,8 @@ impl Editor {
         renderer.shadows = self.config.gui.shadows;
         renderer.cursor_style = self.config.gui.cursor_style.clone();
         renderer.cursor_blink = self.config.gui.cursor_blink;
+        renderer.minimap_enabled = self.config.gui.minimap;
+        renderer.minimap_width = self.config.gui.minimap_width;
 
         let mut active_theme_name = self.config.theme.name.clone();
         let mut active_show_line_numbers = self.config.editor.show_line_numbers;
@@ -2225,6 +2327,9 @@ impl Editor {
         let mut is_dragging_scrollbar = false;
         let mut scrollbar_drag_offset_y = 0;
         let mut scrollbar_hovered = false;
+        let mut is_dragging_minimap = false;
+        let mut minimap_hovered = false;
+        let mut is_dragging_splitter = false;
         let mut adjust_viewport = true;
         let mut needs_redraw = true;
         let mut cached_title = String::new();
@@ -2250,6 +2355,8 @@ impl Editor {
                 renderer.cursor_blink = self.config.gui.cursor_blink;
                 self.sidebar.is_visible = self.config.gui.sidebar;
                 self.sidebar.width = self.config.gui.sidebar_width;
+                renderer.minimap_enabled = self.config.gui.minimap;
+                renderer.minimap_width = self.config.gui.minimap_width;
                 active_gui_settings = self.config.gui.clone();
                 needs_redraw = true;
             }
@@ -2668,21 +2775,153 @@ impl Editor {
                                             crate::editor::sidebar::SidebarClickResult::None => {}
                                         }
                                         needs_redraw = true;
+                                    } else if self.split.is_split() {
+                                        let (p0_geom, p1_geom, splitter_opt) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+
+                                        let mut hit_splitter = false;
+                                        if let Some((sx, sy, sw, sh)) = splitter_opt {
+                                            if sw > sh {
+                                                hit_splitter = y >= sy.saturating_sub(3) && y < sy + sh + 3 && x >= sx && x < sx + sw;
+                                            } else {
+                                                hit_splitter = x >= sx.saturating_sub(3) && x < sx + sw + 3 && y >= sy && y < sy + sh;
+                                            }
+                                        }
+
+                                        if hit_splitter {
+                                            is_dragging_splitter = true;
+                                            needs_redraw = true;
+                                        } else if p0_geom.contains_point(x, y) {
+                                            if self.split.active_pane != 0 {
+                                                self.split.active_pane = 0;
+                                                self.active_doc_idx = self.split.primary_doc_idx.min(self.documents.len().saturating_sub(1));
+                                            }
+                                            let (sb_geom, mm_geom_opt, max_code_x) = renderer.pane_subgeometries(&p0_geom, self.doc());
+                                            if sb_geom.contains_point(x, y) {
+                                                if sb_geom.thumb_contains_point(x, y) {
+                                                    is_dragging_scrollbar = true;
+                                                    scrollbar_drag_offset_y = y.saturating_sub(sb_geom.thumb_y);
+                                                } else if y < sb_geom.thumb_y {
+                                                    let visible = sb_geom.visible_lines.max(1);
+                                                    self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
+                                                } else {
+                                                    let visible = sb_geom.visible_lines.max(1);
+                                                    self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(sb_geom.max_scroll);
+                                                }
+                                                adjust_viewport = false;
+                                                needs_redraw = true;
+                                            } else if let Some(ref mm_geom) = mm_geom_opt.filter(|mg| mg.contains_point(x, y)) {
+                                                if mm_geom.slider_contains_point(x, y) {
+                                                    is_dragging_minimap = true;
+                                                } else {
+                                                    let target_line = mm_geom.line_for_click_y(y);
+                                                    self.doc_mut().scroll_row = target_line.saturating_sub(mm_geom.visible_lines / 2);
+                                                }
+                                                adjust_viewport = false;
+                                                needs_redraw = true;
+                                            } else if x < max_code_x && y >= p0_geom.y + renderer.tab_bar_height {
+                                                let content_y_start = p0_geom.y + renderer.tab_bar_height;
+                                                let total_lines = self.doc().buffer.len_lines();
+                                                let gutter_cols = total_lines.to_string().len().max(3);
+                                                let gutter_width = if renderer.show_line_numbers {
+                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                } else {
+                                                    8
+                                                };
+                                                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                let row = (y - content_y_start) / line_height;
+                                                let target_line = self.doc().scroll_row + row;
+                                                if target_line < total_lines {
+                                                    let text_start_x = p0_geom.x + gutter_width + crate::gfx::FONT_WIDTH;
+                                                    let col = if x >= text_start_x {
+                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                    } else {
+                                                        0
+                                                    };
+                                                    let pos = Position::new(target_line, col);
+                                                    let char_offset = self.doc().buffer.position_to_char(pos);
+                                                    self.doc_mut().cursors.set_single(char_offset);
+                                                    adjust_viewport = true;
+                                                    needs_redraw = true;
+                                                }
+                                            }
+                                        } else if p1_geom.contains_point(x, y) {
+                                            if self.split.active_pane != 1 {
+                                                self.split.active_pane = 1;
+                                                self.active_doc_idx = self.split.secondary_doc_idx.min(self.documents.len().saturating_sub(1));
+                                            }
+                                            let (sb_geom, mm_geom_opt, max_code_x) = renderer.pane_subgeometries(&p1_geom, self.doc());
+                                            if sb_geom.contains_point(x, y) {
+                                                if sb_geom.thumb_contains_point(x, y) {
+                                                    is_dragging_scrollbar = true;
+                                                    scrollbar_drag_offset_y = y.saturating_sub(sb_geom.thumb_y);
+                                                } else if y < sb_geom.thumb_y {
+                                                    let visible = sb_geom.visible_lines.max(1);
+                                                    self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
+                                                } else {
+                                                    let visible = sb_geom.visible_lines.max(1);
+                                                    self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(sb_geom.max_scroll);
+                                                }
+                                                adjust_viewport = false;
+                                                needs_redraw = true;
+                                            } else if let Some(ref mm_geom) = mm_geom_opt.filter(|mg| mg.contains_point(x, y)) {
+                                                if mm_geom.slider_contains_point(x, y) {
+                                                    is_dragging_minimap = true;
+                                                } else {
+                                                    let target_line = mm_geom.line_for_click_y(y);
+                                                    self.doc_mut().scroll_row = target_line.saturating_sub(mm_geom.visible_lines / 2);
+                                                }
+                                                adjust_viewport = false;
+                                                needs_redraw = true;
+                                            } else if x < max_code_x && y >= p1_geom.y + renderer.tab_bar_height {
+                                                let content_y_start = p1_geom.y + renderer.tab_bar_height;
+                                                let total_lines = self.doc().buffer.len_lines();
+                                                let gutter_cols = total_lines.to_string().len().max(3);
+                                                let gutter_width = if renderer.show_line_numbers {
+                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                } else {
+                                                    8
+                                                };
+                                                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                let row = (y - content_y_start) / line_height;
+                                                let target_line = self.doc().scroll_row + row;
+                                                if target_line < total_lines {
+                                                    let text_start_x = p1_geom.x + gutter_width + crate::gfx::FONT_WIDTH;
+                                                    let col = if x >= text_start_x {
+                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                    } else {
+                                                        0
+                                                    };
+                                                    let pos = Position::new(target_line, col);
+                                                    let char_offset = self.doc().buffer.position_to_char(pos);
+                                                    self.doc_mut().cursors.set_single(char_offset);
+                                                    adjust_viewport = true;
+                                                    needs_redraw = true;
+                                                }
+                                            }
+                                        }
                                     } else {
-                                        // 3. Check Scrollbar Hit Test FIRST
+                                        // 3. Single pane mode: Check Scrollbar Hit Test FIRST
                                         let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                                        let mm_geom = renderer.minimap_geometry(fb.width, fb.height, self.doc(), true);
                                         if scroll_geom.contains_point(x, y) {
                                             if scroll_geom.thumb_contains_point(x, y) {
                                                 is_dragging_scrollbar = true;
                                                 scrollbar_drag_offset_y = y.saturating_sub(scroll_geom.thumb_y);
                                             } else if y < scroll_geom.thumb_y {
-                                                // Click track above thumb -> Page Up
                                                 let visible = scroll_geom.visible_lines.max(1);
                                                 self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
                                             } else {
-                                                // Click track below thumb -> Page Down
                                                 let visible = scroll_geom.visible_lines.max(1);
                                                 self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(scroll_geom.max_scroll);
+                                            }
+                                            adjust_viewport = false;
+                                            needs_redraw = true;
+                                        } else if renderer.minimap_enabled && mm_geom.contains_point(x, y) {
+                                            if mm_geom.slider_contains_point(x, y) {
+                                                is_dragging_minimap = true;
+                                            } else {
+                                                let target_line = mm_geom.line_for_click_y(y);
+                                                self.doc_mut().scroll_row = target_line.saturating_sub(mm_geom.visible_lines / 2);
                                             }
                                             adjust_viewport = false;
                                             needs_redraw = true;
@@ -2703,6 +2942,7 @@ impl Editor {
                                                             self.close_tab_at(idx);
                                                         } else {
                                                             self.active_doc_idx = idx;
+                                                            self.sync_split_doc_indices();
                                                             self.sidebar.is_focused = false;
                                                             adjust_viewport = true;
                                                         }
@@ -2726,7 +2966,9 @@ impl Editor {
                                                 } else {
                                                     8
                                                 };
-                                                let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width);
+                                                let canvas_w = fb.width.saturating_sub(sidebar_w);
+                                                let mm_w = if renderer.minimap_enabled && canvas_w >= 320 { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
+                                                let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width + mm_w);
                                                 if y >= content_y_start && x >= sidebar_w && x < max_code_x {
                                                     self.sidebar.is_focused = false;
                                                     let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
@@ -2758,14 +3000,23 @@ impl Editor {
                             is_dragging_scrollbar = false;
                             needs_redraw = true;
                         }
+                        if is_dragging_minimap {
+                            is_dragging_minimap = false;
+                            needs_redraw = true;
+                        }
+                        if is_dragging_splitter {
+                            is_dragging_splitter = false;
+                            needs_redraw = true;
+                        }
                     }
                     crate::window::WindowEvent::MouseMove { x, y } => {
                         let old_my = mouse_y;
                         mouse_x = x;
                         mouse_y = y;
                         if self.mode == EditorMode::Normal {
+                            let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
+
                             if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
-                                let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
                                 let ac_geom = renderer.autocomplete_geometry(fb.width, fb.height, self.doc(), sidebar_w, self.config.gui.menu_bar, self.autocomplete.items.len());
                                 if ac_geom.contains_point(x, y) {
                                     if let Some(item_idx) = ac_geom.item_index_at(y, self.autocomplete.scroll_offset) {
@@ -2777,20 +3028,105 @@ impl Editor {
                                 }
                             }
 
-                            let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
-                            if is_dragging_scrollbar {
-                                let target_thumb_y = y.saturating_sub(scrollbar_drag_offset_y);
-                                let new_row = scroll_geom.row_for_thumb_y(target_thumb_y);
-                                if self.doc().scroll_row != new_row {
-                                    self.doc_mut().scroll_row = new_row;
-                                    adjust_viewport = false;
-                                    needs_redraw = true;
+                            if is_dragging_splitter && self.split.is_split() {
+                                let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                match self.split.direction {
+                                    crate::editor::split::SplitDirection::Vertical => {
+                                        let total_w = p0_geom.width + p1_geom.width;
+                                        if total_w > 0 {
+                                            let rel_x = x.saturating_sub(p0_geom.x);
+                                            let new_ratio = (rel_x as f32 / total_w as f32).clamp(0.15, 0.85);
+                                            self.split.ratio = new_ratio;
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                    crate::editor::split::SplitDirection::Horizontal => {
+                                        let total_h = p0_geom.height + p1_geom.height;
+                                        if total_h > 0 {
+                                            let rel_y = y.saturating_sub(p0_geom.y);
+                                            let new_ratio = (rel_y as f32 / total_h as f32).clamp(0.15, 0.85);
+                                            self.split.ratio = new_ratio;
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                    crate::editor::split::SplitDirection::None => {}
+                                }
+                            } else if is_dragging_scrollbar {
+                                if self.split.is_split() {
+                                    let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                    let active_pane_geom = if self.split.active_pane == 0 { &p0_geom } else { &p1_geom };
+                                    let (scroll_geom, _, _) = renderer.pane_subgeometries(active_pane_geom, self.doc());
+                                    let target_thumb_y = y.saturating_sub(scrollbar_drag_offset_y);
+                                    let new_row = scroll_geom.row_for_thumb_y(target_thumb_y);
+                                    if self.doc().scroll_row != new_row {
+                                        self.doc_mut().scroll_row = new_row;
+                                        adjust_viewport = false;
+                                        needs_redraw = true;
+                                    }
+                                } else {
+                                    let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                                    let target_thumb_y = y.saturating_sub(scrollbar_drag_offset_y);
+                                    let new_row = scroll_geom.row_for_thumb_y(target_thumb_y);
+                                    if self.doc().scroll_row != new_row {
+                                        self.doc_mut().scroll_row = new_row;
+                                        adjust_viewport = false;
+                                        needs_redraw = true;
+                                    }
+                                }
+                            } else if is_dragging_minimap {
+                                if self.split.is_split() {
+                                    let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                    let active_pane_geom = if self.split.active_pane == 0 { &p0_geom } else { &p1_geom };
+                                    let (_, mm_geom_opt, _) = renderer.pane_subgeometries(active_pane_geom, self.doc());
+                                    if let Some(mm_geom) = mm_geom_opt {
+                                        let new_row = mm_geom.row_for_slider_y(y.saturating_sub(mm_geom.slider_height / 2));
+                                        if self.doc().scroll_row != new_row {
+                                            self.doc_mut().scroll_row = new_row;
+                                            adjust_viewport = false;
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                } else {
+                                    let mm_geom = renderer.minimap_geometry(fb.width, fb.height, self.doc(), true);
+                                    let new_row = mm_geom.row_for_slider_y(y.saturating_sub(mm_geom.slider_height / 2));
+                                    if self.doc().scroll_row != new_row {
+                                        self.doc_mut().scroll_row = new_row;
+                                        adjust_viewport = false;
+                                        needs_redraw = true;
+                                    }
                                 }
                             } else {
-                                let hovered = scroll_geom.contains_point(x, y);
-                                if hovered != scrollbar_hovered {
-                                    scrollbar_hovered = hovered;
-                                    needs_redraw = true;
+                                if !self.split.is_split() {
+                                    let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                                    let sb_hover = scroll_geom.contains_point(x, y);
+                                    if sb_hover != scrollbar_hovered {
+                                        scrollbar_hovered = sb_hover;
+                                        needs_redraw = true;
+                                    }
+                                    if renderer.minimap_enabled {
+                                        let mm_geom = renderer.minimap_geometry(fb.width, fb.height, self.doc(), true);
+                                        let mm_hover = mm_geom.contains_point(x, y);
+                                        if mm_hover != minimap_hovered {
+                                            minimap_hovered = mm_hover;
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                } else {
+                                    let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                    let active_pane_geom = if self.split.active_pane == 0 { &p0_geom } else { &p1_geom };
+                                    let (sb_geom, mm_geom_opt, _) = renderer.pane_subgeometries(active_pane_geom, self.doc());
+                                    let sb_hover = sb_geom.contains_point(x, y);
+                                    if sb_hover != scrollbar_hovered {
+                                        scrollbar_hovered = sb_hover;
+                                        needs_redraw = true;
+                                    }
+                                    if let Some(mm_geom) = mm_geom_opt {
+                                        let mm_hover = mm_geom.contains_point(x, y);
+                                        if mm_hover != minimap_hovered {
+                                            minimap_hovered = mm_hover;
+                                            needs_redraw = true;
+                                        }
+                                    }
                                 }
                             }
 
@@ -2829,6 +3165,20 @@ impl Editor {
                             } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
                                 let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
                                 self.sidebar.handle_scroll(1, max_visible);
+                            } else if self.split.is_split() {
+                                let (_p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                if p1_geom.contains_point(mouse_x, mouse_y) {
+                                    let idx = self.split.secondary_doc_idx;
+                                    if idx < self.documents.len() {
+                                        self.documents[idx].scroll_row = self.documents[idx].scroll_row.saturating_sub(3);
+                                    }
+                                } else {
+                                    let idx = self.split.primary_doc_idx;
+                                    if idx < self.documents.len() {
+                                        self.documents[idx].scroll_row = self.documents[idx].scroll_row.saturating_sub(3);
+                                    }
+                                }
+                                adjust_viewport = false;
                             } else {
                                 self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
                                 adjust_viewport = false;
@@ -2867,6 +3217,22 @@ impl Editor {
                             } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
                                 let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
                                 self.sidebar.handle_scroll(-1, max_visible);
+                            } else if self.split.is_split() {
+                                let (_p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                                if p1_geom.contains_point(mouse_x, mouse_y) {
+                                    let idx = self.split.secondary_doc_idx;
+                                    if idx < self.documents.len() {
+                                        let max_lines = self.documents[idx].buffer.len_lines();
+                                        self.documents[idx].scroll_row = (self.documents[idx].scroll_row + 3).min(max_lines.saturating_sub(1));
+                                    }
+                                } else {
+                                    let idx = self.split.primary_doc_idx;
+                                    if idx < self.documents.len() {
+                                        let max_lines = self.documents[idx].buffer.len_lines();
+                                        self.documents[idx].scroll_row = (self.documents[idx].scroll_row + 3).min(max_lines.saturating_sub(1));
+                                    }
+                                }
+                                adjust_viewport = false;
                             } else {
                                 self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
                                 adjust_viewport = false;
@@ -2951,13 +3317,30 @@ impl Editor {
 
             let total_lines = self.documents[active_idx].buffer.len_lines();
             let gutter_cols = total_lines.to_string().len().max(3);
-            let gutter_width = (gutter_cols + 2) * crate::gfx::FONT_WIDTH;
-            let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
-            let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height);
-            let visible_lines = content_h / crate::gfx::FONT_HEIGHT;
+            let gutter_width = if renderer.show_line_numbers { (gutter_cols + 2) * crate::gfx::FONT_WIDTH } else { 8 };
             let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
-            let content_w = fb.width.saturating_sub(sidebar_w + gutter_width + crate::gfx::FONT_WIDTH);
-            let visible_cols = content_w / crate::gfx::FONT_WIDTH;
+
+            let (visible_lines, visible_cols) = if self.split.is_split() {
+                let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                let active_geom = if self.split.active_pane == 0 { p0_geom } else { p1_geom };
+                let pane_content_h = active_geom.height.saturating_sub(renderer.tab_bar_height);
+                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                let vl = pane_content_h / line_height;
+                let mini_w = if renderer.minimap_enabled && active_geom.width >= 320 { renderer.minimap_width.min(active_geom.width / 4) } else { 0 };
+                let pane_content_w = active_geom.width.saturating_sub(gutter_width + renderer.scrollbar_width + mini_w);
+                let vc = pane_content_w / crate::gfx::FONT_WIDTH;
+                (vl, vc)
+            } else {
+                let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
+                let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height);
+                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                let vl = content_h / line_height;
+                let canvas_w = fb.width.saturating_sub(sidebar_w);
+                let mini_w = if renderer.minimap_enabled && canvas_w >= 320 { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
+                let content_w = fb.width.saturating_sub(sidebar_w + gutter_width + renderer.scrollbar_width + mini_w);
+                let vc = content_w / crate::gfx::FONT_WIDTH;
+                (vl, vc)
+            };
 
             if adjust_viewport {
                 let doc = &mut self.documents[active_idx];
@@ -3012,9 +3395,23 @@ impl Editor {
                 None
             };
 
-            renderer.render_full_frame(
+            let primary_doc = if self.split.is_split() {
+                &self.documents[self.split.primary_doc_idx.min(self.documents.len().saturating_sub(1))]
+            } else {
+                &self.documents[active_idx]
+            };
+
+            let secondary_doc = if self.split.is_split() {
+                Some(&self.documents[self.split.secondary_doc_idx.min(self.documents.len().saturating_sub(1))])
+            } else {
+                None
+            };
+
+            renderer.render_full_frame_with_split(
                 &mut fb,
-                &self.documents[active_idx],
+                primary_doc,
+                secondary_doc,
+                if self.split.is_split() { Some(&self.split) } else { None },
                 &tab_titles,
                 active_idx,
                 status_msg,
@@ -3023,6 +3420,8 @@ impl Editor {
                 sidebar,
                 scrollbar_hovered,
                 is_dragging_scrollbar,
+                minimap_hovered,
+                is_dragging_minimap,
                 Some(&self.autocomplete),
             );
 

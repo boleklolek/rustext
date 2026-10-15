@@ -442,6 +442,71 @@ impl AutocompleteGeometry {
     }
 }
 
+/// Geometry and bounding box for the interactive minimap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MinimapGeometry {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub slider_y: usize,
+    pub slider_height: usize,
+    pub visible_lines: usize,
+    pub total_lines: usize,
+}
+
+impl MinimapGeometry {
+    /// Returns whether the point (x, y) is inside the minimap container.
+    pub fn contains_point(&self, x: usize, y: usize) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
+    /// Returns whether the point (x, y) is inside the viewport highlight slider.
+    pub fn slider_contains_point(&self, x: usize, y: usize) -> bool {
+        self.contains_point(x, y) && y >= self.slider_y && y < self.slider_y + self.slider_height
+    }
+
+    /// Translates a mouse click Y pixel coordinate into a document line index.
+    pub fn line_for_click_y(&self, click_y: usize) -> usize {
+        if self.height == 0 || self.total_lines == 0 {
+            0
+        } else {
+            let rel_y = click_y.saturating_sub(self.y);
+            (rel_y * self.total_lines) / self.height
+        }
+    }
+
+    /// Translates a target slider Y pixel position into the corresponding document scroll row.
+    pub fn row_for_slider_y(&self, target_slider_y: usize) -> usize {
+        let scrollable_h = self.height.saturating_sub(self.slider_height);
+        let max_scroll = self.total_lines.saturating_sub(self.visible_lines);
+        if scrollable_h == 0 || max_scroll == 0 {
+            0
+        } else {
+            let clamped_y = target_slider_y.clamp(self.y, self.y + scrollable_h);
+            let rel_y = clamped_y.saturating_sub(self.y);
+            let ratio = rel_y as f32 / scrollable_h as f32;
+            (ratio * max_scroll as f32).round() as usize
+        }
+    }
+}
+
+/// Geometry and coordinates for a split editor pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneGeometry {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub is_active: bool,
+}
+
+impl PaneGeometry {
+    pub fn contains_point(&self, x: usize, y: usize) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+}
+
 pub struct GfxRenderer {
     pub colors: ThemeColors,
     pub menu_bar_height: usize,
@@ -457,6 +522,8 @@ pub struct GfxRenderer {
     pub cursor_style: String,
     pub cursor_blink: bool,
     pub sidebar_width: usize,
+    pub minimap_enabled: bool,
+    pub minimap_width: usize,
 }
 
 impl GfxRenderer {
@@ -476,25 +543,20 @@ impl GfxRenderer {
             cursor_style: "bar".to_string(),
             cursor_blink: true,
             sidebar_width: 220,
+            minimap_enabled: true,
+            minimap_width: 100,
         }
     }
 
-    /// Computes scrollbar dimensions and thumb position for the given document and framebuffer.
-    pub fn scrollbar_geometry(
+    /// Computes scrollbar dimensions and thumb position for a specific bounding rectangle.
+    pub fn scrollbar_geometry_in_rect(
         &self,
-        fb_w: usize,
-        fb_h: usize,
+        track_x: usize,
+        track_y: usize,
+        track_width: usize,
+        track_height: usize,
         doc: &Document,
-        has_menu_bar: bool,
     ) -> ScrollbarGeometry {
-        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
-        let content_y_start = menu_offset + self.tab_bar_height;
-        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
-        let track_height = content_y_end.saturating_sub(content_y_start);
-        let track_width = self.scrollbar_width;
-        let track_x = fb_w.saturating_sub(track_width);
-        let track_y = content_y_start;
-
         let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
         let visible_lines = if line_height > 0 {
             track_height / line_height
@@ -531,6 +593,256 @@ impl GfxRenderer {
             total_lines,
             max_scroll,
         }
+    }
+
+    /// Computes scrollbar dimensions and thumb position for the given document and framebuffer.
+    pub fn scrollbar_geometry(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        doc: &Document,
+        has_menu_bar: bool,
+    ) -> ScrollbarGeometry {
+        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
+        let content_y_start = menu_offset + self.tab_bar_height;
+        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
+        let track_height = content_y_end.saturating_sub(content_y_start);
+        let track_width = self.scrollbar_width;
+        let track_x = fb_w.saturating_sub(track_width);
+        let track_y = content_y_start;
+
+        self.scrollbar_geometry_in_rect(track_x, track_y, track_width, track_height, doc)
+    }
+
+    /// Computes minimap dimensions and slider position for the main viewport.
+    pub fn minimap_geometry(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        doc: &Document,
+        has_menu_bar: bool,
+    ) -> MinimapGeometry {
+        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
+        let content_y_start = menu_offset + self.tab_bar_height;
+        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
+        let track_height = content_y_end.saturating_sub(content_y_start);
+        let mm_width = self.minimap_width;
+        let mm_x = fb_w.saturating_sub(self.scrollbar_width + mm_width);
+        self.minimap_geometry_in_rect(mm_x, content_y_start, mm_width, track_height, doc)
+    }
+
+    /// Computes minimap dimensions and slider position within a specific rectangle.
+    pub fn minimap_geometry_in_rect(
+        &self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        doc: &Document,
+    ) -> MinimapGeometry {
+        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let visible_lines = if line_height > 0 { height / line_height } else { 1 };
+        let total_lines = doc.buffer.len_lines().max(1);
+
+        let slider_h = if total_lines == 0 || height == 0 {
+            height
+        } else {
+            let ratio = (visible_lines as f32 / total_lines as f32).min(1.0);
+            let sh = (ratio * height as f32).round() as usize;
+            sh.clamp(16, height)
+        };
+
+        let scrollable_h = height.saturating_sub(slider_h);
+        let max_scroll = total_lines.saturating_sub(visible_lines);
+        let slider_y = if max_scroll > 0 && scrollable_h > 0 {
+            let ratio = (doc.scroll_row as f32 / max_scroll as f32).min(1.0);
+            y + (ratio * scrollable_h as f32).round() as usize
+        } else {
+            y
+        };
+
+        MinimapGeometry {
+            x,
+            y,
+            width,
+            height,
+            slider_y,
+            slider_height: slider_h,
+            visible_lines,
+            total_lines,
+        }
+    }
+
+    /// Computes the bounding rectangles of both panes and the splitter bar for split editing.
+    pub fn pane_geometries(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        sidebar_w: usize,
+        has_menu_bar: bool,
+        split: &crate::editor::split::SplitState,
+    ) -> (PaneGeometry, PaneGeometry, Option<(usize, usize, usize, usize)>) {
+        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
+        let canvas_x = sidebar_w;
+        let canvas_y = menu_offset;
+        let canvas_w = fb_w.saturating_sub(sidebar_w);
+        let canvas_h = fb_h.saturating_sub(menu_offset + self.status_bar_height);
+
+        match split.direction {
+            crate::editor::split::SplitDirection::Vertical => {
+                let splitter_size = 4;
+                let p0_w = ((canvas_w.saturating_sub(splitter_size)) as f32 * split.ratio).round() as usize;
+                let p1_w = canvas_w.saturating_sub(splitter_size + p0_w);
+                let p0 = PaneGeometry {
+                    x: canvas_x,
+                    y: canvas_y,
+                    width: p0_w,
+                    height: canvas_h,
+                    is_active: split.active_pane == 0,
+                };
+                let p1 = PaneGeometry {
+                    x: canvas_x + p0_w + splitter_size,
+                    y: canvas_y,
+                    width: p1_w,
+                    height: canvas_h,
+                    is_active: split.active_pane == 1,
+                };
+                let splitter = (canvas_x + p0_w, canvas_y, splitter_size, canvas_h);
+                (p0, p1, Some(splitter))
+            }
+            crate::editor::split::SplitDirection::Horizontal => {
+                let splitter_size = 4;
+                let p0_h = ((canvas_h.saturating_sub(splitter_size)) as f32 * split.ratio).round() as usize;
+                let p1_h = canvas_h.saturating_sub(splitter_size + p0_h);
+                let p0 = PaneGeometry {
+                    x: canvas_x,
+                    y: canvas_y,
+                    width: canvas_w,
+                    height: p0_h,
+                    is_active: split.active_pane == 0,
+                };
+                let p1 = PaneGeometry {
+                    x: canvas_x,
+                    y: canvas_y + p0_h + splitter_size,
+                    width: canvas_w,
+                    height: p1_h,
+                    is_active: split.active_pane == 1,
+                };
+                let splitter = (canvas_x, canvas_y + p0_h, canvas_w, splitter_size);
+                (p0, p1, Some(splitter))
+            }
+            crate::editor::split::SplitDirection::None => {
+                let p0 = PaneGeometry {
+                    x: canvas_x,
+                    y: canvas_y,
+                    width: canvas_w,
+                    height: canvas_h,
+                    is_active: true,
+                };
+                (p0, p0, None)
+            }
+        }
+    }
+
+    /// Computes internal scrollbar, minimap, and code canvas boundaries for a given pane.
+    pub fn pane_subgeometries(
+        &self,
+        pane: &PaneGeometry,
+        doc: &Document,
+    ) -> (ScrollbarGeometry, Option<MinimapGeometry>, usize) {
+        let header_h = self.tab_bar_height;
+        let content_y = pane.y + header_h;
+        let content_h = pane.height.saturating_sub(header_h);
+        let sb_w = self.scrollbar_width;
+        let sb_x = pane.x + pane.width.saturating_sub(sb_w);
+        let scroll_geom = self.scrollbar_geometry_in_rect(sb_x, content_y, sb_w, content_h, doc);
+
+        let mini_w = if self.minimap_enabled && pane.width >= 320 {
+            self.minimap_width.min(pane.width / 4)
+        } else {
+            0
+        };
+        let (mini_geom, max_code_x) = if mini_w > 0 {
+            let mini_x = sb_x.saturating_sub(mini_w);
+            let mg = self.minimap_geometry_in_rect(mini_x, content_y, mini_w, content_h, doc);
+            (Some(mg), mini_x)
+        } else {
+            (None, sb_x)
+        };
+
+        (scroll_geom, mini_geom, max_code_x)
+    }
+
+    /// Renders the interactive minimap showing miniature syntax-highlighted code and viewport slider.
+    pub fn render_minimap(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        geom: &MinimapGeometry,
+        is_hovered: bool,
+        is_dragging: bool,
+    ) {
+        if geom.width == 0 || geom.height == 0 {
+            return;
+        }
+
+        // 1. Background & subtle left border
+        fb.fill_rect(geom.x, geom.y, geom.width, geom.height, self.colors.gutter_bg);
+        fb.fill_rect(geom.x, geom.y, 1, geom.height, self.colors.gutter_border);
+
+        // 2. Draw miniature code lines
+        let total_lines = doc.buffer.len_lines();
+        let draw_x = geom.x + 3;
+        let max_draw_w = geom.width.saturating_sub(6);
+
+        if total_lines > 0 && max_draw_w > 0 {
+            let lines_step = if total_lines * 2 <= geom.height {
+                1
+            } else {
+                ((total_lines + geom.height - 1) / geom.height).max(1)
+            };
+
+            let mut line_idx = 0;
+            while line_idx < total_lines {
+                let my = if total_lines * 2 <= geom.height {
+                    geom.y + line_idx * 2
+                } else {
+                    geom.y + (line_idx * (geom.height.saturating_sub(2))) / total_lines
+                };
+
+                if my >= geom.y + geom.height {
+                    break;
+                }
+
+                if let Some(line_text) = doc.buffer.line(line_idx) {
+                    let trimmed_left = line_text.trim_start();
+                    let indent_chars = line_text.len().saturating_sub(trimmed_left.len());
+                    let indent_px = (indent_chars / 2).min(max_draw_w / 3);
+
+                    let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                    let mut cur_x = draw_x + indent_px;
+
+                    for token in tokens {
+                        let token_chars = token.text.chars().count();
+                        let token_w = (token_chars * 2).max(1);
+                        if cur_x >= draw_x + max_draw_w {
+                            break;
+                        }
+                        let draw_w = token_w.min(draw_x + max_draw_w - cur_x);
+                        let color = self.colors.token_color(token.token_type);
+                        fb.fill_rect(cur_x, my, draw_w, 1, color);
+                        cur_x += draw_w + 1;
+                    }
+                }
+
+                line_idx += lines_step;
+            }
+        }
+
+        // 3. Viewport highlight rectangle (slider)
+        let alpha = if is_dragging { 110 } else if is_hovered { 80 } else { 50 };
+        fb.fill_rect_alpha(geom.x + 1, geom.slider_y, geom.width.saturating_sub(1), geom.slider_height, self.colors.selection_bg, alpha);
+        fb.draw_rect_outline(geom.x + 1, geom.slider_y, geom.width.saturating_sub(2), geom.slider_height, self.colors.accent);
     }
 
     /// Renders the vertical scrollbar track and draggable thumb.
@@ -815,11 +1127,203 @@ impl GfxRenderer {
         );
     }
 
-    /// Renders a complete editor frame into the software framebuffer with optional sidebar and scrollbar state.
-    pub fn render_full_frame(
+    /// Renders an individual editor pane (header, gutter, code lines, minimap, scrollbar, focus outline).
+    pub fn render_editor_pane(
         &self,
         fb: &mut Framebuffer,
         doc: &Document,
+        pane_x: usize,
+        pane_y: usize,
+        pane_w: usize,
+        pane_h: usize,
+        is_active: bool,
+        pane_title: &str,
+        scrollbar_hovered: bool,
+        scrollbar_dragging: bool,
+        minimap_hovered: bool,
+        minimap_dragging: bool,
+    ) {
+        if pane_w == 0 || pane_h == 0 {
+            return;
+        }
+
+        let pane_geom = PaneGeometry {
+            x: pane_x,
+            y: pane_y,
+            width: pane_w,
+            height: pane_h,
+            is_active,
+        };
+
+        let header_h = self.tab_bar_height;
+        let content_y = pane_y + header_h;
+        let content_h = pane_h.saturating_sub(header_h);
+
+        // 1. Pane Background
+        fb.fill_rect(pane_x, pane_y, pane_w, pane_h, self.colors.background);
+
+        // 2. Pane Header / Tab Strip
+        let header_bg = if is_active { self.colors.tab_active_bg } else { self.colors.tab_inactive_bg };
+        fb.fill_rect(pane_x, pane_y, pane_w, header_h, header_bg);
+        fb.fill_rect(pane_x, pane_y + header_h - 1, pane_w, 1, self.colors.gutter_border);
+
+        if is_active {
+            // Distinctive accent bar for the focused pane
+            fb.fill_rect(pane_x, pane_y + header_h - 2, pane_w, 2, self.colors.accent);
+        }
+
+        let title_fg = if is_active { self.colors.tab_active_fg } else { self.colors.tab_inactive_fg };
+        let title_y = pane_y + (header_h.saturating_sub(FONT_HEIGHT)) / 2;
+        fb.draw_text(pane_title, pane_x + 10, title_y, title_fg, None);
+
+        if is_active {
+            let badge_x = pane_x + 10 + (pane_title.chars().count() + 1) * FONT_WIDTH;
+            if badge_x + 60 <= pane_x + pane_w {
+                fb.draw_text("[ACTIVO]", badge_x, title_y, self.colors.accent, None);
+            }
+        }
+
+        // 3. Compute Subgeometries (scrollbar, minimap, code limit)
+        let (scroll_geom, mini_geom, max_code_x) = self.pane_subgeometries(&pane_geom, doc);
+
+        // 4. Gutter
+        let total_lines = doc.buffer.len_lines();
+        let gutter_cols = total_lines.to_string().len().max(3);
+        let gutter_w = if self.show_line_numbers { (gutter_cols + 2) * FONT_WIDTH } else { 8 };
+
+        if self.show_line_numbers {
+            fb.fill_rect(pane_x, content_y, gutter_w, content_h, self.colors.gutter_bg);
+            fb.fill_rect(pane_x + gutter_w - 1, content_y, 1, content_h, self.colors.gutter_border);
+        }
+
+        // 5. Code Lines & Highlights
+        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let visible_lines = content_h / line_height;
+        let text_start_x = if self.show_line_numbers { pane_x + gutter_w + FONT_WIDTH } else { pane_x + 8 };
+
+        let mut selections = Vec::new();
+        let mut cursor_positions = Vec::new();
+
+        for c in doc.cursors.cursors() {
+            let pos = doc.buffer.char_to_position(c.head);
+            cursor_positions.push(pos);
+
+            if c.has_selection() {
+                let range = c.selection_range();
+                let start = doc.buffer.char_to_position(range.start);
+                let end = doc.buffer.char_to_position(range.end);
+                selections.push((start, end));
+            }
+        }
+
+        for row in 0..visible_lines {
+            let line_idx = doc.scroll_row + row;
+            let py = content_y + row * line_height;
+            let text_y = py + self.line_spacing / 2;
+
+            if line_idx < total_lines {
+                // Gutter line number
+                if self.show_line_numbers {
+                    let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                    let (fg_col, badge) = if let Some(d) = diag {
+                        (d.severity.color_hex(), Some(d.severity.badge()))
+                    } else {
+                        (self.colors.gutter_fg, None)
+                    };
+
+                    let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                    fb.draw_text(&num_str, pane_x + FONT_WIDTH, text_y, fg_col, None);
+
+                    if let Some(b) = badge {
+                        fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
+                    }
+                }
+
+                // Line Content
+                let line_text = doc.buffer.line(line_idx).unwrap_or_default();
+
+                // Selections
+                for &(start, end) in &selections {
+                    if line_idx >= start.line && line_idx <= end.line {
+                        let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                        let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
+
+                        if sel_col_end > sel_col_start {
+                            let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
+                            if sx < max_code_x {
+                                let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
+                                fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                            }
+                        }
+                    }
+                }
+
+                // Syntax Highlighted Tokens
+                let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                let mut col_accum = 0;
+                for token in tokens {
+                    let token_color = self.colors.token_color(token.token_type);
+                    for ch in token.text.chars() {
+                        let col = col_accum;
+                        col_accum += 1;
+                        if col >= doc.scroll_col {
+                            let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
+                            if px + FONT_WIDTH <= max_code_x {
+                                fb.draw_char(ch, px, text_y, token_color, None);
+                            }
+                        }
+                    }
+                }
+
+                // Cursors (only rendered if this pane is active)
+                if is_active {
+                    for pos in &cursor_positions {
+                        if pos.line == line_idx && pos.col >= doc.scroll_col {
+                            let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
+                            if cx + 2 <= max_code_x {
+                                match self.cursor_style.as_str() {
+                                    "block" => {
+                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
+                                    }
+                                    "underline" => {
+                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
+                                    }
+                                    _ => {
+                                        fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if self.show_line_numbers {
+                fb.draw_char('~', pane_x + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
+            }
+        }
+
+        // 6. Minimap
+        if let Some(mg) = mini_geom {
+            self.render_minimap(fb, doc, &mg, minimap_hovered, minimap_dragging);
+        }
+
+        // 7. Scrollbar
+        self.render_scrollbar(fb, &scroll_geom, scrollbar_hovered, scrollbar_dragging);
+
+        // 8. Focus border
+        if is_active {
+            fb.draw_rect_outline(pane_x, pane_y, pane_w, pane_h, self.colors.accent);
+        }
+    }
+
+    /// Renders a complete editor frame into the software framebuffer with split view support.
+    pub fn render_full_frame_with_split(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        secondary_doc: Option<&Document>,
+        split: Option<&crate::editor::split::SplitState>,
         tab_titles: &[String],
         active_tab_idx: usize,
         status_msg: Option<&str>,
@@ -828,6 +1332,8 @@ impl GfxRenderer {
         sidebar: Option<&crate::editor::sidebar::FileExplorer>,
         scrollbar_hovered: bool,
         scrollbar_dragging: bool,
+        minimap_hovered: bool,
+        minimap_dragging: bool,
         autocomplete: Option<&crate::editor::autocomplete::AutocompleteState>,
     ) {
         // Clear background
@@ -857,147 +1363,215 @@ impl GfxRenderer {
             }
         }
 
-        // 3. Draw Tab Bar next to sidebar
-        self.render_tab_bar(fb, tab_titles, active_tab_idx, sidebar_w, menu_offset);
+        let is_split_active = split.map(|s| s.is_split()).unwrap_or(false);
 
-        // 4. Compute Viewport geometry
-        let total_lines = doc.buffer.len_lines();
-        let gutter_cols = total_lines.to_string().len().max(3);
-        let gutter_width = if self.show_line_numbers {
-            (gutter_cols + 2) * FONT_WIDTH
-        } else {
-            8
-        };
+        if !is_split_active {
+            // SINGLE PANE MODE
+            // 3. Draw Tab Bar next to sidebar
+            self.render_tab_bar(fb, tab_titles, active_tab_idx, sidebar_w, menu_offset);
 
-        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
-        let visible_lines = content_height / line_height;
-        let max_code_x = fb.width.saturating_sub(self.scrollbar_width);
-        let canvas_x_start = sidebar_w;
+            // 4. Compute Viewport geometry
+            let total_lines = doc.buffer.len_lines();
+            let gutter_cols = total_lines.to_string().len().max(3);
+            let gutter_width = if self.show_line_numbers {
+                (gutter_cols + 2) * FONT_WIDTH
+            } else {
+                8
+            };
 
-        // 5. Draw Gutter background & divider
-        if self.show_line_numbers {
-            fb.fill_rect(canvas_x_start, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
-            fb.fill_rect(canvas_x_start + gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
-        }
+            let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+            let visible_lines = content_height / line_height;
 
-        // 6. Collect selections & cursor pixel positions
-        let mut selections = Vec::new();
-        let mut cursor_positions = Vec::new();
+            let canvas_w = fb.width.saturating_sub(sidebar_w);
+            let minimap_w = if self.minimap_enabled && canvas_w >= 320 {
+                self.minimap_width.min(canvas_w / 4)
+            } else {
+                0
+            };
+            let max_code_x = fb.width.saturating_sub(self.scrollbar_width + minimap_w);
+            let canvas_x_start = sidebar_w;
 
-        for c in doc.cursors.cursors() {
-            let pos = doc.buffer.char_to_position(c.head);
-            cursor_positions.push(pos);
-
-            if c.has_selection() {
-                let range = c.selection_range();
-                let start = doc.buffer.char_to_position(range.start);
-                let end = doc.buffer.char_to_position(range.end);
-                selections.push((start, end));
+            // 5. Draw Gutter background & divider
+            if self.show_line_numbers {
+                fb.fill_rect(canvas_x_start, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
+                fb.fill_rect(canvas_x_start + gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
             }
-        }
 
-        // 7. Draw Document Lines & Syntax
-        for row in 0..visible_lines {
-            let line_idx = doc.scroll_row + row;
-            let py = content_y_start + row * line_height;
-            let text_y = py + self.line_spacing / 2;
+            // 6. Collect selections & cursor pixel positions
+            let mut selections = Vec::new();
+            let mut cursor_positions = Vec::new();
 
-            if line_idx < total_lines {
-                // Line Number in gutter with diagnostic badge
-                if self.show_line_numbers {
-                    let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
-                    let (fg_col, badge) = if let Some(d) = diag {
-                        (d.severity.color_hex(), Some(d.severity.badge()))
-                    } else {
-                        (self.colors.gutter_fg, None)
-                    };
+            for c in doc.cursors.cursors() {
+                let pos = doc.buffer.char_to_position(c.head);
+                cursor_positions.push(pos);
 
-                    let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, canvas_x_start + FONT_WIDTH, text_y, fg_col, None);
-
-                    if let Some(b) = badge {
-                        fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
-                    }
+                if c.has_selection() {
+                    let range = c.selection_range();
+                    let start = doc.buffer.char_to_position(range.start);
+                    let end = doc.buffer.char_to_position(range.end);
+                    selections.push((start, end));
                 }
+            }
 
-                // Line Content
-                let line_text = doc.buffer.line(line_idx).unwrap_or_default();
-                let text_start_x = if self.show_line_numbers {
-                    canvas_x_start + gutter_width + FONT_WIDTH
-                } else {
-                    canvas_x_start + 8
-                };
+            // 7. Draw Document Lines & Syntax
+            for row in 0..visible_lines {
+                let line_idx = doc.scroll_row + row;
+                let py = content_y_start + row * line_height;
+                let text_y = py + self.line_spacing / 2;
 
-                // Selection background (clamped to max_code_x)
-                for &(start, end) in &selections {
-                    if line_idx >= start.line && line_idx <= end.line {
-                        let sel_col_start = if line_idx == start.line { start.col } else { 0 };
-                        let sel_col_end = if line_idx == end.line {
-                            end.col
+                if line_idx < total_lines {
+                    if self.show_line_numbers {
+                        let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                        let (fg_col, badge) = if let Some(d) = diag {
+                            (d.severity.color_hex(), Some(d.severity.badge()))
                         } else {
-                            line_text.chars().count() + 1
+                            (self.colors.gutter_fg, None)
                         };
 
-                        if sel_col_end > sel_col_start {
-                            let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
-                            if sx < max_code_x {
-                                let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
-                                fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
-                            }
+                        let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                        fb.draw_text(&num_str, canvas_x_start + FONT_WIDTH, text_y, fg_col, None);
+
+                        if let Some(b) = badge {
+                            fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
                         }
                     }
-                }
 
-                // Highlighted syntax tokens (clamped to max_code_x)
-                let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
-                let mut col_accum = 0;
+                    let line_text = doc.buffer.line(line_idx).unwrap_or_default();
+                    let text_start_x = if self.show_line_numbers {
+                        canvas_x_start + gutter_width + FONT_WIDTH
+                    } else {
+                        canvas_x_start + 8
+                    };
 
-                for token in tokens {
-                    let token_color = self.colors.token_color(token.token_type);
-                    for ch in token.text.chars() {
-                        let col = col_accum;
-                        col_accum += 1;
+                    for &(start, end) in &selections {
+                        if line_idx >= start.line && line_idx <= end.line {
+                            let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                            let sel_col_end = if line_idx == end.line {
+                                end.col
+                            } else {
+                                line_text.chars().count() + 1
+                            };
 
-                        if col >= doc.scroll_col {
-                            let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
-                            if px + FONT_WIDTH <= max_code_x {
-                                fb.draw_char(ch, px, text_y, token_color, None);
-                            }
-                        }
-                    }
-                }
-
-                // Draw Cursors on this line (clamped to max_code_x)
-                for pos in &cursor_positions {
-                    if pos.line == line_idx && pos.col >= doc.scroll_col {
-                        let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
-                        if cx + 2 <= max_code_x {
-                            match self.cursor_style.as_str() {
-                                "block" => {
-                                    let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                    fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
-                                }
-                                "underline" => {
-                                    let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                    fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
-                                }
-                                _ => {
-                                    // Default: modern 2px vertical bar
-                                    fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                            if sel_col_end > sel_col_start {
+                                let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
+                                if sx < max_code_x {
+                                    let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
+                                    fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
                                 }
                             }
                         }
                     }
+
+                    let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                    let mut col_accum = 0;
+
+                    for token in tokens {
+                        let token_color = self.colors.token_color(token.token_type);
+                        for ch in token.text.chars() {
+                            let col = col_accum;
+                            col_accum += 1;
+
+                            if col >= doc.scroll_col {
+                                let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
+                                if px + FONT_WIDTH <= max_code_x {
+                                    fb.draw_char(ch, px, text_y, token_color, None);
+                                }
+                            }
+                        }
+                    }
+
+                    for pos in &cursor_positions {
+                        if pos.line == line_idx && pos.col >= doc.scroll_col {
+                            let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
+                            if cx + 2 <= max_code_x {
+                                match self.cursor_style.as_str() {
+                                    "block" => {
+                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
+                                    }
+                                    "underline" => {
+                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
+                                    }
+                                    _ => {
+                                        fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if self.show_line_numbers {
+                    fb.draw_char('~', canvas_x_start + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
                 }
-            } else if self.show_line_numbers {
-                // Tilde past end of file
-                fb.draw_char('~', canvas_x_start + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
             }
-        }
 
-        // 8. Draw Interactive Scrollbar
-        let scroll_geom = self.scrollbar_geometry(fb.width, fb.height, doc, menu_bar.is_some());
-        self.render_scrollbar(fb, &scroll_geom, scrollbar_hovered, scrollbar_dragging);
+            // 8a. Draw Minimap if enabled
+            if minimap_w > 0 {
+                let mm_x = max_code_x;
+                let mm_geom = self.minimap_geometry_in_rect(mm_x, content_y_start, minimap_w, content_height, doc);
+                self.render_minimap(fb, doc, &mm_geom, minimap_hovered, minimap_dragging);
+            }
+
+            // 8b. Draw Interactive Scrollbar
+            let scroll_geom = self.scrollbar_geometry(fb.width, fb.height, doc, menu_bar.is_some());
+            self.render_scrollbar(fb, &scroll_geom, scrollbar_hovered, scrollbar_dragging);
+        } else {
+            // SPLIT PANE MODE (Vertical or Horizontal)
+            let sp = split.unwrap();
+            let (p0_geom, p1_geom, splitter_opt) = self.pane_geometries(fb.width, fb.height, sidebar_w, menu_bar.is_some(), sp);
+
+            let pane_0_doc = doc;
+            let pane_1_doc = secondary_doc.unwrap_or(doc);
+
+            let p0_title = format!("1: {}", pane_0_doc.tab_title());
+            let p1_title = format!("2: {}", pane_1_doc.tab_title());
+
+            // Render Pane 0
+            self.render_editor_pane(
+                fb,
+                pane_0_doc,
+                p0_geom.x,
+                p0_geom.y,
+                p0_geom.width,
+                p0_geom.height,
+                sp.active_pane == 0,
+                &p0_title,
+                scrollbar_hovered && sp.active_pane == 0,
+                scrollbar_dragging && sp.active_pane == 0,
+                minimap_hovered && sp.active_pane == 0,
+                minimap_dragging && sp.active_pane == 0,
+            );
+
+            // Render Splitter
+            if let Some((sx, sy, sw, sh)) = splitter_opt {
+                fb.fill_rect(sx, sy, sw, sh, self.colors.gutter_border);
+                if sw > sh {
+                    // Horizontal splitter
+                    let mid_x = sx + sw / 2;
+                    fb.fill_rect(mid_x.saturating_sub(16), sy + 1, 32, 2, self.colors.accent);
+                } else {
+                    // Vertical splitter
+                    let mid_y = sy + sh / 2;
+                    fb.fill_rect(sx + 1, mid_y.saturating_sub(16), 2, 32, self.colors.accent);
+                }
+            }
+
+            // Render Pane 1
+            self.render_editor_pane(
+                fb,
+                pane_1_doc,
+                p1_geom.x,
+                p1_geom.y,
+                p1_geom.width,
+                p1_geom.height,
+                sp.active_pane == 1,
+                &p1_title,
+                scrollbar_hovered && sp.active_pane == 1,
+                scrollbar_dragging && sp.active_pane == 1,
+                minimap_hovered && sp.active_pane == 1,
+                minimap_dragging && sp.active_pane == 1,
+            );
+        }
 
         // 9. Draw Status Bar at bottom
         self.render_status_bar(fb, doc, status_msg);
@@ -1026,6 +1600,40 @@ impl GfxRenderer {
         if let Some(mb) = menu_bar {
             self.render_menu_dropdown(fb, mb);
         }
+    }
+
+    /// Renders a complete editor frame into the software framebuffer with optional sidebar and scrollbar state.
+    pub fn render_full_frame(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        tab_titles: &[String],
+        active_tab_idx: usize,
+        status_msg: Option<&str>,
+        modal: Option<&crate::ui::prompt::PromptModal>,
+        menu_bar: Option<&crate::editor::menu::MenuBar>,
+        sidebar: Option<&crate::editor::sidebar::FileExplorer>,
+        scrollbar_hovered: bool,
+        scrollbar_dragging: bool,
+        autocomplete: Option<&crate::editor::autocomplete::AutocompleteState>,
+    ) {
+        self.render_full_frame_with_split(
+            fb,
+            doc,
+            None,
+            None,
+            tab_titles,
+            active_tab_idx,
+            status_msg,
+            modal,
+            menu_bar,
+            sidebar,
+            scrollbar_hovered,
+            scrollbar_dragging,
+            false,
+            false,
+            autocomplete,
+        );
     }
 
     /// Renders the file explorer sidebar docked to the left.
