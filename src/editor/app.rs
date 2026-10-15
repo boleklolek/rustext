@@ -46,6 +46,7 @@ pub struct Editor {
     pub snippet_session: Option<crate::editor::snippet::SnippetSession>,
     pub diagnostics: crate::editor::diagnostic::DiagnosticCollection,
     pub sidebar: crate::editor::sidebar::FileExplorer,
+    pub autocomplete: crate::editor::autocomplete::AutocompleteState,
     pub should_quit: bool,
 }
 
@@ -103,6 +104,7 @@ impl Editor {
             snippet_session: None,
             diagnostics: crate::editor::diagnostic::DiagnosticCollection::new(),
             sidebar,
+            autocomplete: crate::editor::autocomplete::AutocompleteState::new(),
             should_quit: false,
         }
     }
@@ -343,6 +345,65 @@ impl Editor {
                 _ => {}
             },
             EditorMode::Normal => {
+                // If autocomplete popup is active, intercept navigation and commit keys
+                if self.autocomplete.is_active {
+                    match key {
+                        Key::Down => {
+                            self.autocomplete.select_next();
+                            return;
+                        }
+                        Key::Up => {
+                            self.autocomplete.select_prev();
+                            return;
+                        }
+                        Key::Tab => {
+                            if self.snippet_session.is_some() {
+                                self.autocomplete.close();
+                                self.handle_tab_key();
+                                return;
+                            } else if self.commit_autocomplete() {
+                                return;
+                            }
+                        }
+                        Key::Enter => {
+                            if self.commit_autocomplete() {
+                                return;
+                            }
+                        }
+                        Key::Esc => {
+                            self.autocomplete.close();
+                            return;
+                        }
+                        Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
+                            self.autocomplete.close();
+                        }
+                        Key::Backspace => {
+                            let action = Keymap::resolve_key(key);
+                            self.execute_action(action);
+                            self.trigger_autocomplete(false);
+                            return;
+                        }
+                        Key::Char(c) => {
+                            let action = Keymap::resolve_key(key);
+                            self.execute_action(action);
+                            if crate::editor::autocomplete::AutocompleteState::is_identifier_char(c) || c == '.' || c == ':' {
+                                self.trigger_autocomplete(false);
+                            } else {
+                                self.autocomplete.close();
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                } else if let Key::Char(c) = key {
+                    let action = Keymap::resolve_key(key);
+                    self.execute_action(action);
+                    if crate::editor::autocomplete::AutocompleteState::is_identifier_char(c) || c == '.' || c == ':' {
+                        self.trigger_autocomplete(false);
+                    }
+                    return;
+                }
+
                 let action = Keymap::resolve_key(key);
                 self.execute_action(action);
             }
@@ -594,6 +655,10 @@ impl Editor {
             }
             EditorAction::PrevDiagnostic => {
                 self.jump_to_prev_diagnostic();
+            }
+
+            EditorAction::TriggerAutocomplete => {
+                self.trigger_autocomplete(true);
             }
 
             EditorAction::None => {}
@@ -1697,6 +1762,119 @@ impl Editor {
         }
     }
 
+    /// Triggers the autocomplete engine. If `force` is true, displays suggestions even with an empty prefix.
+    pub fn trigger_autocomplete(&mut self, force: bool) {
+        if !self.config.editor.autocomplete && !force {
+            self.autocomplete.close();
+            return;
+        }
+
+        let head = self.doc().cursors.primary().head;
+        let (prefix, anchor) = crate::editor::autocomplete::AutocompleteState::extract_word_prefix(
+            &self.doc().buffer,
+            head,
+        );
+
+        if !force && prefix.len() < self.config.editor.autocomplete_min_chars {
+            self.autocomplete.close();
+            return;
+        }
+
+        let candidates = crate::editor::autocomplete::AutocompleteState::collect_candidates(
+            self.doc(),
+            &self.documents,
+            head,
+        );
+
+        let ranked = crate::editor::autocomplete::AutocompleteState::filter_and_rank(&candidates, &prefix);
+        if ranked.is_empty() {
+            self.autocomplete.close();
+        } else {
+            self.autocomplete.open(prefix, anchor, ranked);
+        }
+    }
+
+    /// Commits the currently selected autocomplete item and replaces the typed prefix.
+    pub fn commit_autocomplete(&mut self) -> bool {
+        if !self.autocomplete.is_active {
+            return false;
+        }
+
+        let selected = match self.autocomplete.selected_item().cloned() {
+            Some(item) => item,
+            None => {
+                self.autocomplete.close();
+                return false;
+            }
+        };
+
+        let prefix_len = self.autocomplete.prefix.chars().count();
+        let is_snippet = selected.kind == crate::editor::autocomplete::CompletionKind::Snippet;
+        let label = selected.label.clone();
+        self.autocomplete.close();
+
+        if is_snippet && self.doc().cursors.cursors().len() == 1 {
+            // For snippet completion with single cursor: first delete the typed prefix at primary cursor, then expand snippet
+            let head = self.doc().cursors.primary().head;
+            let start = head.saturating_sub(prefix_len);
+            if start < head {
+                let doc = self.doc_mut();
+                let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                let deleted = doc.buffer.get_text_range(start, head);
+                doc.buffer.delete_range(start, head);
+                tx.ops.push(EditOp::Delete {
+                    offset: start,
+                    text: deleted,
+                });
+                doc.cursors.set_single(start);
+                tx.cursors_after = doc.cursors.cursors().to_vec();
+                doc.history.record(tx);
+            }
+            self.expand_snippet_trigger(&label);
+        } else {
+            // Multicursor-aware completion: replace prefix before each cursor head with item label
+            let doc = self.doc_mut();
+            let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+            doc.cursors.normalize();
+            let cursors_snapshot = doc.cursors.cursors().to_vec();
+            let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
+            let mut offset_shift: isize = 0;
+            let label_len = label.chars().count();
+
+            for cursor in cursors_snapshot {
+                let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
+                let start = adj_head.saturating_sub(prefix_len);
+
+                if start < adj_head {
+                    let deleted = doc.buffer.get_text_range(start, adj_head);
+                    doc.buffer.delete_range(start, adj_head);
+                    tx.ops.push(EditOp::Delete {
+                        offset: start,
+                        text: deleted,
+                    });
+                    offset_shift -= prefix_len as isize;
+                }
+
+                doc.buffer.insert(start, &label);
+                tx.ops.push(EditOp::Insert {
+                    offset: start,
+                    text: label.clone(),
+                });
+                offset_shift += label_len as isize;
+                new_cursors.push(Cursor::new(start + label_len));
+            }
+
+            Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
+
+            let doc = self.doc_mut();
+            doc.cursors.set_cursors(new_cursors);
+            tx.cursors_after = doc.cursors.cursors().to_vec();
+            doc.history.record(tx);
+        }
+
+        true
+    }
+
     /// Inserts tab characters or spaces across all cursors.
     pub fn insert_tab_multicursor(&mut self) {
         for _ in 0..self.tab_size {
@@ -2323,19 +2501,48 @@ impl Editor {
                                 }
                             // C. Normal Editor Mode interaction
                             } else {
-                                // 1. Try Menu Bar and open dropdown
-                                if let Some(action) = self.menu_bar.handle_mouse_click(x, y, crate::gfx::FONT_WIDTH) {
-                                    self.execute_action(action);
-                                } else if !self.menu_bar.is_open() {
-                                    let sidebar_w = if self.sidebar.is_visible {
-                                        self.sidebar.width.min(fb.width.saturating_sub(100))
-                                    } else {
-                                        0
-                                    };
-                                    let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
-                                    let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+                                let sidebar_w = if self.sidebar.is_visible {
+                                    self.sidebar.width.min(fb.width.saturating_sub(100))
+                                } else {
+                                    0
+                                };
 
-                                    // 2. Check Sidebar Hit Test
+                                // 0. Check Autocomplete Floating Popup Hit Test
+                                let ac_hit = if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
+                                    let ac_geom = renderer.autocomplete_geometry(
+                                        fb.width,
+                                        fb.height,
+                                        self.doc(),
+                                        sidebar_w,
+                                        self.config.gui.menu_bar,
+                                        self.autocomplete.items.len(),
+                                    );
+                                    if ac_geom.contains_point(x, y) {
+                                        if let Some(item_idx) = ac_geom.item_index_at(y, self.autocomplete.scroll_offset) {
+                                            self.autocomplete.selected_idx = item_idx;
+                                            self.commit_autocomplete();
+                                            adjust_viewport = true;
+                                            needs_redraw = true;
+                                        }
+                                        true
+                                    } else {
+                                        self.autocomplete.close();
+                                        needs_redraw = true;
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if !ac_hit {
+                                    // 1. Try Menu Bar and open dropdown
+                                    if let Some(action) = self.menu_bar.handle_mouse_click(x, y, crate::gfx::FONT_WIDTH) {
+                                        self.execute_action(action);
+                                    } else if !self.menu_bar.is_open() {
+                                        let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                                        let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+
+                                        // 2. Check Sidebar Hit Test
                                     if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
                                         let rel_x = x;
                                         let rel_y = y - menu_offset;
@@ -2448,6 +2655,7 @@ impl Editor {
                                 }
                             }
                         }
+                        }
                     }
                     crate::window::WindowEvent::MouseUp { .. } => {
                         if is_dragging_scrollbar {
@@ -2460,6 +2668,19 @@ impl Editor {
                         mouse_x = x;
                         mouse_y = y;
                         if self.mode == EditorMode::Normal {
+                            if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
+                                let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
+                                let ac_geom = renderer.autocomplete_geometry(fb.width, fb.height, self.doc(), sidebar_w, self.config.gui.menu_bar, self.autocomplete.items.len());
+                                if ac_geom.contains_point(x, y) {
+                                    if let Some(item_idx) = ac_geom.item_index_at(y, self.autocomplete.scroll_offset) {
+                                        if self.autocomplete.selected_idx != item_idx {
+                                            self.autocomplete.selected_idx = item_idx;
+                                            needs_redraw = true;
+                                        }
+                                    }
+                                }
+                            }
+
                             let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
                             if is_dragging_scrollbar {
                                 let target_thumb_y = y.saturating_sub(scrollbar_drag_offset_y);
@@ -2488,56 +2709,64 @@ impl Editor {
                     }
                     crate::window::WindowEvent::ScrollUp { .. } => {
                         needs_redraw = true;
-                        let sidebar_w = if self.sidebar.is_visible {
-                            self.sidebar.width.min(fb.width.saturating_sub(100))
+                        if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
+                            self.autocomplete.select_prev();
                         } else {
-                            0
-                        };
-                        let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
-                        let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+                            let sidebar_w = if self.sidebar.is_visible {
+                                self.sidebar.width.min(fb.width.saturating_sub(100))
+                            } else {
+                                0
+                            };
+                            let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                            let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                        if let EditorMode::ModalPrompt(modal) = &mut self.mode {
-                            if modal.is_file_dialog() {
-                                modal.scroll_up(3);
+                            if let EditorMode::ModalPrompt(modal) = &mut self.mode {
+                                if modal.is_file_dialog() {
+                                    modal.scroll_up(3);
+                                }
+                            } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
+                                *scroll_offset = scroll_offset.saturating_sub(1);
+                            } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
+                                let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
+                                self.sidebar.handle_scroll(1, max_visible);
+                            } else {
+                                self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
+                                adjust_viewport = false;
                             }
-                        } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
-                            *scroll_offset = scroll_offset.saturating_sub(1);
-                        } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
-                            let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
-                            self.sidebar.handle_scroll(1, max_visible);
-                        } else {
-                            self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
-                            adjust_viewport = false;
                         }
                     }
                     crate::window::WindowEvent::ScrollDown { .. } => {
                         needs_redraw = true;
-                        let sidebar_w = if self.sidebar.is_visible {
-                            self.sidebar.width.min(fb.width.saturating_sub(100))
+                        if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
+                            self.autocomplete.select_next();
                         } else {
-                            0
-                        };
-                        let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
-                        let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+                            let sidebar_w = if self.sidebar.is_visible {
+                                self.sidebar.width.min(fb.width.saturating_sub(100))
+                            } else {
+                                0
+                            };
+                            let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                            let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                        if let EditorMode::ModalPrompt(modal) = &mut self.mode {
-                            if modal.is_file_dialog() {
-                                let box_h = fb.height.min(480).max(360);
-                                let list_h = box_h.saturating_sub(190);
-                                let max_visible = list_h / 22;
-                                modal.scroll_down(3, max_visible);
+                            if let EditorMode::ModalPrompt(modal) = &mut self.mode {
+                                if modal.is_file_dialog() {
+                                    let box_h = fb.height.min(480).max(360);
+                                    let list_h = box_h.saturating_sub(190);
+                                    let max_visible = list_h / 22;
+                                    modal.scroll_down(3, max_visible);
+                                }
+                            } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
+                                let ext_count = self.extension_manager.extensions.len();
+                                if *scroll_offset + 1 < ext_count {
+                                    *scroll_offset += 1;
+                                }
+                            } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
+                                let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
+                                self.sidebar.handle_scroll(-1, max_visible);
+                            } else {
+                                self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
+                                adjust_viewport = false;
                             }
-                        } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
-                            let ext_count = self.extension_manager.extensions.len();
-                            if *scroll_offset + 1 < ext_count {
-                                *scroll_offset += 1;
-                            }
-                        } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
-                            let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
-                            self.sidebar.handle_scroll(-1, max_visible);
-                        } else {
-                            self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
-                            adjust_viewport = false;
                         }
                     }
                     crate::window::WindowEvent::Char(c) => {
@@ -2690,6 +2919,7 @@ impl Editor {
                 sidebar,
                 scrollbar_hovered,
                 is_dragging_scrollbar,
+                Some(&self.autocomplete),
             );
 
             // Render Prompt Modal if active (with interactive hover state)

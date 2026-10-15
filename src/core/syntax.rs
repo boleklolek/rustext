@@ -212,79 +212,76 @@ impl SyntaxHighlighter {
         spans
     }
 
-    fn classify_word(word: &str, lang: Language) -> TokenType {
+    /// Returns all static keywords for the specified language.
+    pub fn keywords(lang: Language) -> &'static [&'static str] {
         match lang {
-            Language::Rust => {
-                const RUST_KEYWORDS: &[&str] = &[
-                    "as", "break", "const", "continue", "crate", "else", "enum", "extern",
-                    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
-                    "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
-                    "super", "trait", "true", "type", "unsafe", "use", "where", "while",
-                    "async", "await", "dyn",
-                ];
-                const RUST_TYPES: &[&str] = &[
-                    "bool", "char", "i8", "i16", "i32", "i64", "i128", "isize",
-                    "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64",
-                    "str", "String", "Vec", "Option", "Some", "None", "Result", "Ok", "Err",
-                    "Box", "Rc", "Arc",
-                ];
+            Language::Rust => &[
+                "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
+                "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
+                "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self",
+                "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
+                "where", "while",
+            ],
+            Language::Python => &[
+                "and", "as", "assert", "async", "await", "break", "class", "continue",
+                "def", "del", "elif", "else", "except", "finally", "for", "from",
+                "global", "if", "import", "in", "is", "lambda", "nonlocal", "not",
+                "or", "pass", "raise", "return", "try", "while", "with", "yield",
+                "True", "False", "None",
+            ],
+            Language::C => &[
+                "auto", "break", "case", "char", "const", "continue", "default", "do",
+                "double", "else", "enum", "extern", "float", "for", "goto", "if",
+                "int", "long", "register", "return", "short", "signed", "sizeof", "static",
+                "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
+            ],
+            Language::JavaScript => &[
+                "async", "await", "break", "case", "catch", "class", "const", "continue",
+                "debugger", "default", "delete", "do", "else", "export", "extends", "false",
+                "finally", "for", "function", "if", "import", "in", "instanceof", "let",
+                "new", "null", "return", "super", "switch", "this", "throw", "true",
+                "try", "typeof", "var", "void", "while", "with", "yield",
+            ],
+            Language::Toml => &["true", "false"],
+            Language::Json | Language::Markdown | Language::PlainText => &[],
+        }
+    }
 
-                if RUST_KEYWORDS.contains(&word) {
-                    TokenType::Keyword
-                } else if RUST_TYPES.contains(&word) || word.starts_with(|c: char| c.is_ascii_uppercase()) {
-                    TokenType::Type
-                } else {
-                    TokenType::Identifier
-                }
-            }
-            Language::Python => {
-                const PY_KEYWORDS: &[&str] = &[
-                    "and", "as", "assert", "async", "await", "break", "class", "continue",
-                    "def", "del", "elif", "else", "except", "finally", "for", "from",
-                    "global", "if", "import", "in", "is", "lambda", "nonlocal", "not",
-                    "or", "pass", "raise", "return", "try", "while", "with", "yield",
-                    "True", "False", "None",
-                ];
-                if PY_KEYWORDS.contains(&word) {
-                    TokenType::Keyword
-                } else if word.starts_with(|c: char| c.is_ascii_uppercase()) {
-                    TokenType::Type
-                } else {
-                    TokenType::Identifier
-                }
-            }
-            Language::C => {
-                const C_KEYWORDS: &[&str] = &[
-                    "auto", "break", "case", "char", "const", "continue", "default", "do",
-                    "double", "else", "enum", "extern", "float", "for", "goto", "if",
-                    "int", "long", "register", "return", "short", "signed", "sizeof", "static",
-                    "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
-                ];
-                if C_KEYWORDS.contains(&word) {
-                    TokenType::Keyword
-                } else if word.starts_with(|c: char| c.is_ascii_uppercase()) {
-                    TokenType::Type
-                } else {
-                    TokenType::Identifier
-                }
-            }
-            Language::JavaScript => {
-                const JS_KEYWORDS: &[&str] = &[
-                    "break", "case", "catch", "class", "const", "continue", "debugger",
-                    "default", "delete", "do", "else", "export", "extends", "finally",
-                    "for", "function", "if", "import", "in", "instanceof", "new", "return",
-                    "super", "switch", "this", "throw", "try", "typeof", "var", "void",
-                    "while", "with", "yield", "let", "async", "await", "true", "false", "null",
-                ];
-                if JS_KEYWORDS.contains(&word) {
-                    TokenType::Keyword
-                } else if word.starts_with(|c: char| c.is_ascii_uppercase()) {
-                    TokenType::Type
-                } else {
-                    TokenType::Identifier
-                }
-            }
-            _ => TokenType::PlainText,
+    /// Returns all static built-in types for the specified language.
+    pub fn types(lang: Language) -> &'static [&'static str] {
+        match lang {
+            Language::Rust => &[
+                "Arc", "Box", "Err", "None", "Ok", "Option", "Rc", "Result", "Some",
+                "String", "Vec", "bool", "char", "f32", "f64", "i128", "i16", "i32",
+                "i64", "i8", "isize", "str", "u128", "u16", "u32", "u64", "u8", "usize",
+            ],
+            Language::Python => &[
+                "int", "float", "str", "bool", "list", "dict", "set", "tuple", "bytes",
+                "object", "type", "Exception", "ValueError", "TypeError",
+            ],
+            Language::C => &[
+                "bool", "char", "double", "float", "int", "int16_t", "int32_t", "int64_t",
+                "int8_t", "long", "short", "size_t", "uint16_t", "uint32_t", "uint64_t",
+                "uint8_t", "void",
+            ],
+            Language::JavaScript => &[
+                "Array", "Boolean", "Date", "Error", "Function", "Map", "Number",
+                "Object", "Promise", "RegExp", "Set", "String", "Symbol",
+            ],
+            Language::Json | Language::Markdown | Language::Toml | Language::PlainText => &[],
+        }
+    }
+
+    fn classify_word(word: &str, lang: Language) -> TokenType {
+        let kw = Self::keywords(lang);
+        let ty = Self::types(lang);
+
+        if kw.contains(&word) {
+            TokenType::Keyword
+        } else if ty.contains(&word) || (lang != Language::PlainText && word.starts_with(|c: char| c.is_ascii_uppercase())) {
+            TokenType::Type
+        } else {
+            TokenType::Identifier
         }
     }
 }

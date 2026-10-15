@@ -260,7 +260,7 @@ fn profile_buffer_scenario(name: &'static str, size_bytes: usize) -> BenchmarkRe
     let tabs = vec!["benchmark_file.rs".to_string()];
 
     let t_render_start = Instant::now();
-    renderer.render_full_frame(&mut fb, &doc, &tabs, 0, Some("Benchmarking"), None, None, None, false, false);
+    renderer.render_full_frame(&mut fb, &doc, &tabs, 0, Some("Benchmarking"), None, None, None, false, false, None);
     let render_time = t_render_start.elapsed();
 
     let pieces_count = buffer.piece_count();
@@ -351,6 +351,7 @@ fn profile_multitab_session() {
             Some(&editor.sidebar),
             false,
             false,
+            None,
         );
     }
     let total_switch_time = t_switch_start.elapsed();

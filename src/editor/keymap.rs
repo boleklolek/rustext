@@ -56,6 +56,8 @@ pub enum EditorAction {
     ToggleSidebar,
     RefreshSidebar,
     FocusSidebar,
+    // Autocomplete
+    TriggerAutocomplete,
     Quit,
     None,
 }
@@ -116,6 +118,9 @@ impl Keymap {
             // Tools & Diagnostics
             Key::F(7) => EditorAction::CheckDocument,
             Key::F(8) => EditorAction::NextDiagnostic,
+
+            // Autocomplete trigger (Ctrl+Space)
+            Key::Ctrl(' ') | Key::Ctrl('@') => EditorAction::TriggerAutocomplete,
 
             // Help & About
             Key::F(1) => EditorAction::OpenAboutDialog,

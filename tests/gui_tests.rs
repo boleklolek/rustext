@@ -1343,6 +1343,7 @@ fn test_file_explorer_gfx_rendering_and_glyphs() {
         Some(&explorer),
         false,
         false,
+        None,
     );
 
     // Sidebar region x: 0..220 should contain non-background pixels (header, text, divider)
@@ -1356,6 +1357,170 @@ fn test_file_explorer_gfx_rendering_and_glyphs() {
     }
     assert!(sidebar_pixels > 500, "Sidebar should render header, divider border and tree rows");
 }
+
+#[test]
+fn test_autocomplete_trigger_and_commit() {
+    use rustext::editor::{Editor, EditorAction};
+    use rustext::ui::terminal::Key;
+
+    let buf = TextBuffer::from_str("let contador_visitas = 100;\n");
+    let mut editor = Editor::new(buf);
+    editor.doc_mut().language = rustext::core::syntax::Language::Rust;
+
+    // Position cursor at end of second line
+    editor.execute_action(EditorAction::MoveLineEnd { select: false });
+    editor.execute_action(EditorAction::InsertNewline);
+
+    // Type "co" (2 chars >= autocomplete_min_chars)
+    editor.handle_key(Key::Char('c'));
+    editor.handle_key(Key::Char('o'));
+
+    assert!(editor.autocomplete.is_active, "Autocomplete should automatically trigger after 2 chars");
+    assert!(!editor.autocomplete.items.is_empty());
+    assert_eq!(editor.autocomplete.prefix, "co");
+
+    // "contador_visitas", "const", "continue" should be candidates
+    let labels: Vec<&str> = editor.autocomplete.items.iter().map(|item| item.label.as_str()).collect();
+    assert!(labels.contains(&"contador_visitas"));
+    assert!(labels.contains(&"const"));
+    assert!(labels.contains(&"continue"));
+
+    // Cycle down to select a candidate
+    let initial_idx = editor.autocomplete.selected_idx;
+    editor.handle_key(Key::Down);
+    assert_eq!(editor.autocomplete.selected_idx, initial_idx + 1);
+
+    // Commit completion with Enter
+    let selected_label = editor.autocomplete.selected_item().unwrap().label.clone();
+    editor.handle_key(Key::Enter);
+
+    assert!(!editor.autocomplete.is_active, "Autocomplete should close upon commit");
+    let full_text = editor.doc().buffer.to_string();
+    assert!(full_text.trim_end().ends_with(&selected_label), "Buffer text should end with committed label '{}'", selected_label);
+}
+
+#[test]
+fn test_autocomplete_dismissal() {
+    use rustext::editor::Editor;
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.doc_mut().language = rustext::core::syntax::Language::Rust;
+    editor.handle_key(Key::Char('f'));
+    editor.handle_key(Key::Char('n'));
+
+    assert!(editor.autocomplete.is_active);
+
+    // Pressing Esc should dismiss autocomplete immediately
+    editor.handle_key(Key::Esc);
+    assert!(!editor.autocomplete.is_active);
+
+    // Typing non-identifier character (like space or semicolon) also dismisses
+    editor.handle_key(Key::Char(' '));
+    editor.handle_key(Key::Char('f'));
+    editor.handle_key(Key::Char('o'));
+    assert!(editor.autocomplete.is_active);
+
+    editor.handle_key(Key::Char(' '));
+    assert!(!editor.autocomplete.is_active);
+}
+
+#[test]
+fn test_autocomplete_floating_popup_rendering() {
+    use rustext::editor::{AutocompleteState, CompletionItem, CompletionKind};
+
+    let mut fb = Framebuffer::new(800, 600);
+    let doc = Document::new(TextBuffer::from_str("fn calcular_total() {\n    let val = 10;\n}"));
+    let renderer = GfxRenderer::new();
+
+    let mut ac = AutocompleteState::new();
+    let items = vec![
+        CompletionItem::new("calcular_total", "Function", CompletionKind::Function),
+        CompletionItem::new("const", "Keyword", CompletionKind::Keyword),
+        CompletionItem::new("char", "Type", CompletionKind::Type),
+        CompletionItem::new("co", "Snippet", CompletionKind::Snippet),
+    ];
+    ac.open("co".to_string(), 0, items);
+
+    let geom = renderer.autocomplete_geometry(800, 600, &doc, 220, true, ac.items.len());
+    assert!(geom.width >= 240);
+    assert!(geom.height >= 80);
+
+    // Render popup directly into framebuffer
+    renderer.render_autocomplete_popup(&mut fb, &ac, &geom);
+
+    // Inspect popup area: must have modal_bg, chips, text, and shadow
+    let mut popup_pixels = 0;
+    for y in geom.y..geom.y + geom.height {
+        for x in geom.x..geom.x + geom.width {
+            if fb.get_pixel(x, y) != 0x00000000 {
+                popup_pixels += 1;
+            }
+        }
+    }
+    assert!(popup_pixels > 1000, "Floating popup must draw background, borders, category chips, and labels");
+}
+
+#[test]
+fn test_autocomplete_geometry_and_mouse_hit() {
+    use rustext::editor::{AutocompleteState, CompletionItem, CompletionKind};
+
+    let doc = Document::new(TextBuffer::from_str("let x = 1;\nlet y = 2;\n"));
+    let renderer = GfxRenderer::new();
+
+    let mut ac = AutocompleteState::new();
+    let items = vec![
+        CompletionItem::new("item1", "det1", CompletionKind::Word),
+        CompletionItem::new("item2", "det2", CompletionKind::Word),
+        CompletionItem::new("item3", "det3", CompletionKind::Word),
+    ];
+    ac.open("it".to_string(), 0, items);
+
+    let geom = renderer.autocomplete_geometry(800, 600, &doc, 0, false, ac.items.len());
+
+    // Inside popup bounds
+    assert!(geom.contains_point(geom.x + 10, geom.y + 10));
+    // Outside popup bounds
+    assert!(!geom.contains_point(0, 0));
+    assert!(!geom.contains_point(geom.x + geom.width + 10, geom.y));
+
+    // Mouse click on row 1 (second item)
+    let click_y = geom.y + 4 + geom.item_height + 5;
+    let clicked_idx = geom.item_index_at(click_y, 0);
+    assert_eq!(clicked_idx, Some(1));
+}
+
+#[test]
+fn test_autocomplete_multicursor_simultaneous_commit() {
+    use rustext::editor::Editor;
+    use rustext::core::cursor::Cursor;
+    use rustext::ui::terminal::Key;
+
+    let buf = TextBuffer::from_str("line1: \nline2: \n");
+    let mut editor = Editor::new(buf);
+    editor.doc_mut().language = rustext::core::syntax::Language::Rust;
+
+    // Place cursor on line 1 and line 2 after colon and space
+    editor.doc_mut().cursors.set_cursors(vec![
+        Cursor::new(7),
+        Cursor::new(15),
+    ]);
+
+    // Type "st" across both cursors
+    editor.handle_key(Key::Char('s'));
+    editor.handle_key(Key::Char('t'));
+
+    assert!(editor.autocomplete.is_active);
+
+    // Commit completion with Tab
+    editor.handle_key(Key::Tab);
+
+    let text = editor.doc().buffer.to_string();
+    // Both lines must have had "st" replaced with the same completion
+    assert!(text.contains("line1: struct") || text.contains("line1: str") || text.contains("line1: static"));
+    assert!(text.contains("line2: struct") || text.contains("line2: str") || text.contains("line2: static"));
+}
+
 
 
 

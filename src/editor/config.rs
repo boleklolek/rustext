@@ -52,6 +52,8 @@ pub struct EditorSettings {
     pub show_line_numbers: bool,
     pub format_on_save: bool,
     pub check_on_save: bool,
+    pub autocomplete: bool,
+    pub autocomplete_min_chars: usize,
 }
 
 impl Default for EditorSettings {
@@ -64,6 +66,8 @@ impl Default for EditorSettings {
             show_line_numbers: true,
             format_on_save: false,
             check_on_save: true,
+            autocomplete: true,
+            autocomplete_min_chars: 2,
         }
     }
 }
@@ -159,6 +163,12 @@ format_on_save = false
 ; Comprobación de errores/linter al guardar archivo (cargo check, py_compile, gcc)
 check_on_save = true
 
+; Autocompletado inteligente con menú emergente flotante
+autocomplete = true
+
+; Caracteres mínimos para activar autocompletado automáticamente
+autocomplete_min_chars = 2
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -213,6 +223,8 @@ auto_surround = {}
 show_line_numbers = {}
 format_on_save = {}
 check_on_save = {}
+autocomplete = {}
+autocomplete_min_chars = {}
 
 [theme]
 name = {}
@@ -239,6 +251,8 @@ sidebar_width = {}
             self.editor.show_line_numbers,
             self.editor.format_on_save,
             self.editor.check_on_save,
+            self.editor.autocomplete,
+            self.editor.autocomplete_min_chars,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -329,6 +343,16 @@ sidebar_width = {}
                         "check_on_save" => {
                             if let Some(b) = as_bool {
                                 config.editor.check_on_save = b;
+                            }
+                        }
+                        "autocomplete" => {
+                            if let Some(b) = as_bool {
+                                config.editor.autocomplete = b;
+                            }
+                        }
+                        "autocomplete_min_chars" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.editor.autocomplete_min_chars = n.clamp(1, 10);
                             }
                         }
                         _ => {}

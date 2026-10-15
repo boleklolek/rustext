@@ -408,6 +408,40 @@ impl ScrollbarGeometry {
     }
 }
 
+/// Geometry and bounding box for the floating autocomplete popup menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutocompleteGeometry {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub item_height: usize,
+    pub visible_items: usize,
+    pub total_items: usize,
+}
+
+impl AutocompleteGeometry {
+    /// Returns whether the point (px, py) is inside the autocomplete popup container.
+    pub fn contains_point(&self, px: usize, py: usize) -> bool {
+        px >= self.x && px < self.x + self.width && py >= self.y && py < self.y + self.height
+    }
+
+    /// Translates a mouse click Y pixel position into an item index within the candidate list.
+    pub fn item_index_at(&self, py: usize, scroll_offset: usize) -> Option<usize> {
+        let pad_y = 4;
+        if py < self.y + pad_y || py >= self.y + self.height.saturating_sub(pad_y) || self.item_height == 0 {
+            return None;
+        }
+        let row = (py - self.y - pad_y) / self.item_height;
+        let idx = scroll_offset + row;
+        if idx < self.total_items {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct GfxRenderer {
     pub colors: ThemeColors,
     pub menu_bar_height: usize,
@@ -540,6 +574,195 @@ impl GfxRenderer {
         }
     }
 
+    /// Computes floating popup window bounds anchored relative to the primary cursor.
+    pub fn autocomplete_geometry(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        doc: &Document,
+        sidebar_w: usize,
+        has_menu_bar: bool,
+        item_count: usize,
+    ) -> AutocompleteGeometry {
+        let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
+        let content_y_start = menu_offset + self.tab_bar_height;
+        let total_lines = doc.buffer.len_lines();
+        let gutter_cols = total_lines.to_string().len().max(3);
+        let gutter_width = if self.show_line_numbers {
+            (gutter_cols + 2) * FONT_WIDTH
+        } else {
+            8
+        };
+        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let text_start_x = sidebar_w + gutter_width + FONT_WIDTH;
+
+        let primary_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+        let cx = if primary_pos.col >= doc.scroll_col {
+            text_start_x + (primary_pos.col - doc.scroll_col) * FONT_WIDTH
+        } else {
+            text_start_x
+        };
+        let cy = if primary_pos.line >= doc.scroll_row {
+            content_y_start + (primary_pos.line - doc.scroll_row) * line_height
+        } else {
+            content_y_start
+        };
+
+        let item_h = 22;
+        let pad_y = 4;
+        let max_vis = 7;
+        let visible_items = item_count.min(max_vis);
+        let popup_w = 280.min(fb_w.saturating_sub(20));
+        let popup_h = visible_items * item_h + pad_y * 2;
+
+        let mut pop_x = cx;
+        let mut pop_y = cy + line_height + 2;
+
+        let max_y = fb_h.saturating_sub(self.status_bar_height);
+        if pop_y + popup_h > max_y {
+            pop_y = cy.saturating_sub(popup_h + 2);
+        }
+
+        let max_x = fb_w.saturating_sub(self.scrollbar_width);
+        if pop_x + popup_w > max_x {
+            pop_x = max_x.saturating_sub(popup_w + 4);
+        }
+        if pop_x < 4 {
+            pop_x = 4;
+        }
+
+        AutocompleteGeometry {
+            x: pop_x,
+            y: pop_y,
+            width: popup_w,
+            height: popup_h,
+            item_height: item_h,
+            visible_items,
+            total_items: item_count,
+        }
+    }
+
+    /// Renders the floating autocomplete popup menu with shadow, container, category chips, and selection highlight.
+    pub fn render_autocomplete_popup(
+        &self,
+        fb: &mut Framebuffer,
+        autocomplete: &crate::editor::autocomplete::AutocompleteState,
+        geom: &AutocompleteGeometry,
+    ) {
+        if !autocomplete.is_active || autocomplete.items.is_empty() {
+            return;
+        }
+
+        let pop_x = geom.x;
+        let pop_y = geom.y;
+        let pop_w = geom.width;
+        let pop_h = geom.height;
+        let item_h = geom.item_height;
+        let pad_y = 4;
+
+        // 1. Soft Drop Shadow
+        if self.shadows {
+            fb.draw_drop_shadow(pop_x, pop_y, pop_w, pop_h, 8, 6);
+        } else {
+            fb.fill_rect(pop_x + 3, pop_y + 3, pop_w, pop_h, 0x00101010);
+        }
+
+        // 2. Container Background & Outline
+        if self.rounded_corners {
+            fb.fill_rounded_rect(pop_x, pop_y, pop_w, pop_h, 6, self.colors.modal_bg);
+            fb.draw_rounded_outline(pop_x, pop_y, pop_w, pop_h, 6, self.colors.modal_border);
+        } else {
+            fb.fill_rect(pop_x, pop_y, pop_w, pop_h, self.colors.modal_bg);
+            fb.draw_rect_outline(pop_x, pop_y, pop_w, pop_h, self.colors.modal_border);
+        }
+
+        // 3. Render items
+        for row in 0..geom.visible_items {
+            let item_idx = autocomplete.scroll_offset + row;
+            if item_idx >= autocomplete.items.len() {
+                break;
+            }
+
+            let item = &autocomplete.items[item_idx];
+            let is_selected = item_idx == autocomplete.selected_idx;
+            let iy = pop_y + pad_y + row * item_h;
+
+            // Selection Highlight
+            if is_selected {
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(pop_x + 3, iy, pop_w.saturating_sub(6), item_h, 4, self.colors.accent);
+                } else {
+                    fb.fill_rect(pop_x + 2, iy, pop_w.saturating_sub(4), item_h, self.colors.accent);
+                }
+            }
+
+            let text_y = iy + (item_h - FONT_HEIGHT) / 2;
+
+            // Category Badge Chip
+            let badge = item.kind.badge();
+            let badge_w = badge.chars().count() * FONT_WIDTH + 6;
+            let chip_h = 16;
+            let chip_y = iy + (item_h - chip_h) / 2;
+            let badge_bg = if is_selected { 0x0024283B } else { self.colors.chip_bg };
+            let badge_fg = if is_selected { 0x00FFFFFF } else { item.kind.badge_color() };
+
+            if self.rounded_corners {
+                fb.fill_rounded_rect(pop_x + 6, chip_y, badge_w, chip_h, 3, badge_bg);
+            } else {
+                fb.fill_rect(pop_x + 6, chip_y, badge_w, chip_h, badge_bg);
+            }
+            fb.draw_text(badge, pop_x + 9, text_y, badge_fg, None);
+
+            // Label
+            let label_x = pop_x + 6 + badge_w + 6;
+            let label_fg = if is_selected { 0x00FFFFFF } else { self.colors.syntax_plain };
+            let max_label_chars = 14;
+            let label_display = if item.label.chars().count() > max_label_chars {
+                let mut s: String = item.label.chars().take(max_label_chars - 1).collect();
+                s.push('…');
+                s
+            } else {
+                item.label.clone()
+            };
+            fb.draw_text(&label_display, label_x, text_y, label_fg, None);
+
+            // Detail / Subtitle (right aligned)
+            if !item.detail.is_empty() {
+                let detail_fg = if is_selected { 0x00E0E0E0 } else { self.colors.gutter_fg };
+                let max_det_chars = 10;
+                let det_display = if item.detail.chars().count() > max_det_chars {
+                    let mut s: String = item.detail.chars().take(max_det_chars - 1).collect();
+                    s.push('…');
+                    s
+                } else {
+                    item.detail.clone()
+                };
+                let det_w = det_display.chars().count() * FONT_WIDTH;
+                let det_x = pop_x + pop_w - det_w - 10;
+                if det_x > label_x + label_display.chars().count() * FONT_WIDTH + 6 {
+                    fb.draw_text(&det_display, det_x, text_y, detail_fg, None);
+                }
+            }
+        }
+
+        // 4. Scrollbar indicator if items exceed visible capacity
+        if autocomplete.items.len() > geom.visible_items {
+            let track_x = pop_x + pop_w - 4;
+            let track_y = pop_y + pad_y;
+            let track_h = geom.visible_items * item_h;
+            fb.fill_rect(track_x, track_y, 2, track_h, self.colors.scrollbar_bg);
+
+            let thumb_h = (track_h * geom.visible_items / autocomplete.items.len()).max(8);
+            let max_scroll = autocomplete.items.len().saturating_sub(geom.visible_items);
+            let thumb_y = if max_scroll > 0 {
+                track_y + (autocomplete.scroll_offset * (track_h - thumb_h)) / max_scroll
+            } else {
+                track_y
+            };
+            fb.fill_rect(track_x, thumb_y, 2, thumb_h, self.colors.accent);
+        }
+    }
+
     /// Renders a complete editor frame into the software framebuffer with default scrollbar state.
     pub fn render(
         &self,
@@ -588,6 +811,7 @@ impl GfxRenderer {
             None,
             scrollbar_hovered,
             scrollbar_dragging,
+            None,
         );
     }
 
@@ -604,6 +828,7 @@ impl GfxRenderer {
         sidebar: Option<&crate::editor::sidebar::FileExplorer>,
         scrollbar_hovered: bool,
         scrollbar_dragging: bool,
+        autocomplete: Option<&crate::editor::autocomplete::AutocompleteState>,
     ) {
         // Clear background
         fb.clear(self.colors.background);
@@ -777,12 +1002,27 @@ impl GfxRenderer {
         // 9. Draw Status Bar at bottom
         self.render_status_bar(fb, doc, status_msg);
 
-        // 10. Draw Prompt Modal overlay if present
+        // 10. Draw Floating Autocomplete Popup if active
+        if let Some(ac) = autocomplete {
+            if ac.is_active && !ac.items.is_empty() {
+                let ac_geom = self.autocomplete_geometry(
+                    fb.width,
+                    fb.height,
+                    doc,
+                    sidebar_w,
+                    menu_bar.is_some(),
+                    ac.items.len(),
+                );
+                self.render_autocomplete_popup(fb, ac, &ac_geom);
+            }
+        }
+
+        // 11. Draw Prompt Modal overlay if present
         if let Some(m) = modal {
             self.render_prompt_overlay(fb, m);
         }
 
-        // 11. Draw Open Dropdown Menu if present (drawn on top)
+        // 12. Draw Open Dropdown Menu if present (drawn on top)
         if let Some(mb) = menu_bar {
             self.render_menu_dropdown(fb, mb);
         }
