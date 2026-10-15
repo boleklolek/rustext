@@ -85,9 +85,63 @@ impl Theme {
         }
     }
 
+    /// Tokyo Night ANSI theme.
+    pub fn tokyo_night() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;60m",
+            line_number_bg: "\x1b[48;5;234m",
+            status_bar_bg: "\x1b[48;5;235m",
+            status_bar_fg: "\x1b[38;5;153m",
+            selection_bg: "\x1b[48;5;238m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;34m",
+            mode_command_fg: "\x1b[1;35m",
+        }
+    }
+
+    /// Catppuccin Mocha ANSI theme.
+    pub fn catppuccin() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;241m",
+            line_number_bg: "\x1b[48;5;235m",
+            status_bar_bg: "\x1b[48;5;236m",
+            status_bar_fg: "\x1b[38;5;189m",
+            selection_bg: "\x1b[48;5;238m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;35m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
+    /// One Dark Pro ANSI theme.
+    pub fn one_dark() -> Self {
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: "\x1b[38;5;240m",
+            line_number_bg: "\x1b[48;5;235m",
+            status_bar_bg: "\x1b[48;5;237m",
+            status_bar_fg: "\x1b[38;5;251m",
+            selection_bg: "\x1b[48;5;239m",
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;34m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
     /// Resolves theme by name.
     pub fn by_name(name: &str) -> Self {
         match name.to_lowercase().trim() {
+            "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => Self::tokyo_night(),
+            "catppuccin" | "catppuccin_mocha" | "catppuccin-mocha" | "mocha" => Self::catppuccin(),
+            "onedark" | "one_dark" | "one-dark" | "atom" => Self::one_dark(),
             "monokai" => Self::monokai(),
             "solarized" | "solarized_dark" | "solarized-dark" => Self::solarized_dark(),
             "light" | "github_light" | "github-light" | "claro" => Self::light(),

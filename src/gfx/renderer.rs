@@ -20,6 +20,18 @@ pub struct ThemeColors {
     pub status_bar_fg: u32,
     pub selection_bg: u32,
     pub cursor: u32,
+    // Modern UI Elements
+    pub accent: u32,
+    pub modal_bg: u32,
+    pub modal_header_bg: u32,
+    pub modal_border: u32,
+    pub input_bg: u32,
+    pub input_border: u32,
+    pub button_bg: u32,
+    pub button_hover_bg: u32,
+    pub button_fg: u32,
+    pub chip_bg: u32,
+    pub chip_fg: u32,
     // Scrollbar colors
     pub scrollbar_bg: u32,
     pub scrollbar_border: u32,
@@ -38,6 +50,132 @@ pub struct ThemeColors {
 }
 
 impl ThemeColors {
+    pub fn tokyo_night() -> Self {
+        Self {
+            background: 0x001A1B26,
+            gutter_bg: 0x0016161E,
+            gutter_fg: 0x00565F89,
+            gutter_border: 0x0024283B,
+            tab_bar_bg: 0x0016161E,
+            tab_active_bg: 0x001A1B26,
+            tab_inactive_bg: 0x0013141C,
+            tab_active_fg: 0x00C0CAF5,
+            tab_inactive_fg: 0x00565F89,
+            status_bar_bg: 0x0016161E,
+            status_bar_fg: 0x00A9B1D6,
+            selection_bg: 0x00283457,
+            cursor: 0x007AA2F7,
+            accent: 0x007AA2F7,
+            modal_bg: 0x001F2335,
+            modal_header_bg: 0x0016161E,
+            modal_border: 0x003B4261,
+            input_bg: 0x0024283B,
+            input_border: 0x007AA2F7,
+            button_bg: 0x0024283B,
+            button_hover_bg: 0x003B4261,
+            button_fg: 0x00C0CAF5,
+            chip_bg: 0x0024283B,
+            chip_fg: 0x007AA2F7,
+            scrollbar_bg: 0x001A1B26,
+            scrollbar_border: 0x0024283B,
+            scrollbar_thumb: 0x003B4261,
+            scrollbar_thumb_hover: 0x00565F89,
+            scrollbar_thumb_active: 0x007AA2F7,
+            syntax_keyword: 0x00BB9AF7,
+            syntax_type: 0x002AC3DE,
+            syntax_string: 0x009ECE6A,
+            syntax_number: 0x00FF9E64,
+            syntax_comment: 0x00565F89,
+            syntax_operator: 0x0089DDFF,
+            syntax_punctuation: 0x00C0CAF5,
+            syntax_plain: 0x00C0CAF5,
+        }
+    }
+
+    pub fn catppuccin_mocha() -> Self {
+        Self {
+            background: 0x001E1E2E,
+            gutter_bg: 0x00181825,
+            gutter_fg: 0x006C7086,
+            gutter_border: 0x00313244,
+            tab_bar_bg: 0x00181825,
+            tab_active_bg: 0x001E1E2E,
+            tab_inactive_bg: 0x0011111B,
+            tab_active_fg: 0x00CDD6F4,
+            tab_inactive_fg: 0x006C7086,
+            status_bar_bg: 0x00181825,
+            status_bar_fg: 0x00BAC2DE,
+            selection_bg: 0x0045475A,
+            cursor: 0x00F5E0DC,
+            accent: 0x00CBA6F7,
+            modal_bg: 0x001E1E2E,
+            modal_header_bg: 0x00181825,
+            modal_border: 0x0045475A,
+            input_bg: 0x00313244,
+            input_border: 0x00CBA6F7,
+            button_bg: 0x00313244,
+            button_hover_bg: 0x0045475A,
+            button_fg: 0x00CDD6F4,
+            chip_bg: 0x00313244,
+            chip_fg: 0x00CBA6F7,
+            scrollbar_bg: 0x001E1E2E,
+            scrollbar_border: 0x00313244,
+            scrollbar_thumb: 0x0045475A,
+            scrollbar_thumb_hover: 0x00585B70,
+            scrollbar_thumb_active: 0x00B4BEFE,
+            syntax_keyword: 0x00CBA6F7,
+            syntax_type: 0x0089B4FA,
+            syntax_string: 0x00A6E3A1,
+            syntax_number: 0x00FAB387,
+            syntax_comment: 0x006C7086,
+            syntax_operator: 0x0089DCEB,
+            syntax_punctuation: 0x00CDD6F4,
+            syntax_plain: 0x00CDD6F4,
+        }
+    }
+
+    pub fn one_dark() -> Self {
+        Self {
+            background: 0x00282C34,
+            gutter_bg: 0x0021252B,
+            gutter_fg: 0x005C6370,
+            gutter_border: 0x00181A1F,
+            tab_bar_bg: 0x0021252B,
+            tab_active_bg: 0x00282C34,
+            tab_inactive_bg: 0x001B1D23,
+            tab_active_fg: 0x00ABB2BF,
+            tab_inactive_fg: 0x005C6370,
+            status_bar_bg: 0x0021252B,
+            status_bar_fg: 0x009DA5B4,
+            selection_bg: 0x003E4451,
+            cursor: 0x00528BFF,
+            accent: 0x0061AFEF,
+            modal_bg: 0x00282C34,
+            modal_header_bg: 0x0021252B,
+            modal_border: 0x003E4451,
+            input_bg: 0x001E2227,
+            input_border: 0x0061AFEF,
+            button_bg: 0x00353B45,
+            button_hover_bg: 0x003E4451,
+            button_fg: 0x00ABB2BF,
+            chip_bg: 0x00353B45,
+            chip_fg: 0x0061AFEF,
+            scrollbar_bg: 0x00282C34,
+            scrollbar_border: 0x0021252B,
+            scrollbar_thumb: 0x004B5263,
+            scrollbar_thumb_hover: 0x005C6370,
+            scrollbar_thumb_active: 0x0061AFEF,
+            syntax_keyword: 0x00C678DD,
+            syntax_type: 0x00E5C07B,
+            syntax_string: 0x0098C379,
+            syntax_number: 0x00D19A66,
+            syntax_comment: 0x005C6370,
+            syntax_operator: 0x0056B6C2,
+            syntax_punctuation: 0x00ABB2BF,
+            syntax_plain: 0x00ABB2BF,
+        }
+    }
+
     pub fn modern_dark() -> Self {
         Self {
             background: 0x001E1E1E,
@@ -53,19 +191,28 @@ impl ThemeColors {
             status_bar_fg: 0x00FFFFFF,
             selection_bg: 0x00264F78,
             cursor: 0x00528BFF,
-            // Scrollbar
+            accent: 0x00007ACC,
+            modal_bg: 0x00252526,
+            modal_header_bg: 0x002D2D2D,
+            modal_border: 0x00007ACC,
+            input_bg: 0x003C3C3C,
+            input_border: 0x00007ACC,
+            button_bg: 0x000E639C,
+            button_hover_bg: 0x001177BB,
+            button_fg: 0x00FFFFFF,
+            chip_bg: 0x002D2D2D,
+            chip_fg: 0x00007ACC,
             scrollbar_bg: 0x001E1E1E,
             scrollbar_border: 0x002D2D2D,
             scrollbar_thumb: 0x00424242,
             scrollbar_thumb_hover: 0x004F4F4F,
             scrollbar_thumb_active: 0x00686868,
-            // Syntax
-            syntax_keyword: 0x00C586C0,   // Purple
-            syntax_type: 0x004EC9B0,      // Cyan/Teal
-            syntax_string: 0x00CE9178,    // Orange
-            syntax_number: 0x00B5CEA8,    // Light green
-            syntax_comment: 0x006A9955,   // Dark green
-            syntax_operator: 0x00D4D4D4,  // Light gray
+            syntax_keyword: 0x00C586C0,
+            syntax_type: 0x004EC9B0,
+            syntax_string: 0x00CE9178,
+            syntax_number: 0x00B5CEA8,
+            syntax_comment: 0x006A9955,
+            syntax_operator: 0x00D4D4D4,
             syntax_punctuation: 0x00D4D4D4,
             syntax_plain: 0x00D4D4D4,
         }
@@ -86,6 +233,17 @@ impl ThemeColors {
             status_bar_fg: 0x00F8F8F2,
             selection_bg: 0x0049483E,
             cursor: 0x00F8F8F0,
+            accent: 0x00F92672,
+            modal_bg: 0x00272822,
+            modal_header_bg: 0x001E1F1C,
+            modal_border: 0x00F92672,
+            input_bg: 0x003E3D32,
+            input_border: 0x00F92672,
+            button_bg: 0x00A6E22E,
+            button_hover_bg: 0x00B8F53E,
+            button_fg: 0x00272822,
+            chip_bg: 0x003E3D32,
+            chip_fg: 0x00A6E22E,
             scrollbar_bg: 0x00272822,
             scrollbar_border: 0x003E3D32,
             scrollbar_thumb: 0x0059584E,
@@ -117,6 +275,17 @@ impl ThemeColors {
             status_bar_fg: 0x00FDF6E3,
             selection_bg: 0x00073642,
             cursor: 0x002AA198,
+            accent: 0x00268BD2,
+            modal_bg: 0x00073642,
+            modal_header_bg: 0x00002B36,
+            modal_border: 0x00268BD2,
+            input_bg: 0x00002B36,
+            input_border: 0x00268BD2,
+            button_bg: 0x00268BD2,
+            button_hover_bg: 0x002AA198,
+            button_fg: 0x00FDF6E3,
+            chip_bg: 0x00002B36,
+            chip_fg: 0x002AA198,
             scrollbar_bg: 0x00002B36,
             scrollbar_border: 0x00073642,
             scrollbar_thumb: 0x00586E75,
@@ -148,6 +317,17 @@ impl ThemeColors {
             status_bar_fg: 0x00FFFFFF,
             selection_bg: 0x00B4D5FE,
             cursor: 0x000969DA,
+            accent: 0x000969DA,
+            modal_bg: 0x00FFFFFF,
+            modal_header_bg: 0x00F6F8FA,
+            modal_border: 0x00D0D7DE,
+            input_bg: 0x00F6F8FA,
+            input_border: 0x000969DA,
+            button_bg: 0x002DA44E,
+            button_hover_bg: 0x002C974B,
+            button_fg: 0x00FFFFFF,
+            chip_bg: 0x00EFF1F3,
+            chip_fg: 0x000969DA,
             scrollbar_bg: 0x00F6F8FA,
             scrollbar_border: 0x00D0D7DE,
             scrollbar_thumb: 0x00D0D7DE,
@@ -166,6 +346,9 @@ impl ThemeColors {
 
     pub fn by_name(name: &str) -> Self {
         match name.to_lowercase().trim() {
+            "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => Self::tokyo_night(),
+            "catppuccin" | "catppuccin_mocha" | "catppuccin-mocha" | "mocha" => Self::catppuccin_mocha(),
+            "onedark" | "one_dark" | "one-dark" | "atom" => Self::one_dark(),
             "monokai" => Self::monokai(),
             "solarized" | "solarized_dark" | "solarized-dark" => Self::solarized_dark(),
             "light" | "github_light" | "github-light" | "claro" => Self::light(),
@@ -233,6 +416,12 @@ pub struct GfxRenderer {
     pub scrollbar_width: usize,
     pub show_line_numbers: bool,
     pub diagnostics: Option<crate::editor::diagnostic::DiagnosticCollection>,
+    pub font_scale: usize,
+    pub line_spacing: usize,
+    pub rounded_corners: bool,
+    pub shadows: bool,
+    pub cursor_style: String,
+    pub cursor_blink: bool,
 }
 
 impl GfxRenderer {
@@ -245,6 +434,12 @@ impl GfxRenderer {
             scrollbar_width: 14,
             show_line_numbers: true,
             diagnostics: None,
+            font_scale: 1,
+            line_spacing: 3,
+            rounded_corners: true,
+            shadows: true,
+            cursor_style: "bar".to_string(),
+            cursor_blink: true,
         }
     }
 
@@ -264,8 +459,9 @@ impl GfxRenderer {
         let track_x = fb_w.saturating_sub(track_width);
         let track_y = content_y_start;
 
-        let visible_lines = if FONT_HEIGHT > 0 {
-            track_height / FONT_HEIGHT
+        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let visible_lines = if line_height > 0 {
+            track_height / line_height
         } else {
             0
         };
@@ -333,7 +529,12 @@ impl GfxRenderer {
         let thumb_w = geom.width.saturating_sub(thumb_margin_x * 2);
 
         if geom.thumb_height > 0 && thumb_w > 0 {
-            fb.fill_rect(thumb_x, geom.thumb_y, thumb_w, geom.thumb_height, thumb_color);
+            if self.rounded_corners && geom.thumb_height >= 8 {
+                let radius = (thumb_w / 2).min(4);
+                fb.fill_rounded_rect(thumb_x, geom.thumb_y, thumb_w, geom.thumb_height, radius, thumb_color);
+            } else {
+                fb.fill_rect(thumb_x, geom.thumb_y, thumb_w, geom.thumb_height, thumb_color);
+            }
         }
     }
 
@@ -399,7 +600,8 @@ impl GfxRenderer {
         let content_y_start = menu_offset + self.tab_bar_height;
         let content_y_end = fb.height.saturating_sub(self.status_bar_height);
         let content_height = content_y_end.saturating_sub(content_y_start);
-        let visible_lines = content_height / FONT_HEIGHT;
+        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let visible_lines = content_height / line_height;
         let max_code_x = fb.width.saturating_sub(self.scrollbar_width);
 
         // 3. Draw Gutter background & divider
@@ -427,7 +629,8 @@ impl GfxRenderer {
         // 5. Draw Document Lines & Syntax
         for row in 0..visible_lines {
             let line_idx = doc.scroll_row + row;
-            let py = content_y_start + row * FONT_HEIGHT;
+            let py = content_y_start + row * line_height;
+            let text_y = py + self.line_spacing / 2;
 
             if line_idx < total_lines {
                 // Line Number in gutter with diagnostic badge
@@ -440,10 +643,10 @@ impl GfxRenderer {
                     };
 
                     let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, FONT_WIDTH, py, fg_col, None);
+                    fb.draw_text(&num_str, FONT_WIDTH, text_y, fg_col, None);
 
                     if let Some(b) = badge {
-                        fb.draw_text(b, 2, py, fg_col, None);
+                        fb.draw_text(b, 2, text_y, fg_col, None);
                     }
                 }
 
@@ -469,7 +672,7 @@ impl GfxRenderer {
                             let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
                             if sx < max_code_x {
                                 let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
-                                fb.fill_rect(sx, py, sw, FONT_HEIGHT, self.colors.selection_bg);
+                                fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
                             }
                         }
                     }
@@ -488,7 +691,7 @@ impl GfxRenderer {
                         if col >= doc.scroll_col {
                             let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
                             if px + FONT_WIDTH <= max_code_x {
-                                fb.draw_char(ch, px, py, token_color, None);
+                                fb.draw_char(ch, px, text_y, token_color, None);
                             }
                         }
                     }
@@ -499,14 +702,26 @@ impl GfxRenderer {
                     if pos.line == line_idx && pos.col >= doc.scroll_col {
                         let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
                         if cx + 2 <= max_code_x {
-                            // 2-pixel wide cursor bar
-                            fb.fill_rect(cx, py, 2, FONT_HEIGHT, self.colors.cursor);
+                            match self.cursor_style.as_str() {
+                                "block" => {
+                                    let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                    fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
+                                }
+                                "underline" => {
+                                    let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
+                                    fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
+                                }
+                                _ => {
+                                    // Default: modern 2px vertical bar
+                                    fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                                }
+                            }
                         }
                     }
                 }
             } else if self.show_line_numbers {
                 // Tilde past end of file
-                fb.draw_char('~', FONT_WIDTH, py, self.colors.gutter_fg, None);
+                fb.draw_char('~', FONT_WIDTH, text_y, self.colors.gutter_fg, None);
             }
         }
 
@@ -529,7 +744,7 @@ impl GfxRenderer {
     }
 
     fn render_menu_bar(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
-        fb.fill_rect(0, 0, fb.width, self.menu_bar_height, 0x002D2D2D);
+        fb.fill_rect(0, 0, fb.width, self.menu_bar_height, self.colors.modal_header_bg);
 
         let mut cur_x = 8;
         let text_y = (self.menu_bar_height - FONT_HEIGHT) / 2;
@@ -539,19 +754,27 @@ impl GfxRenderer {
             let item_w = cat.name.chars().count() * FONT_WIDTH + 16;
 
             let (bg, fg) = if is_active {
-                (0x00007ACC, 0x00FFFFFF)
+                (self.colors.accent, 0x00FFFFFF)
             } else {
-                (0x002D2D2D, 0x00CCCCCC)
+                (self.colors.modal_header_bg, 0x00CCCCCC)
             };
 
-            fb.fill_rect(cur_x, 0, item_w, self.menu_bar_height, bg);
+            if is_active {
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(cur_x, 2, item_w, self.menu_bar_height - 4, 3, bg);
+                } else {
+                    fb.fill_rect(cur_x, 0, item_w, self.menu_bar_height, bg);
+                }
+            } else {
+                fb.fill_rect(cur_x, 0, item_w, self.menu_bar_height, bg);
+            }
             fb.draw_text(cat.name, cur_x + 8, text_y, fg, None);
 
             cur_x += item_w;
         }
 
-        // Thin bottom divider under menu bar
-        fb.fill_rect(0, self.menu_bar_height - 1, fb.width, 1, 0x003A3D41);
+        // Sleek subtle bottom divider under menu bar
+        fb.fill_rect(0, self.menu_bar_height - 1, fb.width, 1, self.colors.scrollbar_border);
     }
 
     fn render_menu_dropdown(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
@@ -563,27 +786,40 @@ impl GfxRenderer {
             let drop_h = cat.items.len() * item_h + 4;
             let drop_y = self.menu_bar_height;
 
-            // Drop shadow
-            fb.fill_rect(drop_x + 4, drop_y + 4, drop_w, drop_h, 0x00101010);
-            // Border
-            fb.fill_rect(drop_x.saturating_sub(1), drop_y.saturating_sub(1), drop_w + 2, drop_h + 2, 0x00007ACC);
-            // Background
-            fb.fill_rect(drop_x, drop_y, drop_w, drop_h, 0x00252526);
+            // 1. Soft Drop shadow
+            if self.shadows {
+                fb.draw_drop_shadow(drop_x, drop_y, drop_w, drop_h, 8, 6);
+            } else {
+                fb.fill_rect(drop_x + 4, drop_y + 4, drop_w, drop_h, 0x00101010);
+            }
+
+            // 2. Container background & border
+            if self.rounded_corners {
+                fb.fill_rounded_rect(drop_x, drop_y, drop_w, drop_h, 5, self.colors.modal_bg);
+                fb.draw_rounded_outline(drop_x, drop_y, drop_w, drop_h, 5, self.colors.modal_border);
+            } else {
+                fb.fill_rect(drop_x.saturating_sub(1), drop_y.saturating_sub(1), drop_w + 2, drop_h + 2, self.colors.modal_border);
+                fb.fill_rect(drop_x, drop_y, drop_w, drop_h, self.colors.modal_bg);
+            }
 
             for (item_idx, item) in cat.items.iter().enumerate() {
                 let iy = drop_y + 2 + item_idx * item_h;
 
                 if item.is_separator {
                     // Separator line
-                    fb.fill_rect(drop_x + 8, iy + item_h / 2, drop_w.saturating_sub(16), 1, 0x003E3E42);
+                    fb.fill_rect(drop_x + 8, iy + item_h / 2, drop_w.saturating_sub(16), 1, self.colors.scrollbar_border);
                 } else {
                     let is_hovered = menu_bar.hovered_item == Some(item_idx);
                     if is_hovered {
-                        fb.fill_rect(drop_x + 2, iy, drop_w - 4, item_h, 0x00007ACC);
+                        if self.rounded_corners {
+                            fb.fill_rounded_rect(drop_x + 4, iy + 1, drop_w - 8, item_h - 2, 4, self.colors.accent);
+                        } else {
+                            fb.fill_rect(drop_x + 2, iy, drop_w - 4, item_h, self.colors.accent);
+                        }
                     }
 
                     let (text_color, shortcut_color) = if is_hovered {
-                        (0x00FFFFFF, 0x00D4D4D4)
+                        (0x00FFFFFF, 0x00E0E0E0)
                     } else {
                         (0x00D4D4D4, 0x00858585)
                     };
@@ -626,45 +862,106 @@ impl GfxRenderer {
                 (self.colors.tab_inactive_bg, self.colors.tab_inactive_fg)
             };
 
-            fb.fill_rect(cur_x, offset_y + 2, tab_w, self.tab_bar_height - 2, bg);
+            if self.rounded_corners {
+                fb.fill_rounded_rect(cur_x, offset_y + 2, tab_w, self.tab_bar_height - 2, 4, bg);
+            } else {
+                fb.fill_rect(cur_x, offset_y + 2, tab_w, self.tab_bar_height - 2, bg);
+            }
             fb.draw_text(&tab_text, cur_x + 4, text_y, fg, None);
 
-            // Active tab indicator border on top
+            // Active tab indicator accent on top
             if is_active {
-                fb.fill_rect(cur_x, offset_y, tab_w, 2, self.colors.cursor);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(cur_x + 2, offset_y, tab_w.saturating_sub(4), 2, 1, self.colors.accent);
+                } else {
+                    fb.fill_rect(cur_x, offset_y, tab_w, 2, self.colors.cursor);
+                }
             }
 
-            cur_x += tab_w + 2;
+            cur_x += tab_w + 3;
         }
 
         // New Tab [+] Button
-        fb.fill_rect(cur_x, offset_y + 2, 24, self.tab_bar_height - 2, self.colors.tab_inactive_bg);
-        fb.draw_text("+", cur_x + 8, text_y, self.colors.tab_inactive_fg, None);
+        let plus_w = 22;
+        let plus_y = offset_y + 3;
+        let plus_h = self.tab_bar_height.saturating_sub(6);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(cur_x, plus_y, plus_w, plus_h, 3, self.colors.tab_inactive_bg);
+        } else {
+            fb.fill_rect(cur_x, offset_y + 2, plus_w, self.tab_bar_height - 2, self.colors.tab_inactive_bg);
+        }
+        fb.draw_text("+", cur_x + 7, text_y, self.colors.tab_inactive_fg, None);
     }
 
     fn render_status_bar(&self, fb: &mut Framebuffer, doc: &Document, status_msg: Option<&str>) {
         let bar_y = fb.height.saturating_sub(self.status_bar_height);
         fb.fill_rect(0, bar_y, fb.width, self.status_bar_height, self.colors.status_bar_bg);
 
+        let chip_h = self.status_bar_height.saturating_sub(4).max(14);
+        let chip_y = bar_y + 2;
         let text_y = bar_y + (self.status_bar_height - FONT_HEIGHT) / 2;
 
-        // Left: message or file info
-        let file_name = doc
-            .buffer
-            .file_path()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("[Untitled]");
-        let dirty = if doc.buffer.is_dirty() { " [+]" } else { "" };
+        let mut left_x = 6;
 
-        let left_str = if let Some(msg) = status_msg {
-            msg.to_string()
+        // 1. Mode Chip: [ EDIT ]
+        let mode_label = " EDIT ";
+        let mode_w = mode_label.chars().count() * FONT_WIDTH + 6;
+        if self.rounded_corners {
+            fb.fill_rounded_rect(left_x, chip_y, mode_w, chip_h, 3, self.colors.chip_bg);
         } else {
-            format!(" {} {}{} ", doc.language.name(), file_name, dirty)
-        };
-        fb.draw_text(&left_str, 8, text_y, self.colors.status_bar_fg, None);
+            fb.fill_rect(left_x, chip_y, mode_w, chip_h, self.colors.chip_bg);
+        }
+        fb.draw_text(mode_label, left_x + 3, text_y, self.colors.chip_fg, None);
+        left_x += mode_w + 6;
 
-        // Right: Line/Col, Total lines, Cursors
+        // 2. Status message or File & Diagnostics
+        if let Some(msg) = status_msg {
+            let msg_w = msg.chars().count() * FONT_WIDTH + 8;
+            if self.rounded_corners {
+                fb.fill_rounded_rect(left_x, chip_y, msg_w, chip_h, 3, self.colors.chip_bg);
+            } else {
+                fb.fill_rect(left_x, chip_y, msg_w, chip_h, self.colors.chip_bg);
+            }
+            fb.draw_text(msg, left_x + 4, text_y, self.colors.status_bar_fg, None);
+        } else {
+            // File name chip
+            let file_name = doc
+                .buffer
+                .file_path()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("[Sin Título]");
+            let dirty = if doc.buffer.is_dirty() { " •" } else { "" };
+            let file_text = format!(" {}{} ", file_name, dirty);
+            let file_w = file_text.chars().count() * FONT_WIDTH + 4;
+            if self.rounded_corners {
+                fb.fill_rounded_rect(left_x, chip_y, file_w, chip_h, 3, self.colors.chip_bg);
+            } else {
+                fb.fill_rect(left_x, chip_y, file_w, chip_h, self.colors.chip_bg);
+            }
+            fb.draw_text(&file_text, left_x + 2, text_y, self.colors.status_bar_fg, None);
+            left_x += file_w + 6;
+
+            // Diagnostics summary badge
+            if let Some(dc) = &self.diagnostics {
+                let err_count = dc.error_count();
+                let warn_count = dc.warning_count();
+                let (diag_text, diag_fg) = if err_count > 0 || warn_count > 0 {
+                    (format!(" ● {}  ▲ {} ", err_count, warn_count), 0x00FF7B72)
+                } else {
+                    (" ✓ 0 errores ".to_string(), 0x007EE787)
+                };
+                let diag_w = diag_text.chars().count() * FONT_WIDTH + 4;
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(left_x, chip_y, diag_w, chip_h, 3, self.colors.chip_bg);
+                } else {
+                    fb.fill_rect(left_x, chip_y, diag_w, chip_h, self.colors.chip_bg);
+                }
+                fb.draw_text(&diag_text, left_x + 2, text_y, diag_fg, None);
+            }
+        }
+
+        // Right side chips: Language, UTF-8, Cursor Position
         let primary_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
         let cursor_count = doc.cursors.cursors().len();
         let cursors_tag = if cursor_count > 1 {
@@ -673,16 +970,44 @@ impl GfxRenderer {
             String::new()
         };
 
-        let right_str = format!(
-            "Ln {}, Col {} │ {} lines{} ",
-            primary_pos.line + 1,
-            primary_pos.col + 1,
-            doc.buffer.len_lines(),
-            cursors_tag
-        );
-        let right_w = right_str.chars().count() * FONT_WIDTH;
-        let right_x = fb.width.saturating_sub(right_w + 8);
-        fb.draw_text(&right_str, right_x, text_y, self.colors.status_bar_fg, None);
+        let lang_text = format!(" {} ", doc.language.name());
+        let lang_w = lang_text.chars().count() * FONT_WIDTH + 4;
+
+        let utf8_text = " UTF-8 ";
+        let utf8_w = utf8_text.chars().count() * FONT_WIDTH + 4;
+
+        let mut right_x = fb.width.saturating_sub(6);
+
+        // Language Chip
+        right_x = right_x.saturating_sub(lang_w);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(right_x, chip_y, lang_w, chip_h, 3, self.colors.chip_bg);
+        } else {
+            fb.fill_rect(right_x, chip_y, lang_w, chip_h, self.colors.chip_bg);
+        }
+        fb.draw_text(&lang_text, right_x + 2, text_y, self.colors.chip_fg, None);
+        right_x = right_x.saturating_sub(6);
+
+        // UTF-8 Chip
+        right_x = right_x.saturating_sub(utf8_w);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(right_x, chip_y, utf8_w, chip_h, 3, self.colors.chip_bg);
+        } else {
+            fb.fill_rect(right_x, chip_y, utf8_w, chip_h, self.colors.chip_bg);
+        }
+        fb.draw_text(utf8_text, right_x + 2, text_y, self.colors.status_bar_fg, None);
+        right_x = right_x.saturating_sub(6);
+
+        // Position & Lines Chip
+        let pos_full = format!(" Ln {}, Col {} ({} lin){} ", primary_pos.line + 1, primary_pos.col + 1, doc.buffer.len_lines(), cursors_tag);
+        let pos_full_w = pos_full.chars().count() * FONT_WIDTH + 4;
+        right_x = right_x.saturating_sub(pos_full_w);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(right_x, chip_y, pos_full_w, chip_h, 3, self.colors.chip_bg);
+        } else {
+            fb.fill_rect(right_x, chip_y, pos_full_w, chip_h, self.colors.chip_bg);
+        }
+        fb.draw_text(&pos_full, right_x + 2, text_y, self.colors.status_bar_fg, None);
     }
 
     /// Renders a centered floating prompt modal overlay (Search, Save As, Open, Command Palette).
@@ -701,32 +1026,43 @@ impl GfxRenderer {
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y: usize = 28;
 
-        // 1. Drop shadow
-        fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        // 1. Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 100);
 
-        // 2. Outer border
-        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, 0x00007ACC);
+        // 2. Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+        } else {
+            fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        }
 
-        // 3. Title bar
+        // 3. Title bar & window outer border
         let header_h = 24;
-        fb.fill_rect(box_x, box_y, box_w, header_h, 0x002D2D2D);
+        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
+        fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
+        fb.fill_rect(box_x, box_y + header_h, box_w, box_h.saturating_sub(header_h), self.colors.modal_bg);
+        if self.rounded_corners {
+            fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
+        }
+
         fb.draw_text("Buscar y Reemplazar", box_x + 10, box_y + 4, 0x00FFFFFF, None);
 
         // Close button [×]
         let close_w = 30;
         let close_x = box_x + box_w - close_w;
-        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
-        fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, box_y + 2, close_w - 4, header_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        }
         fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
 
         // Header bottom divider
-        fb.fill_rect(box_x, box_y + header_h, box_w, 1, 0x003A3D41);
+        fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 4. Window body
         let body_y = box_y + header_h + 1;
-        let body_h = box_h.saturating_sub(header_h + 1);
-        fb.fill_rect(box_x, body_y, box_w, body_h, 0x00252526);
-
         let input_margin = 12;
         let label_w = 100;
         let input_w = box_w.saturating_sub(input_margin * 2 + label_w);
@@ -737,9 +1073,9 @@ impl GfxRenderer {
         fb.draw_text("Buscar:", box_x + input_margin, row1_y + 4, 0x00CCCCCC, None);
 
         let input1_x = box_x + input_margin + label_w;
-        let border1 = if modal.active_field == 0 { 0x00007ACC } else { 0x003A3D41 };
+        let border1 = if modal.active_field == 0 { self.colors.input_border } else { self.colors.scrollbar_border };
         fb.fill_rect(input1_x.saturating_sub(1), row1_y.saturating_sub(1), input_w + 2, input_h + 2, border1);
-        fb.fill_rect(input1_x, row1_y, input_w, input_h, 0x003C3C3C);
+        fb.fill_rect(input1_x, row1_y, input_w, input_h, self.colors.input_bg);
         fb.draw_text(&modal.input, input1_x + 6, row1_y + 4, 0x00FFFFFF, None);
 
         if modal.active_field == 0 {
@@ -754,9 +1090,9 @@ impl GfxRenderer {
         fb.draw_text("Reemplazar:", box_x + input_margin, row2_y + 4, 0x00CCCCCC, None);
 
         let input2_x = box_x + input_margin + label_w;
-        let border2 = if modal.active_field == 1 { 0x00007ACC } else { 0x003A3D41 };
+        let border2 = if modal.active_field == 1 { self.colors.input_border } else { self.colors.scrollbar_border };
         fb.fill_rect(input2_x.saturating_sub(1), row2_y.saturating_sub(1), input_w + 2, input_h + 2, border2);
-        fb.fill_rect(input2_x, row2_y, input_w, input_h, 0x003C3C3C);
+        fb.fill_rect(input2_x, row2_y, input_w, input_h, self.colors.input_bg);
         fb.draw_text(&modal.replace_input, input2_x + 6, row2_y + 4, 0x00FFFFFF, None);
 
         if modal.active_field == 1 {
@@ -770,33 +1106,44 @@ impl GfxRenderer {
         let btn_y = row2_y + input_h + 16;
         let btn_h = 24;
 
+        let render_dialog_btn = |fb: &mut Framebuffer, bx: usize, by: usize, bw: usize, bh: usize, text: &str, is_primary: bool| {
+            let (bg, border) = if is_primary {
+                (self.colors.button_bg, self.colors.accent)
+            } else {
+                (self.colors.chip_bg, self.colors.scrollbar_border)
+            };
+            if self.rounded_corners {
+                fb.fill_rounded_rect(bx, by, bw, bh, 4, bg);
+                fb.draw_rounded_outline(bx, by, bw, bh, 4, border);
+            } else {
+                fb.fill_rect(bx.saturating_sub(1), by.saturating_sub(1), bw + 2, bh + 2, border);
+                fb.fill_rect(bx, by, bw, bh, bg);
+            }
+            let tw = text.chars().count() * FONT_WIDTH;
+            let tx = bx + (bw.saturating_sub(tw)) / 2;
+            let ty = by + (bh - FONT_HEIGHT) / 2;
+            fb.draw_text(text, tx, ty, 0x00FFFFFF, None);
+        };
+
         // Button 1: [< Ant]
         let b1_x = box_x + input_margin;
         let b1_w = 68;
-        fb.fill_rect(b1_x.saturating_sub(1), btn_y.saturating_sub(1), b1_w + 2, btn_h + 2, 0x003A3D41);
-        fb.fill_rect(b1_x, btn_y, b1_w, btn_h, 0x002D2D2D);
-        fb.draw_text("< Ant", b1_x + 12, btn_y + 4, 0x00FFFFFF, None);
+        render_dialog_btn(fb, b1_x, btn_y, b1_w, btn_h, "< Ant", false);
 
         // Button 2: [Sig >]
         let b2_x = b1_x + b1_w + 8;
         let b2_w = 68;
-        fb.fill_rect(b2_x.saturating_sub(1), btn_y.saturating_sub(1), b2_w + 2, btn_h + 2, 0x003A3D41);
-        fb.fill_rect(b2_x, btn_y, b2_w, btn_h, 0x002D2D2D);
-        fb.draw_text("Sig >", b2_x + 14, btn_y + 4, 0x00FFFFFF, None);
+        render_dialog_btn(fb, b2_x, btn_y, b2_w, btn_h, "Sig >", false);
 
         // Button 3: [Reemplazar]
         let b3_x = b2_x + b2_w + 14;
         let b3_w = 98;
-        fb.fill_rect(b3_x.saturating_sub(1), btn_y.saturating_sub(1), b3_w + 2, btn_h + 2, 0x003A3D41);
-        fb.fill_rect(b3_x, btn_y, b3_w, btn_h, 0x002D2D2D);
-        fb.draw_text("Reemplazar", b3_x + 8, btn_y + 4, 0x00FFFFFF, None);
+        render_dialog_btn(fb, b3_x, btn_y, b3_w, btn_h, "Reemplazar", false);
 
         // Button 4: [Reemplazar Todo]
         let b4_x = b3_x + b3_w + 8;
         let b4_w = 126;
-        fb.fill_rect(b4_x.saturating_sub(1), btn_y.saturating_sub(1), b4_w + 2, btn_h + 2, 0x00007ACC);
-        fb.fill_rect(b4_x, btn_y, b4_w, btn_h, 0x00007ACC);
-        fb.draw_text("Reemplazar Todo", b4_x + 6, btn_y + 4, 0x00FFFFFF, None);
+        render_dialog_btn(fb, b4_x, btn_y, b4_w, btn_h, "Reemplazar Todo", true);
     }
 
     /// Renders a floating prompt window dialog with title bar, close button, drop shadow, and suggestions.
@@ -822,31 +1169,45 @@ impl GfxRenderer {
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y: usize = 28;
 
-        // 1. Drop shadow
-        fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        // 1. Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
 
-        // 2. Outer border
-        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, 0x00007ACC);
+        // 2. Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+        } else {
+            fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        }
 
-        // 3. Window Header (Title Bar)
+        // 3. Outer border & Window Header (Title Bar)
         let header_h = 24;
-        fb.fill_rect(box_x, box_y, box_w, header_h, 0x002D2D2D);
+        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
+        fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
+
+        // 4. Window Body
+        let body_y = box_y + header_h + 1;
+        let body_h = box_h.saturating_sub(header_h + 1);
+        fb.fill_rect(box_x, body_y, box_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
+        }
+
         fb.draw_text(modal.kind.window_title(), box_x + 10, box_y + 4, 0x00FFFFFF, None);
 
         // Header close button [×]
         let close_w = 30;
         let close_x = box_x + box_w - close_w;
-        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
-        fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, box_y + 2, close_w - 4, header_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        }
         fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
 
         // Header bottom divider
-        fb.fill_rect(box_x, box_y + header_h, box_w, 1, 0x003A3D41);
-
-        // 4. Window Body
-        let body_y = box_y + header_h + 1;
-        let body_h = box_h.saturating_sub(header_h + 1);
-        fb.fill_rect(box_x, body_y, box_w, body_h, 0x00252526);
+        fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 5. Input Field Box inside Window
         let input_margin = 12;
@@ -855,13 +1216,18 @@ impl GfxRenderer {
         let input_w = box_w.saturating_sub(input_margin * 2);
         let input_h = 24;
 
-        fb.fill_rect(input_x.saturating_sub(1), input_y.saturating_sub(1), input_w + 2, input_h + 2, 0x00007ACC);
-        fb.fill_rect(input_x, input_y, input_w, input_h, 0x003C3C3C);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(input_x, input_y, input_w, input_h, 4, self.colors.input_bg);
+            fb.draw_rounded_outline(input_x, input_y, input_w, input_h, 4, self.colors.input_border);
+        } else {
+            fb.fill_rect(input_x.saturating_sub(1), input_y.saturating_sub(1), input_w + 2, input_h + 2, self.colors.input_border);
+            fb.fill_rect(input_x, input_y, input_w, input_h, self.colors.input_bg);
+        }
 
         // Prompt label & input text
         let label = modal.kind.label();
         let text_y = input_y + (input_h - FONT_HEIGHT) / 2;
-        fb.draw_text(label, input_x + 6, text_y, 0x00528BFF, None);
+        fb.draw_text(label, input_x + 6, text_y, self.colors.accent, None);
 
         let input_text_x = input_x + 6 + label.chars().count() * FONT_WIDTH;
         fb.draw_text(&modal.input, input_text_x, text_y, 0x00FFFFFF, None);
@@ -882,12 +1248,17 @@ impl GfxRenderer {
             for (idx, cmd) in matching.iter().take(max_visible).enumerate() {
                 let is_sel = idx == modal.selected_idx;
                 let (row_bg, row_fg, sc_fg) = if is_sel {
-                    (0x00007ACC, 0x00FFFFFF, 0x00D4D4D4)
+                    (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
                 } else {
-                    (0x00252526, 0x00D4D4D4, 0x00858585)
+                    (self.colors.modal_bg, 0x00D4D4D4, 0x00858585)
                 };
 
-                fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                if is_sel && self.rounded_corners {
+                    fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                } else {
+                    fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                }
+
                 let row_text_y = item_y + (item_h - FONT_HEIGHT) / 2;
                 fb.draw_text(cmd.name, input_x + 8, row_text_y, row_fg, None);
 
@@ -921,50 +1292,61 @@ impl GfxRenderer {
         modal: &crate::ui::prompt::PromptModal,
         close_hovered: bool,
     ) {
-        // Dim background
-        for p in fb.pixels.iter_mut() {
-            let r = (((*p >> 16) & 0xFF) * 3) / 4;
-            let g = (((*p >> 8) & 0xFF) * 3) / 4;
-            let b = ((*p & 0xFF) * 3) / 4;
-            *p = (r << 16) | (g << 8) | b;
-        }
+        // Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
 
         let box_w = fb.width.min(680).max(420);
         let box_h = fb.height.min(480).max(360);
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y = (fb.height.saturating_sub(box_h)) / 2;
 
-        // 1. Drop shadow
-        fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        // 1. Soft Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 12, 8);
+        } else {
+            fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+        }
 
-        // 2. Outer border
-        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, 0x00007ACC);
-
-        // 3. Window Header (Title Bar)
+        // 2. Outer border & Window Header (Title Bar)
         let header_h = 26;
-        fb.fill_rect(box_x, box_y, box_w, header_h, 0x002D2D2D);
+        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
+        fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
+
+        // 4. Window Body
+        let body_y = box_y + header_h + 1;
+        let body_h = box_h.saturating_sub(header_h + 1);
+        fb.fill_rect(box_x, body_y, box_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
+        }
+
         fb.draw_text(modal.kind.window_title(), box_x + 10, box_y + 5, 0x00FFFFFF, None);
 
         // Header close button [×]
         let close_w = 32;
         let close_x = box_x + box_w - close_w;
-        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
-        fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, box_y + 2, close_w - 4, header_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        }
         fb.draw_text("×", close_x + 12, box_y + 5, 0x00FFFFFF, None);
 
         // Header bottom divider
-        fb.fill_rect(box_x, box_y + header_h, box_w, 1, 0x003A3D41);
-
-        // 4. Window Body
-        let body_y = box_y + header_h + 1;
-        let body_h = box_h.saturating_sub(header_h + 1);
-        fb.fill_rect(box_x, body_y, box_w, body_h, 0x00202020);
+        fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 5. Current Directory Bar
         let dir_bar_y = body_y + 6;
         let dir_bar_h = 24;
-        fb.fill_rect(box_x + 8, dir_bar_y, box_w.saturating_sub(16), dir_bar_h, 0x00282828);
-        fb.draw_text("Carpeta:", box_x + 14, dir_bar_y + 4, 0x00528BFF, None);
+        let dir_bar_w = box_w.saturating_sub(16);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(box_x + 8, dir_bar_y, dir_bar_w, dir_bar_h, 4, self.colors.input_bg);
+        } else {
+            fb.fill_rect(box_x + 8, dir_bar_y, dir_bar_w, dir_bar_h, self.colors.input_bg);
+        }
+        fb.draw_text("Carpeta:", box_x + 14, dir_bar_y + 4, self.colors.accent, None);
 
         let path_str = modal.current_dir.display().to_string();
         let max_path_chars = (box_w.saturating_sub(190)) / FONT_WIDTH;
@@ -979,7 +1361,12 @@ impl GfxRenderer {
         // [Subir] button
         let up_btn_w = 64;
         let up_btn_x = box_x + box_w - up_btn_w - 12;
-        fb.fill_rect(up_btn_x, dir_bar_y + 2, up_btn_w, 20, 0x003A3D41);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(up_btn_x, dir_bar_y + 2, up_btn_w, 20, 3, self.colors.chip_bg);
+            fb.draw_rounded_outline(up_btn_x, dir_bar_y + 2, up_btn_w, 20, 3, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(up_btn_x, dir_bar_y + 2, up_btn_w, 20, self.colors.chip_bg);
+        }
         fb.draw_text("[Subir]", up_btn_x + 6, dir_bar_y + 4, 0x00FFFFFF, None);
 
         // 6. Bookmarks Bar
@@ -991,9 +1378,13 @@ impl GfxRenderer {
             let bm_text = format!("[{}]", bm.label);
             let bm_w = bm_text.chars().count() * FONT_WIDTH + 8;
             if cur_bm_x + bm_w < box_x + box_w - 8 {
-                let bg = if is_active { 0x00007ACC } else { 0x002D2D2D };
+                let bg = if is_active { self.colors.accent } else { self.colors.chip_bg };
                 let fg = if is_active { 0x00FFFFFF } else { 0x00CCCCCC };
-                fb.fill_rect(cur_bm_x, bm_bar_y, bm_w, 20, bg);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(cur_bm_x, bm_bar_y, bm_w, 20, 3, bg);
+                } else {
+                    fb.fill_rect(cur_bm_x, bm_bar_y, bm_w, 20, bg);
+                }
                 fb.draw_text(&bm_text, cur_bm_x + 4, bm_bar_y + 2, fg, None);
                 cur_bm_x += bm_w + 6;
             }
@@ -1005,8 +1396,13 @@ impl GfxRenderer {
         let list_w = box_w.saturating_sub(16);
         let list_x = box_x + 8;
 
-        fb.fill_rect(list_x.saturating_sub(1), list_y.saturating_sub(1), list_w + 2, list_h + 2, 0x003A3D41);
-        fb.fill_rect(list_x, list_y, list_w, list_h, 0x00181818);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(list_x, list_y, list_w, list_h, 4, self.colors.input_bg);
+            fb.draw_rounded_outline(list_x, list_y, list_w, list_h, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(list_x.saturating_sub(1), list_y.saturating_sub(1), list_w + 2, list_h + 2, self.colors.scrollbar_border);
+            fb.fill_rect(list_x, list_y, list_w, list_h, self.colors.input_bg);
+        }
 
         let row_h = 22;
         let max_visible = list_h / row_h;
@@ -1019,11 +1415,15 @@ impl GfxRenderer {
                 let is_selected = actual_idx == modal.selected_entry_idx;
                 let ry = list_y + idx * row_h;
 
-                let row_bg = if is_selected { 0x00007ACC } else { 0x00181818 };
-                fb.fill_rect(list_x, ry, list_w, row_h, row_bg);
+                let row_bg = if is_selected { self.colors.accent } else { self.colors.input_bg };
+                if is_selected && self.rounded_corners {
+                    fb.fill_rounded_rect(list_x + 2, ry, list_w - 4, row_h, 3, row_bg);
+                } else {
+                    fb.fill_rect(list_x, ry, list_w, row_h, row_bg);
+                }
 
                 let tag = if entry.is_dir { "[DIR] " } else { "      " };
-                let tag_fg = if is_selected { 0x00FFFFFF } else { 0x004EC9B0 };
+                let tag_fg = if is_selected { 0x00FFFFFF } else { self.colors.syntax_type };
                 let name_fg = if is_selected { 0x00FFFFFF } else if entry.is_dir { 0x00FFFFFF } else { 0x00D4D4D4 };
 
                 fb.draw_text(tag, list_x + 8, ry + 3, tag_fg, None);
@@ -1037,8 +1437,13 @@ impl GfxRenderer {
 
         let input_box_y = input_y + 18;
         let input_box_h = 24;
-        fb.fill_rect(list_x.saturating_sub(1), input_box_y.saturating_sub(1), list_w + 2, input_box_h + 2, 0x00007ACC);
-        fb.fill_rect(list_x, input_box_y, list_w, input_box_h, 0x002D2D2D);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(list_x, input_box_y, list_w, input_box_h, 4, self.colors.input_bg);
+            fb.draw_rounded_outline(list_x, input_box_y, list_w, input_box_h, 4, self.colors.input_border);
+        } else {
+            fb.fill_rect(list_x.saturating_sub(1), input_box_y.saturating_sub(1), list_w + 2, input_box_h + 2, self.colors.input_border);
+            fb.fill_rect(list_x, input_box_y, list_w, input_box_h, self.colors.input_bg);
+        }
 
         let input_text_y = input_box_y + (input_box_h - FONT_HEIGHT) / 2;
         fb.draw_text(&modal.input, list_x + 8, input_text_y, 0x00FFFFFF, None);
@@ -1059,14 +1464,24 @@ impl GfxRenderer {
         let action_btn_x = cancel_btn_x - action_btn_w - 8;
 
         // Action button [Guardar] / [Abrir]
-        fb.fill_rect(action_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), action_btn_w + 2, 24, 0x001F8AD2);
-        fb.fill_rect(action_btn_x, btn_bar_y, action_btn_w, 22, 0x00007ACC);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(action_btn_x, btn_bar_y, action_btn_w, 24, 4, self.colors.button_bg);
+            fb.draw_rounded_outline(action_btn_x, btn_bar_y, action_btn_w, 24, 4, self.colors.accent);
+        } else {
+            fb.fill_rect(action_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), action_btn_w + 2, 24, self.colors.accent);
+            fb.fill_rect(action_btn_x, btn_bar_y, action_btn_w, 22, self.colors.button_bg);
+        }
         let at_x = action_btn_x + (action_btn_w - action_btn_text.chars().count() * FONT_WIDTH) / 2;
-        fb.draw_text(action_btn_text, at_x, btn_bar_y + 3, 0x00FFFFFF, None);
+        fb.draw_text(action_btn_text, at_x, btn_bar_y + 3, self.colors.button_fg, None);
 
         // Cancel button [Cancelar]
-        fb.fill_rect(cancel_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), cancel_btn_w + 2, 24, 0x003E3E42);
-        fb.fill_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, 22, 0x002D2D2D);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, 24, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(cancel_btn_x, btn_bar_y, cancel_btn_w, 24, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(cancel_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), cancel_btn_w + 2, 24, self.colors.scrollbar_border);
+            fb.fill_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, 22, self.colors.chip_bg);
+        }
         let ct_x = cancel_btn_x + (cancel_btn_w - 8 * FONT_WIDTH) / 2;
         fb.draw_text("Cancelar", ct_x, btn_bar_y + 3, 0x00CCCCCC, None);
 
@@ -1081,47 +1496,53 @@ impl GfxRenderer {
         close_hovered: bool,
         ok_hovered: bool,
     ) {
-        // 1. Semi-transparent backdrop tint (darken by 50%)
-        for p in fb.pixels.iter_mut() {
-            let r = ((*p >> 16) & 0xFF) / 2;
-            let g = ((*p >> 8) & 0xFF) / 2;
-            let b = (*p & 0xFF) / 2;
-            *p = (r << 16) | (g << 8) | b;
-        }
+        // Semi-transparent backdrop tint (darken)
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 120);
 
-        // 2. Dialog box dimensions
+        // Dialog box dimensions
         let win_w = 640.min(fb.width.saturating_sub(20));
         let win_h = 450.min(fb.height.saturating_sub(20));
         let win_x = (fb.width.saturating_sub(win_w)) / 2;
         let win_y = (fb.height.saturating_sub(win_h)) / 2;
 
-        // 3. Drop shadow
-        fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
+        // Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+        } else {
+            fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
+        }
 
-        // 4. Outer border (VS Code accent 0x00007ACC)
-        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, 0x00007ACC);
-
-        // 5. Window Title Bar (Header)
+        // Outer border & Header
         let title_h = 28;
-        fb.fill_rect(win_x, win_y, win_w, title_h, 0x002D2D2D);
+        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
+        fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
+
+        // Window Body background
+        let body_y = win_y + title_h + 1;
+        let body_h = win_h.saturating_sub(title_h + 1);
+        fb.fill_rect(win_x, body_y, win_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
+        }
+
         fb.draw_text("Rustext - Acerca de", win_x + 12, win_y + 6, 0x00FFFFFF, None);
 
         // Close button [×] on the right
         let close_w = 36;
         let close_x = win_x + win_w - close_w;
-        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
-        fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, win_y + 2, close_w - 4, title_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        }
         fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
 
         // Title bar separator
-        fb.fill_rect(win_x, win_y + title_h, win_w, 1, 0x003A3D41);
+        fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
 
-        // 6. Window Body background
-        let body_y = win_y + title_h + 1;
-        let body_h = win_h.saturating_sub(title_h + 1);
-        fb.fill_rect(win_x, body_y, win_w, body_h, 0x001E1E1E);
-
-        // 7. Rustext ASCII Banner
+        // Rustext ASCII Banner
         let banner_lines = [
             "  ____            _            _   ",
             " |  _ \\ _   _ ___| |_ _____  _| |_ ",
@@ -1130,7 +1551,7 @@ impl GfxRenderer {
             " |_| \\_\\\\__,_|___/\\__\\___/_/\\_\\\\__|",
         ];
         let mut cur_y = body_y + 12;
-        let banner_color = 0x00528BFF; // Vibrant Rustext blue
+        let banner_color = self.colors.accent;
         for line in &banner_lines {
             let line_w = line.chars().count() * FONT_WIDTH;
             let line_x = win_x + (win_w.saturating_sub(line_w)) / 2;
@@ -1151,7 +1572,7 @@ impl GfxRenderer {
         cur_y += 20;
 
         // Separator line
-        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, 0x003A3D41);
+        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, self.colors.scrollbar_border);
         cur_y += 10;
 
         // Project and Author Details
@@ -1169,14 +1590,14 @@ impl GfxRenderer {
         for (lbl, val) in &details {
             fb.draw_text(lbl, left_margin, cur_y, 0x00858585, None);
             let val_x = left_margin + lbl.chars().count() * FONT_WIDTH;
-            let val_color = if lbl.contains("Repositorio") { 0x00007ACC } else { 0x00D4D4D4 };
+            let val_color = if lbl.contains("Repositorio") { self.colors.accent } else { 0x00D4D4D4 };
             fb.draw_text(val, val_x, cur_y, val_color, None);
             cur_y += 17;
         }
 
         cur_y += 4;
         // Separator line
-        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, 0x003A3D41);
+        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, self.colors.scrollbar_border);
         cur_y += 8;
 
         // Essential shortcuts reference
@@ -1191,17 +1612,22 @@ impl GfxRenderer {
         let btn_y = win_y + win_h - 38;
 
         let (btn_bg, btn_border) = if ok_hovered {
-            (0x00007ACC, 0x001F8AD2)
+            (self.colors.button_hover_bg, self.colors.accent)
         } else {
-            (0x002D2D2D, 0x003E3E42)
+            (self.colors.button_bg, self.colors.scrollbar_border)
         };
-        fb.fill_rect(btn_x.saturating_sub(1), btn_y.saturating_sub(1), btn_w + 2, btn_h + 2, btn_border);
-        fb.fill_rect(btn_x, btn_y, btn_w, btn_h, btn_bg);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(btn_x, btn_y, btn_w, btn_h, 4, btn_bg);
+            fb.draw_rounded_outline(btn_x, btn_y, btn_w, btn_h, 4, btn_border);
+        } else {
+            fb.fill_rect(btn_x.saturating_sub(1), btn_y.saturating_sub(1), btn_w + 2, btn_h + 2, btn_border);
+            fb.fill_rect(btn_x, btn_y, btn_w, btn_h, btn_bg);
+        }
 
         let btn_text = "Aceptar";
         let text_x = btn_x + (btn_w - btn_text.chars().count() * FONT_WIDTH) / 2;
         let text_y = btn_y + (btn_h - FONT_HEIGHT) / 2;
-        fb.draw_text(btn_text, text_x, text_y, 0x00FFFFFF, None);
+        fb.draw_text(btn_text, text_x, text_y, self.colors.button_fg, None);
     }
 
     /// Renders a native-styled Extensions Manager Dialog Window.
@@ -1213,48 +1639,56 @@ impl GfxRenderer {
         scroll_offset: usize,
         close_hovered: bool,
     ) {
-        // Dim background
-        for p in fb.pixels.iter_mut() {
-            let r = (((*p >> 16) & 0xFF) * 3) / 4;
-            let g = (((*p >> 8) & 0xFF) * 3) / 4;
-            let b = ((*p & 0xFF) * 3) / 4;
-            *p = (r << 16) | (g << 8) | b;
-        }
+        // Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
 
         let win_w = 680.min(fb.width.saturating_sub(20));
         let win_h = 480.min(fb.height.saturating_sub(20));
         let win_x = (fb.width.saturating_sub(win_w)) / 2;
         let win_y = (fb.height.saturating_sub(win_h)) / 2;
 
-        // Drop shadow & border
-        fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
-        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, 0x00007ACC);
+        // Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+        } else {
+            fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
+        }
 
-        // Header Title Bar
+        // Header Title Bar & Window Border
         let title_h = 28;
-        fb.fill_rect(win_x, win_y, win_w, title_h, 0x002D2D2D);
+        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
+        fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
+
+        // Body background
+        let body_y = win_y + title_h + 1;
+        let body_h = win_h.saturating_sub(title_h + 1);
+        fb.fill_rect(win_x, body_y, win_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
+        }
+
         fb.draw_text("Administrador de Extensiones", win_x + 12, win_y + 6, 0x00FFFFFF, None);
 
         // Close button [×]
         let close_w = 36;
         let close_x = win_x + win_w - close_w;
-        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
-        fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, win_y + 2, close_w - 4, title_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        }
         fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
 
         // Header bottom divider
-        fb.fill_rect(win_x, win_y + title_h, win_w, 1, 0x003A3D41);
-
-        // Body background
-        let body_y = win_y + title_h + 1;
-        let body_h = win_h.saturating_sub(title_h + 1);
-        fb.fill_rect(win_x, body_y, win_w, body_h, 0x001E1E1E);
+        fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
 
         // Toolbar: Directory path & action buttons
         let bar_y = body_y + 8;
         let count = ext_mgr.extensions.len();
         let dir_str = format!("Carpeta: ~/.rustext/extensions  •  {} extensiones", count);
-        fb.draw_text(&dir_str, win_x + 12, bar_y + 4, 0x00528BFF, None);
+        fb.draw_text(&dir_str, win_x + 12, bar_y + 4, self.colors.accent, None);
 
         // Action buttons: [ + Crear Ejemplo ] & [ ↺ Recargar ]
         let reload_btn_w = 90;
@@ -1262,12 +1696,18 @@ impl GfxRenderer {
         let reload_btn_x = win_x + win_w - reload_btn_w - 12;
         let create_btn_x = reload_btn_x - create_btn_w - 8;
 
-        fb.fill_rect(create_btn_x.saturating_sub(1), bar_y.saturating_sub(1), create_btn_w + 2, 24, 0x003A3D41);
-        fb.fill_rect(create_btn_x, bar_y, create_btn_w, 22, 0x002D2D2D);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(create_btn_x, bar_y, create_btn_w, 24, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(create_btn_x, bar_y, create_btn_w, 24, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(reload_btn_x, bar_y, reload_btn_w, 24, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(reload_btn_x, bar_y, reload_btn_w, 24, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(create_btn_x.saturating_sub(1), bar_y.saturating_sub(1), create_btn_w + 2, 24, self.colors.scrollbar_border);
+            fb.fill_rect(create_btn_x, bar_y, create_btn_w, 22, self.colors.chip_bg);
+            fb.fill_rect(reload_btn_x.saturating_sub(1), bar_y.saturating_sub(1), reload_btn_w + 2, 24, self.colors.scrollbar_border);
+            fb.fill_rect(reload_btn_x, bar_y, reload_btn_w, 22, self.colors.chip_bg);
+        }
         fb.draw_text("+ Crear Ejemplo", create_btn_x + 6, bar_y + 3, 0x00FFFFFF, None);
-
-        fb.fill_rect(reload_btn_x.saturating_sub(1), bar_y.saturating_sub(1), reload_btn_w + 2, 24, 0x003A3D41);
-        fb.fill_rect(reload_btn_x, bar_y, reload_btn_w, 22, 0x002D2D2D);
         fb.draw_text("↺ Recargar", reload_btn_x + 10, bar_y + 3, 0x00FFFFFF, None);
 
         // List Area
@@ -1276,8 +1716,13 @@ impl GfxRenderer {
         let list_w = win_w.saturating_sub(24);
         let list_h = win_h.saturating_sub(115);
 
-        fb.fill_rect(list_x.saturating_sub(1), list_y.saturating_sub(1), list_w + 2, list_h + 2, 0x003A3D41);
-        fb.fill_rect(list_x, list_y, list_w, list_h, 0x00181818);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(list_x, list_y, list_w, list_h, 4, self.colors.input_bg);
+            fb.draw_rounded_outline(list_x, list_y, list_w, list_h, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(list_x.saturating_sub(1), list_y.saturating_sub(1), list_w + 2, list_h + 2, self.colors.scrollbar_border);
+            fb.fill_rect(list_x, list_y, list_w, list_h, self.colors.input_bg);
+        }
 
         if ext_mgr.extensions.is_empty() {
             fb.draw_text("No hay extensiones instaladas. Haz clic en '+ Crear Ejemplo'.", list_x + 16, list_y + 20, 0x00858585, None);
@@ -1290,11 +1735,16 @@ impl GfxRenderer {
                 let actual_idx = scroll_offset + idx;
                 let is_selected = actual_idx == selected_idx;
 
-                let card_bg = if is_selected { 0x00242830 } else { 0x001E1E1E };
-                let border_color = if is_selected { 0x00007ACC } else { 0x002D2D2D };
+                let card_bg = if is_selected { self.colors.button_bg } else { self.colors.modal_bg };
+                let border_color = if is_selected { self.colors.accent } else { self.colors.scrollbar_border };
 
-                fb.fill_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h - 4, card_bg);
-                fb.fill_rect(list_x + 2, cur_card_y, 3, card_h - 4, border_color);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h - 4, 4, card_bg);
+                    fb.fill_rounded_rect(list_x + 2, cur_card_y, 4, card_h - 4, 2, border_color);
+                } else {
+                    fb.fill_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h - 4, card_bg);
+                    fb.fill_rect(list_x + 2, cur_card_y, 3, card_h - 4, border_color);
+                }
 
                 // Extension Name & Version
                 let title_text = format!("{}  v{}", ext.name, ext.version);
@@ -1304,10 +1754,14 @@ impl GfxRenderer {
                 let (badge_text, badge_bg, badge_fg) = if ext.enabled {
                     ("[ACTIVA]", 0x000E7030, 0x004EC9B0)
                 } else {
-                    ("[DESACTIVADA]", 0x003A3D41, 0x00858585)
+                    ("[DESACTIVADA]", self.colors.chip_bg, 0x00858585)
                 };
                 let badge_x = list_x + list_w - 180;
-                fb.fill_rect(badge_x, cur_card_y + 4, 100, 18, badge_bg);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(badge_x, cur_card_y + 4, 100, 18, 3, badge_bg);
+                } else {
+                    fb.fill_rect(badge_x, cur_card_y + 4, 100, 18, badge_bg);
+                }
                 fb.draw_text(badge_text, badge_x + 6, cur_card_y + 5, badge_fg, None);
 
                 // Description
@@ -1328,7 +1782,12 @@ impl GfxRenderer {
                 let toggle_w = 64;
                 let toggle_x = list_x + list_w - toggle_w - 8;
                 let toggle_y = cur_card_y + 4;
-                fb.fill_rect(toggle_x, toggle_y, toggle_w, 20, 0x002D2D2D);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(toggle_x, toggle_y, toggle_w, 20, 3, self.colors.chip_bg);
+                    fb.draw_rounded_outline(toggle_x, toggle_y, toggle_w, 20, 3, self.colors.scrollbar_border);
+                } else {
+                    fb.fill_rect(toggle_x, toggle_y, toggle_w, 20, self.colors.chip_bg);
+                }
                 fb.draw_text(toggle_text, toggle_x + 4, toggle_y + 2, 0x00FFFFFF, None);
 
                 cur_card_y += card_h;
@@ -1342,8 +1801,13 @@ impl GfxRenderer {
 
         let close_btn_w = 80;
         let close_btn_x = win_x + win_w - close_btn_w - 12;
-        fb.fill_rect(close_btn_x.saturating_sub(1), footer_y.saturating_sub(1), close_btn_w + 2, 26, 0x003A3D41);
-        fb.fill_rect(close_btn_x, footer_y, close_btn_w, 24, 0x002D2D2D);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_btn_x, footer_y, close_btn_w, 24, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(close_btn_x, footer_y, close_btn_w, 24, 4, self.colors.scrollbar_border);
+        } else {
+            fb.fill_rect(close_btn_x.saturating_sub(1), footer_y.saturating_sub(1), close_btn_w + 2, 26, self.colors.scrollbar_border);
+            fb.fill_rect(close_btn_x, footer_y, close_btn_w, 24, self.colors.chip_bg);
+        }
         fb.draw_text("Cerrar", close_btn_x + 16, footer_y + 4, 0x00FFFFFF, None);
     }
 }

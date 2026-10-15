@@ -102,7 +102,9 @@ impl MenuBar {
                 items: vec![
                     MenuItem::action("Abrir Configuración...", "", EditorAction::OpenConfig),
                     MenuItem::action("Recargar Configuración", "", EditorAction::ReloadConfig),
-                    MenuItem::separator(),
+                    MenuItem::action("Tema: Tokyo Night", "", EditorAction::SetTheme(EditorTheme::TokyoNight)),
+                    MenuItem::action("Tema: Catppuccin Mocha", "", EditorAction::SetTheme(EditorTheme::Catppuccin)),
+                    MenuItem::action("Tema: One Dark", "", EditorAction::SetTheme(EditorTheme::OneDark)),
                     MenuItem::action("Tema: Modern Dark", "", EditorAction::SetTheme(EditorTheme::Dark)),
                     MenuItem::action("Tema: Monokai", "", EditorAction::SetTheme(EditorTheme::Monokai)),
                     MenuItem::action("Tema: Solarized Dark", "", EditorAction::SetTheme(EditorTheme::SolarizedDark)),

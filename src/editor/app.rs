@@ -1951,8 +1951,16 @@ impl Editor {
         let mut renderer = crate::gfx::GfxRenderer::new();
         renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
         renderer.show_line_numbers = self.config.editor.show_line_numbers;
+        renderer.font_scale = self.config.gui.font_scale;
+        renderer.line_spacing = self.config.gui.line_spacing;
+        renderer.rounded_corners = self.config.gui.rounded_corners;
+        renderer.shadows = self.config.gui.shadows;
+        renderer.cursor_style = self.config.gui.cursor_style.clone();
+        renderer.cursor_blink = self.config.gui.cursor_blink;
+
         let mut active_theme_name = self.config.theme.name.clone();
         let mut active_show_line_numbers = self.config.editor.show_line_numbers;
+        let mut active_gui_settings = self.config.gui.clone();
 
         let mut mouse_x = 0;
         let mut mouse_y = 0;
@@ -1973,6 +1981,16 @@ impl Editor {
             if self.config.editor.show_line_numbers != active_show_line_numbers {
                 renderer.show_line_numbers = self.config.editor.show_line_numbers;
                 active_show_line_numbers = self.config.editor.show_line_numbers;
+                needs_redraw = true;
+            }
+            if self.config.gui != active_gui_settings {
+                renderer.font_scale = self.config.gui.font_scale;
+                renderer.line_spacing = self.config.gui.line_spacing;
+                renderer.rounded_corners = self.config.gui.rounded_corners;
+                renderer.shadows = self.config.gui.shadows;
+                renderer.cursor_style = self.config.gui.cursor_style.clone();
+                renderer.cursor_blink = self.config.gui.cursor_blink;
+                active_gui_settings = self.config.gui.clone();
                 needs_redraw = true;
             }
             // Check status message expiry (clear after 6 seconds)

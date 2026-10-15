@@ -128,6 +128,14 @@ impl DiagnosticCollection {
         self.diagnostics.iter().any(|d| d.severity == DiagnosticSeverity::Warning)
     }
 
+    pub fn error_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.severity == DiagnosticSeverity::Error).count()
+    }
+
+    pub fn warning_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.severity == DiagnosticSeverity::Warning).count()
+    }
+
     /// Returns the most critical diagnostic on a specific 1-indexed line.
     pub fn for_line(&self, line: usize) -> Option<&Diagnostic> {
         self.diagnostics.iter().find(|d| d.line == line)

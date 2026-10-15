@@ -1019,6 +1019,158 @@ name = monokai
     assert!(serialized.contains("check_on_save = false"));
 }
 
+#[test]
+fn test_gui_customization_config_options() {
+    use rustext::editor::config::{EditorConfig, EditorTheme};
+
+    let ini_content = r#"
+[editor]
+tab_size = 4
+
+[theme]
+name = tokyo_night
+
+[gui]
+window_width = 1280
+window_height = 800
+menu_bar = true
+status_bar = true
+scrollbar = true
+font_scale = 2
+line_spacing = 5
+rounded_corners = true
+shadows = true
+cursor_style = block
+cursor_blink = false
+"#;
+
+    let config = EditorConfig::parse(ini_content);
+    assert_eq!(config.theme.name, "tokyo_night");
+    assert_eq!(config.gui.window_width, 1280);
+    assert_eq!(config.gui.window_height, 800);
+    assert_eq!(config.gui.font_scale, 2);
+    assert_eq!(config.gui.line_spacing, 5);
+    assert!(config.gui.rounded_corners);
+    assert!(config.gui.shadows);
+    assert_eq!(config.gui.cursor_style, "block");
+    assert!(!config.gui.cursor_blink);
+
+    // Serialization check
+    let serialized = config.to_ini_string();
+    assert!(serialized.contains("font_scale = 2"));
+    assert!(serialized.contains("line_spacing = 5"));
+    assert!(serialized.contains("rounded_corners = true"));
+    assert!(serialized.contains("shadows = true"));
+    assert!(serialized.contains("cursor_style = block"));
+    assert!(serialized.contains("cursor_blink = false"));
+
+    // Theme enum tests
+    assert_eq!(EditorTheme::from_name("tokyo_night"), EditorTheme::TokyoNight);
+    assert_eq!(EditorTheme::from_name("catppuccin"), EditorTheme::Catppuccin);
+    assert_eq!(EditorTheme::from_name("onedark"), EditorTheme::OneDark);
+    assert_eq!(EditorTheme::TokyoNight.as_str(), "tokyo_night");
+    assert_eq!(EditorTheme::Catppuccin.as_str(), "catppuccin");
+    assert_eq!(EditorTheme::OneDark.as_str(), "onedark");
+}
+
+#[test]
+fn test_modern_theme_palettes_and_slots() {
+    use rustext::gfx::ThemeColors;
+    use rustext::ui::theme::Theme;
+
+    // GUI Themes
+    let tokyo = ThemeColors::by_name("tokyo_night");
+    assert_eq!(tokyo.background, 0x001A1B26);
+    assert_ne!(tokyo.accent, 0);
+    assert_ne!(tokyo.modal_bg, 0);
+    assert_ne!(tokyo.chip_bg, 0);
+
+    let catppuccin = ThemeColors::by_name("catppuccin_mocha");
+    assert_eq!(catppuccin.background, 0x001E1E2E);
+    assert_ne!(catppuccin.accent, 0);
+    assert_ne!(catppuccin.button_bg, 0);
+
+    let onedark = ThemeColors::by_name("onedark");
+    assert_eq!(onedark.background, 0x00282C34);
+    assert_ne!(onedark.accent, 0);
+
+    // TUI Themes
+    let tui_tokyo = Theme::by_name("tokyo_night");
+    assert!(!tui_tokyo.status_bar_bg.is_empty());
+    let tui_catppuccin = Theme::by_name("catppuccin");
+    assert!(!tui_catppuccin.status_bar_bg.is_empty());
+    let tui_onedark = Theme::by_name("onedark");
+    assert!(!tui_onedark.status_bar_bg.is_empty());
+}
+
+#[test]
+fn test_framebuffer_2d_primitives_alpha_and_corners() {
+    use rustext::gfx::Framebuffer;
+
+    let mut fb = Framebuffer::new(100, 100);
+
+    // 1. Alpha blending
+    fb.fill_rect(0, 0, 100, 100, 0x00000000); // Black
+    fb.fill_rect_alpha(10, 10, 20, 20, 0x00FFFFFF, 128); // 50% white
+    let mid_pixel = fb.get_pixel(15, 15);
+    let r = (mid_pixel >> 16) & 0xFF;
+    assert!(r >= 120 && r <= 135, "Alpha blending should produce ~128 grey, got {}", r);
+
+    // 2. Rounded rectangle
+    fb.clear(0x00000000);
+    fb.fill_rounded_rect(20, 20, 40, 40, 8, 0x00FF0000);
+    // Center should be red
+    assert_eq!(fb.get_pixel(40, 40), 0x00FF0000);
+    // Top-left corner pixel outside the radius should remain black
+    assert_eq!(fb.get_pixel(20, 20), 0x00000000);
+
+    // 3. Rounded outline
+    fb.draw_rounded_outline(20, 20, 40, 40, 8, 0x0000FF00);
+    // Top edge center should have outline color
+    assert_eq!(fb.get_pixel(40, 20), 0x0000FF00);
+
+    // 4. Drop shadow
+    fb.clear(0x00FFFFFF); // White background
+    fb.draw_drop_shadow(30, 30, 40, 40, 8, 6);
+    // Shadow region around (28, 72) should be darker than white
+    let shadow_pixel = fb.get_pixel(35, 72);
+    assert_ne!(shadow_pixel, 0x00FFFFFF);
+
+    // 5. Scaled text
+    fb.clear(0x00000000);
+    fb.draw_text_scaled("Hi", 10, 10, 0x000000FF, None, 2);
+    assert!(fb.pixels.iter().any(|&p| p == 0x000000FF));
+}
+
+#[test]
+fn test_renderer_with_custom_cursor_and_spacing() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    let mut fb = Framebuffer::new(800, 600);
+    let doc = Document::new(TextBuffer::from_str("fn test() {\n    let val = 123;\n}"));
+    let mut renderer = GfxRenderer::new();
+    renderer.line_spacing = 6;
+    renderer.cursor_style = "block".to_string();
+    renderer.rounded_corners = true;
+    renderer.shadows = true;
+
+    let tabs = vec!["main.rs".to_string()];
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, None);
+
+    // Framebuffer should contain non-empty pixels rendered with modern spacing
+    let non_bg = fb.pixels.iter().filter(|&&p| p != renderer.colors.background).count();
+    assert!(non_bg > 200);
+
+    // Underline cursor style test
+    renderer.cursor_style = "underline".to_string();
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, None);
+    let non_bg2 = fb.pixels.iter().filter(|&&p| p != renderer.colors.background).count();
+    assert!(non_bg2 > 200);
+}
+
+
 
 
 

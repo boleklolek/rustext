@@ -8,6 +8,9 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorTheme {
     Dark,
+    TokyoNight,
+    Catppuccin,
+    OneDark,
     Monokai,
     SolarizedDark,
     Light,
@@ -17,6 +20,9 @@ impl EditorTheme {
     pub const fn as_str(&self) -> &'static str {
         match self {
             EditorTheme::Dark => "dark",
+            EditorTheme::TokyoNight => "tokyo_night",
+            EditorTheme::Catppuccin => "catppuccin",
+            EditorTheme::OneDark => "onedark",
             EditorTheme::Monokai => "monokai",
             EditorTheme::SolarizedDark => "solarized",
             EditorTheme::Light => "light",
@@ -25,6 +31,9 @@ impl EditorTheme {
 
     pub fn from_name(name: &str) -> Self {
         match name.to_lowercase().trim() {
+            "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => EditorTheme::TokyoNight,
+            "catppuccin" | "catppuccin_mocha" | "catppuccin-mocha" | "mocha" => EditorTheme::Catppuccin,
+            "onedark" | "one_dark" | "one-dark" | "atom" => EditorTheme::OneDark,
             "monokai" => EditorTheme::Monokai,
             "solarized" | "solarized_dark" | "solarized-dark" => EditorTheme::SolarizedDark,
             "light" | "github_light" | "github-light" | "claro" => EditorTheme::Light,
@@ -81,6 +90,12 @@ pub struct GuiSettings {
     pub menu_bar: bool,
     pub status_bar: bool,
     pub scrollbar: bool,
+    pub font_scale: usize,
+    pub line_spacing: usize,
+    pub rounded_corners: bool,
+    pub shadows: bool,
+    pub cursor_style: String,
+    pub cursor_blink: bool,
 }
 
 impl Default for GuiSettings {
@@ -91,6 +106,12 @@ impl Default for GuiSettings {
             menu_bar: true,
             status_bar: true,
             scrollbar: true,
+            font_scale: 1,
+            line_spacing: 3,
+            rounded_corners: true,
+            shadows: true,
+            cursor_style: "bar".to_string(),
+            cursor_blink: true,
         }
     }
 }
@@ -136,7 +157,7 @@ check_on_save = true
 
 [theme]
 ; Tema de interfaz gráfica y terminal:
-; Opciones disponibles: dark (por defecto), monokai, solarized, light
+; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
 name = dark
 
 [gui]
@@ -148,6 +169,24 @@ window_height = 640
 menu_bar = true
 status_bar = true
 scrollbar = true
+
+; Escala de fuente para pantallas HiDPI / 2K / 4K (1 = normal, 2 = 2x)
+font_scale = 1
+
+; Espaciado vertical entre líneas (píxeles extra para que el código respire)
+line_spacing = 3
+
+; Esquinas redondeadas modernas en diálogos, botones y pestañas
+rounded_corners = true
+
+; Sombras suaves translúcidas bajo ventanas flotantes
+shadows = true
+
+; Estilo del cursor: bar (barra moderna), block (bloque clásico), underline
+cursor_style = bar
+
+; Parpadeo suave del cursor
+cursor_blink = true
 "#
     }
 
@@ -174,6 +213,12 @@ window_height = {}
 menu_bar = {}
 status_bar = {}
 scrollbar = {}
+font_scale = {}
+line_spacing = {}
+rounded_corners = {}
+shadows = {}
+cursor_style = {}
+cursor_blink = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -188,6 +233,12 @@ scrollbar = {}
             self.gui.menu_bar,
             self.gui.status_bar,
             self.gui.scrollbar,
+            self.gui.font_scale,
+            self.gui.line_spacing,
+            self.gui.rounded_corners,
+            self.gui.shadows,
+            self.gui.cursor_style,
+            self.gui.cursor_blink,
         )
     }
 
@@ -300,6 +351,36 @@ scrollbar = {}
                         "scrollbar" => {
                             if let Some(b) = as_bool {
                                 config.gui.scrollbar = b;
+                            }
+                        }
+                        "font_scale" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.font_scale = n.clamp(1, 3);
+                            }
+                        }
+                        "line_spacing" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.line_spacing = n.min(24);
+                            }
+                        }
+                        "rounded_corners" => {
+                            if let Some(b) = as_bool {
+                                config.gui.rounded_corners = b;
+                            }
+                        }
+                        "shadows" => {
+                            if let Some(b) = as_bool {
+                                config.gui.shadows = b;
+                            }
+                        }
+                        "cursor_style" => {
+                            if !val_unquoted.is_empty() {
+                                config.gui.cursor_style = val_unquoted.to_string();
+                            }
+                        }
+                        "cursor_blink" => {
+                            if let Some(b) = as_bool {
+                                config.gui.cursor_blink = b;
                             }
                         }
                         _ => {}
