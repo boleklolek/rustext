@@ -556,6 +556,10 @@ impl X11Window {
     pub fn should_close(&self) -> bool {
         self.should_close
     }
+
+    pub fn cancel_close(&mut self) {
+        self.should_close = false;
+    }
 }
 
 impl Drop for X11Window {

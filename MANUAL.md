@@ -11,6 +11,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 1. [Filosofía y Arquitectura](#1-filosofía-y-arquitectura)
 2. [Instalación y Compilación](#2-instalación-y-compilación)
 3. [Guía de la Interfaz Gráfica (Desktop GUI) y TUI](#3-guía-de-la-interfaz-gráfica-desktop-gui-y-tui)
+   - [3.1 Diálogo de Protección de Cambios sin Guardar](#31-diálogo-de-protección-de-cambios-sin-guardar)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -121,6 +122,31 @@ La interfaz gráfica de Rustext está diseñada con una estética moderna, limpi
 - **Scrollbar Vertical Interactivo**: Pista de desplazamiento con pulgar redondeado arrastrable y soporte para clics de página arriba/abajo.
 - **Paneles Divididos (Split Editor)**: División vertical (`Ctrl + \`) u horizontal (`Ctrl + Shift + \`) con barra separadora (splitter) arrastrable y paneles independientes.
 - **Barra de Estado Inferior**: Píldoras con modo de edición, nombre de archivo, posición del cursor, codificación UTF-8, lenguaje, contador de cursores e indicador de panel activo (`Panel: 1/2`).
+
+---
+
+### 3.1 Diálogo de Protección de Cambios sin Guardar
+
+Rustext incorpora un sistema integral de prevención contra pérdidas involuntarias de datos que supervisa el estado de modificación (`is_dirty`) de todos los búferes abiertos en tiempo de ejecución:
+
+1. **Puntos de Intercepción Segura**:
+   - **Cierre de Pestaña**: Al cerrar la pestaña activa con `Ctrl + W`, la opción de menú `Archivo > Cerrar Pestaña`, o al hacer clic sobre el botón `×` en la barra de pestañas.
+   - **Salida del Editor**: Al intentar salir de la aplicación mediante `Ctrl + Q`, la opción de menú `Archivo > Salir`, la paleta de comandos o el botón de cierre nativo de la ventana del sistema operativo (`[X]` en X11/Win32/macOS).
+   - **Cancelación Nativa de Cierre del SO**: En modo GUI, el bucle de eventos intercepta la señal de cierre de la ventana (`WM_DELETE_WINDOW` / `WM_CLOSE`), congela el ciclo de destrucción mediante `cancel_close()` y presenta el diálogo modal sobre el lienzo gráfico.
+
+2. **Acciones Disponibles en el Diálogo**:
+   - **[Guardar] / [Guardar Todo]**: Guarda el archivo modificado inmediatamente en el disco. Si el archivo es nuevo y aún no tiene ruta asignada (`[Sin título]`), despliega automáticamente el diálogo interactivo de *Guardar Como*. Si la acción es salir y hay múltiples archivos modificados, guarda todos secuencialmente antes de salir.
+   - **[No guardar] / [Descartar Todo]**: Descarta los cambios en memoria y procede de inmediato a cerrar la pestaña o terminar la sesión de Rustext.
+   - **[Cancelar]**: Aborta de forma segura la intención de cerrar o salir, restaurando el foco y dejando todos los cursores, selecciones y contenidos intactos.
+
+3. **Ergonomía de Teclado y Ratón**:
+   - **Atajos Nemónicos Instantáneos**:
+     - `G` o `S`: Guardar inmediatamente.
+     - `D` o `N`: Descartar / No guardar inmediatamente.
+     - `Esc` o `C`: Cancelar y volver al editor.
+   - **Navegación por Teclas**: Use `←` / `→` o `Tab` / `Shift + Tab` para alternar el foco entre los 3 botones, y `Enter` o `Espacio` para activarlo.
+   - **Ratón en GUI**: Efectos visuales de iluminación (*hover*) al pasar sobre los botones, clic directo para confirmar y botón `×` superior derecho para cancelar.
+   - **Modo Terminal TUI**: Muestra el distintivo `[CONFIRM]` en la barra de estado y los botones interactivos formateados en la línea de mensajes inferior.
 
 ---
 

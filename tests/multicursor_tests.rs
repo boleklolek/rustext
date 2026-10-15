@@ -1,5 +1,6 @@
 use rustext::core::{Cursor, CursorSet, Language, SearchEngine, SyntaxHighlighter, TextBuffer, TokenType};
-use rustext::editor::Editor;
+use rustext::editor::{Editor, EditorMode};
+use rustext::ui::Key;
 
 #[test]
 fn test_multicursor_simultaneous_typing() {
@@ -59,9 +60,11 @@ fn test_clipboard_and_tabs() {
     assert_eq!(editor.active_doc_idx, 0);
     assert_eq!(editor.doc().buffer.to_string(), "hello world");
 
-    // Close tab 1
+    // Close tab 1 (prompts confirmation for unsaved changes, discard with 'd')
     editor.next_tab();
     editor.close_tab();
+    assert!(matches!(editor.mode, EditorMode::UnsavedConfirm(_)));
+    editor.handle_key(Key::Char('d'));
     assert_eq!(editor.documents.len(), 1);
     assert_eq!(editor.doc().buffer.to_string(), "hello world");
 }

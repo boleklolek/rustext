@@ -3155,6 +3155,138 @@ impl GfxRenderer {
         }
         fb.draw_text("Cerrar", close_btn_x + 16, footer_y + 4, 0x00FFFFFF, None);
     }
+
+    /// Renders a native-styled Unsaved Changes Confirmation Dialog Window.
+    pub fn render_unsaved_confirm_dialog(
+        &self,
+        fb: &mut Framebuffer,
+        dialog: &crate::editor::app::UnsavedConfirmDialog,
+        hovered_button: Option<usize>, // 0: Guardar, 1: Descartar, 2: Cancelar, 3: close_x
+    ) {
+        // 1. Semi-transparent backdrop scrim (dimming the background)
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 120);
+
+        let win_w = 520.min(fb.width.saturating_sub(20));
+        let win_h = 190.min(fb.height.saturating_sub(20));
+        let win_x = (fb.width.saturating_sub(win_w)) / 2;
+        let win_y = (fb.height.saturating_sub(win_h)) / 2;
+
+        // 2. Drop shadow
+        if self.shadows {
+            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+        } else {
+            fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
+        }
+
+        // 3. Header Title Bar & Window Border
+        let title_h = 28;
+        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
+        fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
+
+        // Body background
+        let body_y = win_y + title_h + 1;
+        let body_h = win_h.saturating_sub(title_h + 1);
+        fb.fill_rect(win_x, body_y, win_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
+        }
+
+        // Title text: "⚠ Guardar Cambios"
+        let title_str = format!("⚠ {}", dialog.title());
+        fb.draw_text(&title_str, win_x + 12, win_y + 6, 0x00E5C07B, None); // Amber / warning gold
+
+        // Close button [×] in top right
+        let close_w = 36;
+        let close_x = win_x + win_w - close_w;
+        let close_hovered = hovered_button == Some(3);
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, win_y + 2, close_w - 4, title_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        }
+        fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
+
+        // Header divider
+        fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
+
+        // Warning Icon Badge in Body
+        let icon_box_x = win_x + 20;
+        let icon_box_y = body_y + 20;
+        let icon_box_size = 40;
+        if self.rounded_corners {
+            fb.fill_rounded_rect(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 8, 0x003A3020);
+            fb.draw_rounded_outline(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 8, 0x00E5C07B);
+        } else {
+            fb.fill_rect(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 0x003A3020);
+        }
+        fb.draw_text("!", icon_box_x + 16, icon_box_y + 12, 0x00E5C07B, None);
+
+        // Message text
+        let (line1, line2) = dialog.message_lines();
+        let text_start_x = icon_box_x + icon_box_size + 16;
+        let text_max_chars = (win_x + win_w - text_start_x - 16) / FONT_WIDTH;
+        let trunc_line1 = if line1.chars().count() > text_max_chars && text_max_chars > 3 {
+            format!("{}...", line1.chars().take(text_max_chars - 3).collect::<String>())
+        } else {
+            line1
+        };
+        fb.draw_text(&trunc_line1, text_start_x, icon_box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text(&line2, text_start_x, icon_box_y + 22, 0x00CCCCCC, None);
+
+        // Buttons Bar at bottom
+        let btn_bar_y = win_y + win_h - 42;
+        let btn_h = 28;
+        let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
+
+        let btn_save_w = (lbl_save.chars().count() * FONT_WIDTH + 24).max(100);
+        let btn_discard_w = (lbl_discard.chars().count() * FONT_WIDTH + 24).max(110);
+        let btn_cancel_w = (lbl_cancel.chars().count() * FONT_WIDTH + 24).max(90);
+
+        let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
+        let btn_start_x = win_x + win_w - total_btns_w - 16;
+
+        let b0_x = btn_start_x;
+        let b1_x = b0_x + btn_save_w + 8;
+        let b2_x = b1_x + btn_discard_w + 8;
+
+        let render_btn = |fb: &mut Framebuffer, bx: usize, bw: usize, label: &str, is_selected: bool, is_hovered: bool, btn_type: usize| {
+            let (bg, border, fg) = if is_hovered || is_selected {
+                match btn_type {
+                    0 => (self.colors.button_hover_bg, self.colors.accent, 0x00FFFFFF),
+                    1 => (0x00802828, 0x00F7768E, 0x00FFFFFF),
+                    _ => (self.colors.chip_bg, self.colors.accent, 0x00FFFFFF),
+                }
+            } else {
+                match btn_type {
+                    0 => (self.colors.button_bg, self.colors.scrollbar_border, 0x00FFFFFF),
+                    1 => (self.colors.chip_bg, self.colors.scrollbar_border, 0x00F7768E),
+                    _ => (self.colors.chip_bg, self.colors.scrollbar_border, 0x00CCCCCC),
+                }
+            };
+
+            if self.rounded_corners {
+                fb.fill_rounded_rect(bx, btn_bar_y, bw, btn_h, 4, bg);
+                fb.draw_rounded_outline(bx, btn_bar_y, bw, btn_h, 4, border);
+                if is_selected {
+                    fb.draw_rounded_outline(bx.saturating_sub(1), btn_bar_y.saturating_sub(1), bw + 2, btn_h + 2, 5, self.colors.accent);
+                }
+            } else {
+                fb.fill_rect(bx.saturating_sub(1), btn_bar_y.saturating_sub(1), bw + 2, btn_h + 2, border);
+                fb.fill_rect(bx, btn_bar_y, bw, btn_h, bg);
+            }
+
+            let tw = label.chars().count() * FONT_WIDTH;
+            let tx = bx + (bw.saturating_sub(tw)) / 2;
+            let ty = btn_bar_y + (btn_h - FONT_HEIGHT) / 2;
+            fb.draw_text(label, tx, ty, fg, None);
+        };
+
+        render_btn(fb, b0_x, btn_save_w, lbl_save, dialog.selected_button == 0, hovered_button == Some(0), 0);
+        render_btn(fb, b1_x, btn_discard_w, lbl_discard, dialog.selected_button == 1, hovered_button == Some(1), 1);
+        render_btn(fb, b2_x, btn_cancel_w, lbl_cancel, dialog.selected_button == 2, hovered_button == Some(2), 2);
+    }
 }
 
 impl Default for GfxRenderer {

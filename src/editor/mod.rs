@@ -13,7 +13,7 @@ pub mod git;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
-pub use app::{Editor, EditorMode};
+pub use app::{Editor, EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog};
 pub use menu::{MenuBar, MenuItem, MenuCategory};
 pub use config::{EditorConfig, EditorTheme, EditorSettings, ThemeSettings, GuiSettings};
 pub use snippet::{Snippet, SnippetSession, SnippetRegistry, SnippetTabstop, ExpandedSnippet};

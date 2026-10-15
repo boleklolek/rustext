@@ -70,6 +70,12 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Cada panel mantiene su propio desplazamiento vertical/horizontal, cursores independientes, cabecera de estado, gutter y minimapa/scrollbar integrados.
   - Sincronización transparente de pestañas y archivos al alternar o cerrar la división.
 
+- **Protección contra Pérdida de Datos (Diálogo de Confirmación al Cerrar)**:
+  - Detección inteligente de modificaciones no guardadas (`is_dirty()`) antes de cerrar pestañas (`Ctrl + W`, clic en `×` de pestaña o menú) o al salir del editor (`Ctrl + Q`, menú `Archivo > Salir` o botón `[X]` de la ventana del SO).
+  - Diálogo modal con 3 acciones claras: **Guardar** / **Guardar Todo** (`G`/`S`), **No guardar** / **Descartar Todo** (`D`/`N`) y **Cancelar** (`Esc`/`C`).
+  - Totalmente interactivo: navegación con teclado (`←`/`→`/`Tab`/`Enter`), atajos nemónicos y clics de ratón con efectos hover.
+  - Al salir con múltiples pestañas modificadas, advierte cuántos archivos tienen cambios pendientes antes de proceder.
+
 - **Interfaz Gráfica Moderna (Desktop GUI)**:
   - Motor de renderizado de software con Framebuffer de 32-bit ARGB.
   - Esquinas redondeadas (*anti-aliased*), sombras proyectadas suaves y píldoras informativas.

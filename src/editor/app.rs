@@ -21,11 +21,88 @@ use crate::ui::screen::Screen;
 use crate::ui::terminal::{Key, TerminalGuard};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsavedConfirmAction {
+    CloseTab(usize),
+    Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsavedConfirmDialog {
+    pub action: UnsavedConfirmAction,
+    pub file_name: String,
+    pub dirty_count: usize,
+    pub selected_button: usize, // 0 = Guardar, 1 = Descartar, 2 = Cancelar
+}
+
+impl UnsavedConfirmDialog {
+    pub fn for_close_tab(tab_idx: usize, file_name: String) -> Self {
+        Self {
+            action: UnsavedConfirmAction::CloseTab(tab_idx),
+            file_name,
+            dirty_count: 1,
+            selected_button: 0,
+        }
+    }
+
+    pub fn for_quit(dirty_count: usize, file_name: String) -> Self {
+        Self {
+            action: UnsavedConfirmAction::Quit,
+            file_name,
+            dirty_count,
+            selected_button: 0,
+        }
+    }
+
+    pub fn title(&self) -> &'static str {
+        match self.action {
+            UnsavedConfirmAction::CloseTab(_) => "Cerrar Pestaña con Cambios",
+            UnsavedConfirmAction::Quit => "Salir de Rustext - Cambios sin Guardar",
+        }
+    }
+
+    pub fn message_lines(&self) -> (String, String) {
+        match self.action {
+            UnsavedConfirmAction::CloseTab(_) => (
+                format!("El archivo '{}' tiene cambios sin guardar.", self.file_name),
+                "¿Desea guardar los cambios antes de cerrar la pestaña?".to_string(),
+            ),
+            UnsavedConfirmAction::Quit => {
+                if self.dirty_count > 1 {
+                    (
+                        format!("Hay {} archivos con cambios sin guardar en la sesión.", self.dirty_count),
+                        "¿Desea guardar todos los cambios antes de salir?".to_string(),
+                    )
+                } else {
+                    (
+                        format!("El archivo '{}' tiene cambios sin guardar.", self.file_name),
+                        "¿Desea guardar los cambios antes de salir de Rustext?".to_string(),
+                    )
+                }
+            }
+        }
+    }
+
+    pub fn button_labels(&self) -> (&'static str, &'static str, &'static str) {
+        match self.action {
+            UnsavedConfirmAction::CloseTab(_) => ("Guardar", "No guardar", "Cancelar"),
+            UnsavedConfirmAction::Quit => {
+                if self.dirty_count > 1 {
+                    ("Guardar Todo", "Descartar Todo", "Cancelar")
+                } else {
+                    ("Guardar", "No guardar", "Cancelar")
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorMode {
     Normal,
     ModalPrompt(PromptModal),
     AboutDialog,
     ExtensionsManager { selected_idx: usize, scroll_offset: usize },
+    UnsavedConfirm(UnsavedConfirmDialog),
 }
 
 pub struct Editor {
@@ -150,6 +227,30 @@ impl Editor {
     /// Dispatches input key events depending on editor mode.
     pub fn handle_key(&mut self, key: Key) {
         match &mut self.mode {
+            EditorMode::UnsavedConfirm(dialog) => {
+                match key {
+                    Key::Esc | Key::Char('c') | Key::Char('C') => {
+                        self.confirm_unsaved_action(2);
+                    }
+                    Key::Left | Key::BackTab | Key::Up => {
+                        dialog.selected_button = if dialog.selected_button == 0 { 2 } else { dialog.selected_button - 1 };
+                    }
+                    Key::Right | Key::Tab | Key::Down => {
+                        dialog.selected_button = (dialog.selected_button + 1) % 3;
+                    }
+                    Key::Char('g') | Key::Char('G') | Key::Char('s') | Key::Char('S') => {
+                        self.confirm_unsaved_action(0);
+                    }
+                    Key::Char('d') | Key::Char('D') | Key::Char('n') | Key::Char('N') => {
+                        self.confirm_unsaved_action(1);
+                    }
+                    Key::Enter | Key::Char(' ') => {
+                        let choice = dialog.selected_button;
+                        self.confirm_unsaved_action(choice);
+                    }
+                    _ => {}
+                }
+            }
             EditorMode::AboutDialog => match key {
                 Key::Esc | Key::Enter | Key::Char(' ') => {
                     self.mode = EditorMode::Normal;
@@ -655,8 +756,7 @@ impl Editor {
             EditorAction::Quit => {
                 let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
                 if any_dirty {
-                    self.set_status("Unsaved changes! Press Ctrl+Q again to discard or Ctrl+S to save");
-                    self.should_quit = true;
+                    self.prompt_unsaved_quit();
                 } else {
                     self.should_quit = true;
                 }
@@ -1147,24 +1247,37 @@ impl Editor {
         self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
     }
 
-    /// Closes the current active tab.
+    /// Closes the current active tab, prompting if there are unsaved changes.
     pub fn close_tab(&mut self) {
-        if self.documents.len() > 1 {
-            self.documents.remove(self.active_doc_idx);
-            if self.active_doc_idx >= self.documents.len() {
-                self.active_doc_idx = self.documents.len() - 1;
-            }
-            self.sync_split_doc_indices();
-            self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+        self.close_tab_at(self.active_doc_idx);
+    }
+
+    /// Closes the tab at a specific index, prompting if there are unsaved changes.
+    pub fn close_tab_at(&mut self, idx: usize) {
+        if idx >= self.documents.len() {
+            return;
+        }
+        if self.documents[idx].buffer.is_dirty() {
+            let file_name = self.documents[idx]
+                .buffer
+                .file_path()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("[Sin título]")
+                .to_string();
+            self.mode = EditorMode::UnsavedConfirm(UnsavedConfirmDialog::for_close_tab(idx, file_name));
         } else {
-            self.documents[0] = Document::new(TextBuffer::new());
-            self.sync_split_doc_indices();
-            self.set_status("Buffer cleared");
+            self.force_close_tab_at(idx);
         }
     }
 
-    /// Closes the tab at a specific index.
-    pub fn close_tab_at(&mut self, idx: usize) {
+    /// Closes the current tab immediately without checking for unsaved changes.
+    pub fn force_close_tab(&mut self) {
+        self.force_close_tab_at(self.active_doc_idx);
+    }
+
+    /// Force closes the tab at a specific index without checking for unsaved changes.
+    pub fn force_close_tab_at(&mut self, idx: usize) {
         if idx >= self.documents.len() {
             return;
         }
@@ -1179,6 +1292,114 @@ impl Editor {
             self.documents[0] = Document::new(TextBuffer::new());
             self.sync_split_doc_indices();
             self.set_status("Buffer cleared");
+        }
+    }
+
+    /// Prompts confirmation for quitting when there are unsaved changes.
+    pub fn prompt_unsaved_quit(&mut self) {
+        let dirty_count = self.documents.iter().filter(|d| d.buffer.is_dirty()).count();
+        if dirty_count == 0 {
+            self.should_quit = true;
+            return;
+        }
+        let file_name = self.doc()
+            .buffer
+            .file_path()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("[Sin título]")
+            .to_string();
+        self.mode = EditorMode::UnsavedConfirm(UnsavedConfirmDialog::for_quit(dirty_count, file_name));
+    }
+
+    /// Prompts confirmation for closing a specific tab when it has unsaved changes.
+    pub fn prompt_unsaved_close_tab(&mut self, idx: usize) {
+        if idx >= self.documents.len() {
+            return;
+        }
+        let file_name = self.documents[idx]
+            .buffer
+            .file_path()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("[Sin título]")
+            .to_string();
+        self.mode = EditorMode::UnsavedConfirm(UnsavedConfirmDialog::for_close_tab(idx, file_name));
+    }
+
+    /// Executes the user's choice in the unsaved confirmation dialog.
+    /// choice: 0 = Guardar / Guardar todo, 1 = Descartar / No guardar, 2 = Cancelar
+    pub fn confirm_unsaved_action(&mut self, choice: usize) {
+        let dialog = match &self.mode {
+            EditorMode::UnsavedConfirm(d) => d.clone(),
+            _ => return,
+        };
+
+        match choice {
+            0 => {
+                // Guardar
+                match dialog.action {
+                    UnsavedConfirmAction::CloseTab(tab_idx) => {
+                        if tab_idx < self.documents.len() {
+                            let has_path = self.documents[tab_idx].buffer.file_path().is_some();
+                            if has_path {
+                                self.save_document_at(tab_idx);
+                                self.force_close_tab_at(tab_idx);
+                                self.mode = EditorMode::Normal;
+                                self.set_status("Archivo guardado y pestaña cerrada");
+                            } else {
+                                self.active_doc_idx = tab_idx;
+                                self.sync_split_doc_indices();
+                                let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                                self.mode = EditorMode::ModalPrompt(PromptModal::new_with_dir(PromptKind::SaveAs, dir, None));
+                                self.set_status("Escriba un nombre para guardar el archivo antes de cerrar");
+                            }
+                        } else {
+                            self.mode = EditorMode::Normal;
+                        }
+                    }
+                    UnsavedConfirmAction::Quit => {
+                        let untitled_dirty_idx = self.documents.iter().enumerate().position(|(_, d)| {
+                            d.buffer.is_dirty() && d.buffer.file_path().is_none()
+                        });
+
+                        if let Some(idx) = untitled_dirty_idx {
+                            self.active_doc_idx = idx;
+                            self.sync_split_doc_indices();
+                            let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                            self.mode = EditorMode::ModalPrompt(PromptModal::new_with_dir(PromptKind::SaveAs, dir, None));
+                            self.set_status("Guarde los archivos sin título antes de salir");
+                        } else {
+                            for i in 0..self.documents.len() {
+                                if self.documents[i].buffer.is_dirty() {
+                                    self.save_document_at(i);
+                                }
+                            }
+                            self.mode = EditorMode::Normal;
+                            self.should_quit = true;
+                        }
+                    }
+                }
+            }
+            1 => {
+                // Descartar
+                match dialog.action {
+                    UnsavedConfirmAction::CloseTab(tab_idx) => {
+                        self.force_close_tab_at(tab_idx);
+                        self.mode = EditorMode::Normal;
+                        self.set_status(format!("Cerrado sin guardar: {}", dialog.file_name));
+                    }
+                    UnsavedConfirmAction::Quit => {
+                        self.mode = EditorMode::Normal;
+                        self.should_quit = true;
+                    }
+                }
+            }
+            _ => {
+                // Cancelar
+                self.mode = EditorMode::Normal;
+                self.set_status("Operación cancelada");
+            }
         }
     }
 
@@ -1415,15 +1636,20 @@ impl Editor {
         self.set_status(format!("Reemplazadas {} ocurrencias de '{}'", count, input));
     }
 
-    /// Saves the current buffer to disk.
-    pub fn save_document(&mut self) {
-        if self.doc().buffer.file_path().is_none() {
+    /// Saves a specific document buffer to disk by its index.
+    pub fn save_document_at(&mut self, idx: usize) {
+        if idx >= self.documents.len() {
+            return;
+        }
+        if self.documents[idx].buffer.file_path().is_none() {
             let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            self.active_doc_idx = idx;
+            self.sync_split_doc_indices();
             self.mode = EditorMode::ModalPrompt(PromptModal::new_with_dir(PromptKind::SaveAs, dir, None));
             return;
         }
 
-        let doc = self.doc();
+        let doc = &self.documents[idx];
         let mut ctx = PluginContext {
             file_path: doc.buffer.file_path().map(|p| p.to_path_buf()),
             buffer_length: doc.buffer.len_chars(),
@@ -1432,7 +1658,7 @@ impl Editor {
             status_message: None,
         };
 
-        let mut content = self.doc().buffer.to_string();
+        let mut content = self.documents[idx].buffer.to_string();
         self.plugin_registry.trigger_before_save(&mut ctx, &mut content);
 
         if let Some(transformed) = self.extension_manager.trigger_on_save(&content) {
@@ -1441,14 +1667,14 @@ impl Editor {
 
         // Auto-format on save if enabled in configuration
         if self.config.editor.format_on_save {
-            let lang = self.doc().language;
-            let file_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
+            let lang = self.documents[idx].language;
+            let file_path = self.documents[idx].buffer.file_path().map(|p| p.to_path_buf());
             if let Ok(formatted) = crate::editor::formatter::format_code(lang, &content, file_path.as_deref()) {
                 content = formatted;
             }
         }
 
-        let doc = self.doc_mut();
+        let doc = &mut self.documents[idx];
         if content != doc.buffer.to_string() {
             let path = doc.buffer.file_path().map(|p| p.to_path_buf());
             doc.buffer = TextBuffer::from_str(&content);
@@ -1457,10 +1683,10 @@ impl Editor {
             }
         }
 
-        match doc.buffer.save() {
+        match self.documents[idx].buffer.save() {
             Ok(()) => {
                 self.plugin_registry.trigger_after_save(&mut ctx);
-                let saved_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
+                let saved_path = self.documents[idx].buffer.file_path().map(|p| p.to_path_buf());
                 let path_str = saved_path
                     .as_ref()
                     .and_then(|p| p.to_str())
@@ -1487,6 +1713,11 @@ impl Editor {
                 self.set_status(format!("Error saving file: {}", e));
             }
         }
+    }
+
+    /// Saves the current buffer to disk.
+    pub fn save_document(&mut self) {
+        self.save_document_at(self.active_doc_idx);
     }
 
     // ---------------- Parallel Vector Multi-Cursor Editing ----------------
@@ -2256,6 +2487,7 @@ impl Editor {
             EditorMode::ModalPrompt(_) => "PROMPT",
             EditorMode::AboutDialog => "ABOUT",
             EditorMode::ExtensionsManager { .. } => "EXTENSIONS",
+            EditorMode::UnsavedConfirm(_) => "CONFIRM",
         };
 
         self.screen.render_status_bar(
@@ -2290,6 +2522,18 @@ impl Editor {
                     if total > 0 { selected_idx + 1 } else { 0 }, total, ext_name
                 ));
             }
+            EditorMode::UnsavedConfirm(dialog) => {
+                let (lbl0, lbl1, lbl2) = dialog.button_labels();
+                let sel = dialog.selected_button;
+                let b0 = if sel == 0 { format!("[{}]", lbl0) } else { lbl0.to_string() };
+                let b1 = if sel == 1 { format!("[{}]", lbl1) } else { lbl1.to_string() };
+                let b2 = if sel == 2 { format!("[{}]", lbl2) } else { lbl2.to_string() };
+                let prompt_text = format!(
+                    "⚠ {} │ {}  {}  {} │ [G: Guardar] [D: Descartar] [Esc: Cancelar]",
+                    dialog.file_name, b0, b1, b2
+                );
+                self.screen.render_prompt_line(&prompt_text);
+            }
             EditorMode::Normal => {
                 let diag_msg = self.diagnostics.for_line(primary_pos.line + 1).map(|d| d.to_display_string());
                 let msg_text = self
@@ -2309,7 +2553,7 @@ impl Editor {
                 let prompt_col = modal.kind.label().chars().count() + modal.cursor_col;
                 (prompt_row, prompt_col)
             }
-            EditorMode::AboutDialog | EditorMode::ExtensionsManager { .. } => {
+            EditorMode::AboutDialog | EditorMode::ExtensionsManager { .. } | EditorMode::UnsavedConfirm(_) => {
                 (self.screen.rows.saturating_sub(1), 0)
             }
             EditorMode::Normal => {
@@ -2401,8 +2645,15 @@ impl Editor {
                 match event {
                     crate::window::WindowEvent::None => break,
                     crate::window::WindowEvent::Close => {
-                        self.should_quit = true;
-                        break;
+                        let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
+                        if any_dirty {
+                            self.prompt_unsaved_quit();
+                            window.cancel_close();
+                            needs_redraw = true;
+                        } else {
+                            self.should_quit = true;
+                            break;
+                        }
                     }
                     crate::window::WindowEvent::Resize { width, height } => {
                         fb.resize(width, height);
@@ -2413,8 +2664,45 @@ impl Editor {
                         mouse_y = y;
                         needs_redraw = true;
                         if button == crate::window::MouseButton::Left {
+                            // 0. Check Unsaved Confirm Dialog interaction
+                            if let EditorMode::UnsavedConfirm(dialog) = &mut self.mode {
+                                let win_w = 520.min(fb.width.saturating_sub(20));
+                                let win_h = 190.min(fb.height.saturating_sub(20));
+                                let win_x = (fb.width.saturating_sub(win_w)) / 2;
+                                let win_y = (fb.height.saturating_sub(win_h)) / 2;
+                                let title_h = 28;
+                                let close_w = 36;
+                                let close_x = win_x + win_w - close_w;
+
+                                let hit_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + title_h;
+                                let hit_outside = x < win_x || x >= win_x + win_w || y < win_y || y >= win_y + win_h;
+
+                                let btn_bar_y = win_y + win_h - 42;
+                                let btn_h = 28;
+                                let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
+                                let btn_save_w = (lbl_save.chars().count() * crate::gfx::FONT_WIDTH + 24).max(100);
+                                let btn_discard_w = (lbl_discard.chars().count() * crate::gfx::FONT_WIDTH + 24).max(110);
+                                let btn_cancel_w = (lbl_cancel.chars().count() * crate::gfx::FONT_WIDTH + 24).max(90);
+                                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
+                                let btn_start_x = win_x + win_w - total_btns_w - 16;
+
+                                let b0_x = btn_start_x;
+                                let b1_x = b0_x + btn_save_w + 8;
+                                let b2_x = b1_x + btn_discard_w + 8;
+
+                                let hit_b0 = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= b0_x && x < b0_x + btn_save_w;
+                                let hit_b1 = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= b1_x && x < b1_x + btn_discard_w;
+                                let hit_b2 = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= b2_x && x < b2_x + btn_cancel_w;
+
+                                if hit_close || hit_outside || hit_b2 {
+                                    self.confirm_unsaved_action(2); // Cancel
+                                } else if hit_b0 {
+                                    self.confirm_unsaved_action(0); // Save
+                                } else if hit_b1 {
+                                    self.confirm_unsaved_action(1); // Discard
+                                }
                             // A. Check About Dialog Window interaction
-                            if self.mode == EditorMode::AboutDialog {
+                            } else if self.mode == EditorMode::AboutDialog {
                                 let win_w = 640.min(fb.width.saturating_sub(20));
                                 let win_h = 450.min(fb.height.saturating_sub(20));
                                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
@@ -3536,6 +3824,48 @@ impl Editor {
                 let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + 28;
 
                 renderer.render_extensions_dialog(&mut fb, &self.extension_manager, selected_idx, scroll_offset, close_hovered);
+            }
+
+            // Render Unsaved Changes Confirmation Dialog if active
+            if let EditorMode::UnsavedConfirm(dialog) = &self.mode {
+                let win_w = 520.min(fb.width.saturating_sub(20));
+                let win_h = 190.min(fb.height.saturating_sub(20));
+                let win_x = (fb.width.saturating_sub(win_w)) / 2;
+                let win_y = (fb.height.saturating_sub(win_h)) / 2;
+                let title_h = 28;
+                let close_w = 36;
+                let close_x = win_x + win_w - close_w;
+
+                let btn_bar_y = win_y + win_h - 42;
+                let btn_h = 28;
+                let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
+                let btn_save_w = (lbl_save.chars().count() * crate::gfx::FONT_WIDTH + 24).max(100);
+                let btn_discard_w = (lbl_discard.chars().count() * crate::gfx::FONT_WIDTH + 24).max(110);
+                let btn_cancel_w = (lbl_cancel.chars().count() * crate::gfx::FONT_WIDTH + 24).max(90);
+                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
+                let btn_start_x = win_x + win_w - total_btns_w - 16;
+
+                let b0_x = btn_start_x;
+                let b1_x = b0_x + btn_save_w + 8;
+                let b2_x = b1_x + btn_discard_w + 8;
+
+                let hovered_btn = if mouse_y >= btn_bar_y && mouse_y < btn_bar_y + btn_h {
+                    if mouse_x >= b0_x && mouse_x < b0_x + btn_save_w {
+                        Some(0)
+                    } else if mouse_x >= b1_x && mouse_x < b1_x + btn_discard_w {
+                        Some(1)
+                    } else if mouse_x >= b2_x && mouse_x < b2_x + btn_cancel_w {
+                        Some(2)
+                    } else {
+                        None
+                    }
+                } else if mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + title_h {
+                    Some(3)
+                } else {
+                    None
+                };
+
+                renderer.render_unsaved_confirm_dialog(&mut fb, dialog, hovered_btn);
             }
 
             // Present framebuffer to OS window

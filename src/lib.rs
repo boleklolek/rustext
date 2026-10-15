@@ -20,7 +20,7 @@ pub use ui::{Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind};
 pub use gfx::{Framebuffer, GfxRenderer, ThemeColors};
 pub use window::{NativeWindow, WindowEvent, MouseButton};
 pub use editor::{
-    Editor, EditorMode, EditorAction, Keymap, Document, EditorConfig, EditorTheme,
+    Editor, EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog, EditorAction, Keymap, Document, EditorConfig, EditorTheme,
     Snippet, SnippetSession, SnippetRegistry,
     Diagnostic, DiagnosticSeverity, DiagnosticCollection, format_code,
 };

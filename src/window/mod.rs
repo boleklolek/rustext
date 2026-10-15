@@ -39,6 +39,7 @@ impl UnsupportedWindow {
     pub fn should_close(&self) -> bool {
         true
     }
+    pub fn cancel_close(&mut self) {}
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

@@ -1869,3 +1869,171 @@ fn test_git_gutter_diff_rendering_and_status_bar() {
     assert!(fb.pixels.iter().any(|&p| p != 0));
 }
 
+#[test]
+fn test_unsaved_changes_warning_tab_close_cancel_and_discard() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode, UnsavedConfirmAction};
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(TextBuffer::new());
+    // Type something to make it dirty
+    editor.handle_key(Key::Char('a'));
+    assert!(editor.doc().buffer.is_dirty());
+
+    // Try closing the tab (Ctrl+W)
+    editor.execute_action(EditorAction::CloseTab);
+
+    // Should enter UnsavedConfirm dialog
+    match &editor.mode {
+        EditorMode::UnsavedConfirm(dialog) => {
+            assert_eq!(dialog.action, UnsavedConfirmAction::CloseTab(0));
+            assert_eq!(dialog.selected_button, 0); // Default to Guardar
+            let (l1, l2) = dialog.message_lines();
+            assert!(l1.contains("cambios sin guardar"));
+            assert!(l2.contains("cerrar la pestaña"));
+            let (b0, b1, b2) = dialog.button_labels();
+            assert_eq!(b0, "Guardar");
+            assert_eq!(b1, "No guardar");
+            assert_eq!(b2, "Cancelar");
+        }
+        _ => panic!("Expected EditorMode::UnsavedConfirm when closing dirty tab"),
+    }
+
+    // Test button navigation with Right / Left
+    editor.handle_key(Key::Right);
+    if let EditorMode::UnsavedConfirm(dialog) = &editor.mode {
+        assert_eq!(dialog.selected_button, 1);
+    }
+    editor.handle_key(Key::Right);
+    if let EditorMode::UnsavedConfirm(dialog) = &editor.mode {
+        assert_eq!(dialog.selected_button, 2);
+    }
+    editor.handle_key(Key::Left);
+    if let EditorMode::UnsavedConfirm(dialog) = &editor.mode {
+        assert_eq!(dialog.selected_button, 1);
+    }
+
+    // Cancel via Esc
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.mode, EditorMode::Normal);
+    // Document should still exist and still be dirty
+    assert_eq!(editor.documents.len(), 1);
+    assert!(editor.doc().buffer.is_dirty());
+
+    // Try closing again
+    editor.execute_action(EditorAction::CloseTab);
+    assert!(matches!(editor.mode, EditorMode::UnsavedConfirm(_)));
+
+    // Discard via 'd' key
+    editor.handle_key(Key::Char('d'));
+    assert_eq!(editor.mode, EditorMode::Normal);
+    // In single-tab editor, closing the only tab clears it to a fresh clean buffer
+    assert!(!editor.doc().buffer.is_dirty());
+    assert_eq!(editor.doc().buffer.to_string(), "");
+}
+
+#[test]
+fn test_unsaved_changes_warning_tab_close_save() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode, UnsavedConfirmAction};
+    use rustext::ui::terminal::Key;
+    use std::fs;
+
+    let temp_file = std::env::temp_dir().join(format!("rustext_save_test_{}.rs", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    fs::write(&temp_file, "fn original() {}\n").unwrap();
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.open_file(&temp_file);
+    assert_eq!(editor.documents.len(), 2);
+    assert_eq!(editor.active_doc_idx, 1);
+
+    // Edit the file to make it dirty
+    editor.handle_key(Key::Char('/'));
+    editor.handle_key(Key::Char('/'));
+    assert!(editor.doc().buffer.is_dirty());
+
+    // Close tab (Ctrl+W)
+    editor.execute_action(EditorAction::CloseTab);
+    match &editor.mode {
+        EditorMode::UnsavedConfirm(dialog) => {
+            assert_eq!(dialog.action, UnsavedConfirmAction::CloseTab(1));
+        }
+        _ => panic!("Expected UnsavedConfirm dialog"),
+    }
+
+    // Press 'g' to save and close
+    editor.handle_key(Key::Char('g'));
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.documents.len(), 1); // Tab closed
+
+    // Verify file on disk has the changes
+    let disk_content = fs::read_to_string(&temp_file).unwrap();
+    assert!(disk_content.starts_with("//"));
+
+    let _ = fs::remove_file(&temp_file);
+}
+
+#[test]
+fn test_unsaved_changes_warning_quit_flow() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode, UnsavedConfirmAction};
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.handle_key(Key::Char('x')); // dirty tab 0
+
+    editor.new_tab();
+    editor.handle_key(Key::Char('y')); // dirty tab 1
+
+    assert_eq!(editor.documents.len(), 2);
+    assert!(editor.documents[0].buffer.is_dirty());
+    assert!(editor.documents[1].buffer.is_dirty());
+
+    // Trigger Quit (Ctrl+Q)
+    editor.execute_action(EditorAction::Quit);
+    assert!(!editor.should_quit, "Should not quit immediately when buffers are dirty");
+
+    match &editor.mode {
+        EditorMode::UnsavedConfirm(dialog) => {
+            assert_eq!(dialog.action, UnsavedConfirmAction::Quit);
+            assert_eq!(dialog.dirty_count, 2);
+            let (b0, b1, b2) = dialog.button_labels();
+            assert_eq!(b0, "Guardar Todo");
+            assert_eq!(b1, "Descartar Todo");
+            assert_eq!(b2, "Cancelar");
+        }
+        _ => panic!("Expected UnsavedConfirm dialog on Quit"),
+    }
+
+    // Cancel quit with 'c'
+    editor.handle_key(Key::Char('c'));
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert!(!editor.should_quit);
+
+    // Trigger Quit again and discard all with 'd'
+    editor.execute_action(EditorAction::Quit);
+    assert!(matches!(editor.mode, EditorMode::UnsavedConfirm(_)));
+    editor.handle_key(Key::Char('d'));
+    assert!(editor.should_quit, "Should quit after discarding all unsaved changes");
+}
+
+#[test]
+fn test_unsaved_changes_dialog_gui_rendering() {
+    use rustext::editor::UnsavedConfirmDialog;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    let dialog = UnsavedConfirmDialog::for_close_tab(0, "test_file.rs".to_string());
+
+    renderer.render_unsaved_confirm_dialog(&mut fb, &dialog, Some(0));
+
+    // Scrim darkened pixel
+    let scrim_pixel = fb.get_pixel(10, 10);
+    assert_ne!(scrim_pixel, 0x00FFFFFF);
+
+    // Modal box center pixel
+    let box_pixel = fb.get_pixel(400, 260);
+    assert_ne!(box_pixel, 0x00000000);
+}
+
