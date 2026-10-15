@@ -72,6 +72,11 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Tema: Monokai", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::Monokai) },
         CommandItem { name: "Tema: Solarized Dark", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::SolarizedDark) },
         CommandItem { name: "Tema: Claro (GitHub Light)", shortcut: "", action: EditorAction::SetTheme(crate::editor::config::EditorTheme::Light) },
+        CommandItem { name: "Snippet: Insertar Función (fn)", shortcut: "Tab", action: EditorAction::InsertSnippet("fn".to_string()) },
+        CommandItem { name: "Snippet: Insertar Estructura (struct)", shortcut: "Tab", action: EditorAction::InsertSnippet("struct".to_string()) },
+        CommandItem { name: "Snippet: Insertar Bucle for", shortcut: "Tab", action: EditorAction::InsertSnippet("for".to_string()) },
+        CommandItem { name: "Snippet: Insertar Expresión match", shortcut: "Tab", action: EditorAction::InsertSnippet("match".to_string()) },
+        CommandItem { name: "Snippet: Insertar Test unitario (test)", shortcut: "Tab", action: EditorAction::InsertSnippet("test".to_string()) },
         CommandItem { name: "Acerca de Rustext", shortcut: "F1", action: EditorAction::OpenAboutDialog },
         CommandItem { name: "Salir de Rustext", shortcut: "Ctrl+Q", action: EditorAction::Quit },
     ]

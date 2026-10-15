@@ -40,6 +40,8 @@ pub enum EditorAction {
     Copy,
     Cut,
     Paste,
+    PreviousTabstop,
+    InsertSnippet(String),
     // Tabs & Multiple Buffers
     NewTab,
     CloseTab,
@@ -84,6 +86,7 @@ impl Keymap {
             Key::Char(c) => EditorAction::InsertChar(c),
             Key::Enter => EditorAction::InsertNewline,
             Key::Tab => EditorAction::InsertTab,
+            Key::BackTab => EditorAction::PreviousTabstop,
             Key::Backspace => EditorAction::Backspace,
             Key::Delete => EditorAction::Delete,
 

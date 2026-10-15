@@ -13,6 +13,7 @@ pub enum Key {
     Enter,
     Backspace,
     Tab,
+    BackTab,
     Esc,
     Up,
     Down,
@@ -102,6 +103,7 @@ impl TerminalGuard {
                         b'D' => Ok(Key::Left),
                         b'H' => Ok(Key::Home),
                         b'F' => Ok(Key::End),
+                        b'Z' => Ok(Key::BackTab),
                         b'3' => {
                             let _ = stdin.read(&mut seq[2..3]); // Consume '~'
                             Ok(Key::Delete)

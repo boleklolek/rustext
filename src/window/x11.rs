@@ -356,6 +356,7 @@ impl X11Window {
                     match keysym {
                         0xFF08 => return WindowEvent::Key(Key::Backspace),
                         0xFF09 => return WindowEvent::Key(Key::Tab),
+                        0xFE20 => return WindowEvent::Key(Key::BackTab),
                         0xFF0D => return WindowEvent::Key(Key::Enter),
                         0xFF1B => return WindowEvent::Key(Key::Esc),
                         0xFF51 => return WindowEvent::Key(Key::Left),

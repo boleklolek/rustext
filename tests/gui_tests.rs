@@ -745,6 +745,134 @@ fn test_editor_actions_config_and_theme() {
     assert_eq!(renderer.show_line_numbers, false);
 }
 
+#[test]
+fn test_snippet_template_parsing() {
+    use rustext::editor::snippet::ExpandedSnippet;
+
+    let template = "fn ${1:my_func}(${2:arg: i32}) -> ${3:bool} {\n    ${0:true}\n}";
+    let expanded = ExpandedSnippet::parse(template);
+
+    assert_eq!(
+        expanded.text,
+        "fn my_func(arg: i32) -> bool {\n    true\n}"
+    );
+
+    // Verify tabstops parsed in proper order
+    assert_eq!(expanded.tabstops.len(), 4);
+    assert_eq!(expanded.tabstops[0].index, 1);
+    assert_eq!(expanded.tabstops[0].placeholder, "my_func");
+    assert_eq!(expanded.tabstops[0].len, 7);
+
+    assert_eq!(expanded.tabstops[1].index, 2);
+    assert_eq!(expanded.tabstops[1].placeholder, "arg: i32");
+    assert_eq!(expanded.tabstops[1].len, 8);
+
+    assert_eq!(expanded.tabstops[2].index, 3);
+    assert_eq!(expanded.tabstops[2].placeholder, "bool");
+    assert_eq!(expanded.tabstops[2].len, 4);
+
+    assert_eq!(expanded.tabstops[3].index, 0);
+    assert_eq!(expanded.tabstops[3].placeholder, "true");
+    assert_eq!(expanded.tabstops[3].len, 4);
+}
+
+#[test]
+fn test_snippet_indentation_preservation() {
+    use rustext::core::syntax::Language;
+    use rustext::editor::snippet::Snippet;
+
+    let snip = Snippet::new(
+        "fn",
+        "Function",
+        "fn ${1:name}() {\n    ${0}\n}",
+        Language::Rust,
+    );
+
+    let expanded = snip.expand("    ");
+    assert_eq!(
+        expanded.text,
+        "fn name() {\n        \n    }"
+    );
+}
+
+#[test]
+fn test_snippet_expansion_and_tab_navigation() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::ui::terminal::Key;
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.doc_mut().language = rustext::core::syntax::Language::Rust;
+
+    // 1. Type "fn" and press Tab
+    editor.handle_key(Key::Char('f'));
+    editor.handle_key(Key::Char('n'));
+    assert_eq!(editor.doc().buffer.to_string(), "fn");
+
+    editor.handle_key(Key::Tab);
+
+    // Should have expanded "fn" snippet
+    assert!(editor.doc().buffer.to_string().starts_with("fn name("));
+    assert!(editor.snippet_session.is_some());
+
+    // Primary cursor should currently select "name"
+    assert!(editor.doc().cursors.primary().has_selection());
+    let range = editor.doc().cursors.primary().selection_range();
+    let selected_text = editor.doc().buffer.get_text_range(range.start, range.end);
+    assert_eq!(selected_text, "name");
+
+    // 2. Type function name to replace "name"
+    for c in "calcular_total".chars() {
+        editor.handle_key(Key::Char(c));
+    }
+    assert!(editor.doc().buffer.to_string().starts_with("fn calcular_total("));
+
+    // 3. Press Tab to advance to params tabstop
+    editor.handle_key(Key::Tab);
+    assert!(editor.snippet_session.is_some());
+    let range2 = editor.doc().cursors.primary().selection_range();
+    let selected_params = editor.doc().buffer.get_text_range(range2.start, range2.end);
+    assert_eq!(selected_params, "params");
+
+    // 4. Type params
+    for c in "x: i32, y: i32".chars() {
+        editor.handle_key(Key::Char(c));
+    }
+
+    // 5. Press Tab to advance to return type
+    editor.handle_key(Key::Tab);
+    let range3 = editor.doc().cursors.primary().selection_range();
+    let selected_ret = editor.doc().buffer.get_text_range(range3.start, range3.end);
+    assert_eq!(selected_ret, "Result<(), Box<dyn std::error::Error>>");
+
+    // 6. Press Tab to advance to body ($0)
+    editor.handle_key(Key::Tab);
+    let range4 = editor.doc().cursors.primary().selection_range();
+    let selected_body = editor.doc().buffer.get_text_range(range4.start, range4.end);
+    assert_eq!(selected_body, "todo!()");
+
+    // 7. Press Tab after final tabstop to finish session
+    editor.handle_key(Key::Tab);
+    assert!(editor.snippet_session.is_none());
+}
+
+#[test]
+fn test_snippet_registry_and_languages() {
+    use rustext::core::syntax::Language;
+    use rustext::editor::snippet::SnippetRegistry;
+
+    assert!(SnippetRegistry::find(Language::Rust, "fn").is_some());
+    assert!(SnippetRegistry::find(Language::Rust, "struct").is_some());
+    assert!(SnippetRegistry::find(Language::Python, "def").is_some());
+    assert!(SnippetRegistry::find(Language::Python, "class").is_some());
+    assert!(SnippetRegistry::find(Language::C, "main").is_some());
+    assert!(SnippetRegistry::find(Language::JavaScript, "afn").is_some());
+    assert!(SnippetRegistry::find(Language::Markdown, "link").is_some());
+
+    // Non-existent trigger
+    assert!(SnippetRegistry::find(Language::Rust, "non_existent_keyword").is_none());
+}
+
 
 
 

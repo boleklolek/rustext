@@ -43,6 +43,7 @@ pub struct Editor {
     pub auto_indent: bool,
     pub auto_close_brackets: bool,
     pub auto_surround: bool,
+    pub snippet_session: Option<crate::editor::snippet::SnippetSession>,
     pub should_quit: bool,
 }
 
@@ -92,6 +93,7 @@ impl Editor {
             auto_indent,
             auto_close_brackets,
             auto_surround,
+            snippet_session: None,
             should_quit: false,
         }
     }
@@ -344,7 +346,12 @@ impl Editor {
             // Text editing
             EditorAction::InsertChar(c) => self.insert_char_multicursor(c),
             EditorAction::InsertNewline => self.insert_newline_multicursor(),
-            EditorAction::InsertTab => self.insert_tab_multicursor(),
+            EditorAction::InsertTab => self.handle_tab_key(),
+            EditorAction::PreviousTabstop => self.handle_backtab_key(),
+            EditorAction::InsertSnippet(ref trigger) => {
+                let t = trigger.clone();
+                self.expand_snippet_trigger(&t);
+            }
             EditorAction::Backspace => self.backspace_multicursor(),
             EditorAction::Delete => self.delete_multicursor(),
 
@@ -532,6 +539,7 @@ impl Editor {
             }
 
             EditorAction::CollapseCursors => {
+                self.snippet_session = None;
                 let primary = self.doc().cursors.primary();
                 self.doc_mut().cursors.set_single(primary.head);
                 self.set_status("Collapsed to single cursor");
@@ -1236,6 +1244,8 @@ impl Editor {
             }
         }
 
+        Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
+
         let doc = self.doc_mut();
         doc.cursors.set_cursors(new_cursors);
         tx.cursors_after = doc.cursors.cursors().to_vec();
@@ -1342,10 +1352,188 @@ impl Editor {
             new_cursors.push(Cursor::new(adj_head + add_len));
         }
 
+        Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
+
         let doc = self.doc_mut();
         doc.cursors.set_cursors(new_cursors);
         tx.cursors_after = doc.cursors.cursors().to_vec();
         doc.history.record(tx);
+    }
+
+    /// Dispatches editing operations to active snippet session to keep tabstop offsets aligned.
+    pub fn notify_snippet_ops(session: &mut Option<crate::editor::snippet::SnippetSession>, ops: &[EditOp]) {
+        if let Some(session) = session {
+            for op in ops {
+                match op {
+                    EditOp::Insert { offset, text } => {
+                        session.on_buffer_edit(*offset, 0, text.chars().count());
+                    }
+                    EditOp::Delete { offset, text } => {
+                        session.on_buffer_edit(*offset, text.chars().count(), 0);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Dispatches editing transaction to active snippet session to keep tabstop offsets aligned.
+    pub fn notify_snippet_session(&mut self, tx: &Transaction) {
+        Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
+    }
+
+    /// Handles Tab key: expands snippet if trigger matches, navigates active snippet tabstops,
+    /// or inserts tab_size spaces.
+    pub fn handle_tab_key(&mut self) {
+        // 1. If an active snippet session exists, advance to next tabstop
+        if let Some(mut session) = self.snippet_session.take() {
+            if let Some((sel_start, sel_end)) = session.next_tabstop() {
+                self.doc_mut().cursors.set_single_selection(sel_start, sel_end);
+                self.snippet_session = Some(session);
+                return;
+            } else {
+                // Snippet finished
+                self.set_status("Snippet completado");
+                return;
+            }
+        }
+
+        // 2. If single cursor without selection, check for snippet trigger before cursor
+        let doc = self.doc();
+        if doc.cursors.cursors().len() == 1 && !doc.cursors.primary().has_selection() {
+            let head = doc.cursors.primary().head;
+            let pos = doc.buffer.char_to_position(head);
+            if let Some(line) = doc.buffer.line(pos.line) {
+                let chars_before: Vec<char> = line.chars().take(pos.col).collect();
+                // Find contiguous identifier/trigger characters before cursor
+                let mut trigger_start = chars_before.len();
+                while trigger_start > 0
+                    && (chars_before[trigger_start - 1].is_alphanumeric()
+                        || chars_before[trigger_start - 1] == '_')
+                {
+                    trigger_start -= 1;
+                }
+
+                if trigger_start < chars_before.len() {
+                    let trigger: String = chars_before[trigger_start..].iter().collect();
+                    let base_indent: String = chars_before[..trigger_start]
+                        .iter()
+                        .take_while(|&&c| c == ' ' || c == '\t')
+                        .collect();
+
+                    if let Some(snippet) =
+                        crate::editor::snippet::SnippetRegistry::find(doc.language, &trigger)
+                    {
+                        let trigger_len = trigger.chars().count();
+                        let start_char = head - trigger_len;
+
+                        // Delete trigger word
+                        let doc = self.doc_mut();
+                        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                        let deleted = doc.buffer.get_text_range(start_char, head);
+                        doc.buffer.delete_range(start_char, head);
+                        tx.ops.push(EditOp::Delete {
+                            offset: start_char,
+                            text: deleted,
+                        });
+
+                        // Expand snippet with base indentation
+                        let expanded = snippet.expand(&base_indent);
+                        doc.buffer.insert(start_char, &expanded.text);
+                        tx.ops.push(EditOp::Insert {
+                            offset: start_char,
+                            text: expanded.text.clone(),
+                        });
+
+                        // Start snippet session
+                        let session = crate::editor::snippet::SnippetSession::new(
+                            start_char,
+                            expanded.tabstops,
+                        );
+                        if let Some((sel_start, sel_end)) = session.current_selection() {
+                            doc.cursors.set_single_selection(sel_start, sel_end);
+                        } else {
+                            doc.cursors.set_single(start_char + expanded.text.chars().count());
+                        }
+
+                        tx.cursors_after = doc.cursors.cursors().to_vec();
+                        doc.history.record(tx);
+
+                        let desc = snippet.description;
+                        self.snippet_session = Some(session);
+                        self.set_status(format!(
+                            "Snippet expandido: {} ({}) [Tab: Siguiente campo, Esc: Salir]",
+                            trigger, desc
+                        ));
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback to normal tab insertion
+        self.insert_tab_multicursor();
+    }
+
+    /// Handles Shift+Tab / BackTab key: jumps to the previous snippet placeholder.
+    pub fn handle_backtab_key(&mut self) {
+        if let Some(mut session) = self.snippet_session.take() {
+            if let Some((sel_start, sel_end)) = session.prev_tabstop() {
+                self.doc_mut().cursors.set_single_selection(sel_start, sel_end);
+                self.snippet_session = Some(session);
+            }
+        }
+    }
+
+    /// Expands a specific snippet by trigger name at the current cursor location.
+    pub fn expand_snippet_trigger(&mut self, trigger: &str) {
+        let doc = self.doc();
+        let head = doc.cursors.primary().head;
+        let pos = doc.buffer.char_to_position(head);
+        let base_indent = if let Some(line) = doc.buffer.line(pos.line) {
+            line.chars().take_while(|&c| c == ' ' || c == '\t').collect::<String>()
+        } else {
+            String::new()
+        };
+
+        if let Some(snippet) = crate::editor::snippet::SnippetRegistry::find(doc.language, trigger) {
+            let doc = self.doc_mut();
+            let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+            if doc.cursors.primary().has_selection() {
+                let range = doc.cursors.primary().selection_range();
+                let deleted = doc.buffer.get_text_range(range.start, range.end);
+                doc.buffer.delete_range(range.start, range.end);
+                tx.ops.push(EditOp::Delete {
+                    offset: range.start,
+                    text: deleted,
+                });
+            }
+
+            let start_char = doc.cursors.primary().head;
+            let expanded = snippet.expand(&base_indent);
+            doc.buffer.insert(start_char, &expanded.text);
+            tx.ops.push(EditOp::Insert {
+                offset: start_char,
+                text: expanded.text.clone(),
+            });
+
+            let session = crate::editor::snippet::SnippetSession::new(
+                start_char,
+                expanded.tabstops,
+            );
+            if let Some((sel_start, sel_end)) = session.current_selection() {
+                doc.cursors.set_single_selection(sel_start, sel_end);
+            } else {
+                doc.cursors.set_single(start_char + expanded.text.chars().count());
+            }
+
+            tx.cursors_after = doc.cursors.cursors().to_vec();
+            doc.history.record(tx);
+
+            self.snippet_session = Some(session);
+            self.set_status(format!("Snippet expandido: {} ({})", trigger, snippet.description));
+        } else {
+            self.set_status(format!("No se encontró snippet para '{}'", trigger));
+        }
     }
 
     /// Inserts tab characters or spaces across all cursors.
@@ -1451,6 +1639,8 @@ impl Editor {
             }
         }
 
+        Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
+
         let doc = self.doc_mut();
         doc.cursors.set_cursors(new_cursors);
         tx.cursors_after = doc.cursors.cursors().to_vec();
@@ -1500,6 +1690,8 @@ impl Editor {
                 new_cursors.push(Cursor::new(adj_head));
             }
         }
+
+        Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
 
         let doc = self.doc_mut();
         doc.cursors.set_cursors(new_cursors);

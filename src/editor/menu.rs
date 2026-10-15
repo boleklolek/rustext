@@ -74,6 +74,8 @@ impl MenuBar {
                     MenuItem::separator(),
                     MenuItem::action("Buscar...", "Ctrl+F", EditorAction::OpenSearchPrompt),
                     MenuItem::action("Reemplazar...", "Ctrl+H", EditorAction::OpenReplacePrompt),
+                    MenuItem::separator(),
+                    MenuItem::action("Insertar Snippet: Función", "Tab", EditorAction::InsertSnippet("fn".to_string())),
                 ],
             },
             MenuCategory {

@@ -102,6 +102,12 @@ impl CursorSet {
         self.primary_idx = 0;
     }
 
+    /// Sets a single cursor with an active selection range between anchor and head.
+    pub fn set_single_selection(&mut self, anchor: usize, head: usize) {
+        self.cursors = vec![Cursor::with_selection(anchor, head)];
+        self.primary_idx = 0;
+    }
+
     /// Replaces the cursor list with new cursors and normalizes.
     pub fn set_cursors(&mut self, cursors: Vec<Cursor>) {
         self.cursors = cursors;
