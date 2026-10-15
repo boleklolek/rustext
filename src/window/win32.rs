@@ -294,7 +294,14 @@ impl Win32Window {
                     WM_KEYDOWN => {
                         match msg.wparam {
                             0x08 => return WindowEvent::Key(Key::Backspace),
-                            0x09 => return WindowEvent::Key(Key::Tab),
+                            0x09 => {
+                                let is_shift = (GetAsyncKeyState(0x10) as i32 & 0x8000) != 0; // VK_SHIFT
+                                if is_shift {
+                                    return WindowEvent::Key(Key::BackTab);
+                                } else {
+                                    return WindowEvent::Key(Key::Tab);
+                                }
+                            }
                             0x0D => return WindowEvent::Key(Key::Enter),
                             0x1B => return WindowEvent::Key(Key::Esc),
                             0x25 => return WindowEvent::Key(Key::Left),

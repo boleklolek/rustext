@@ -873,6 +873,153 @@ fn test_snippet_registry_and_languages() {
     assert!(SnippetRegistry::find(Language::Rust, "non_existent_keyword").is_none());
 }
 
+#[test]
+fn test_diagnostic_collection_operations() {
+    use std::path::PathBuf;
+    use rustext::editor::diagnostic::{Diagnostic, DiagnosticSeverity, DiagnosticCollection};
+
+    let mut collection = DiagnosticCollection::new();
+    assert!(collection.is_empty());
+
+    collection.add(Diagnostic::new(
+        Some(PathBuf::from("src/main.rs")),
+        10,
+        5,
+        DiagnosticSeverity::Error,
+        "cannot borrow `*self` as mutable more than once at a time".to_string(),
+        Some("E0499".to_string()),
+    ));
+
+    collection.add(Diagnostic::new(
+        Some(PathBuf::from("src/main.rs")),
+        5,
+        1,
+        DiagnosticSeverity::Warning,
+        "unused variable `x`".to_string(),
+        Some("unused_variables".to_string()),
+    ));
+
+    assert_eq!(collection.len(), 2);
+    assert!(collection.has_errors());
+    assert!(collection.has_warnings());
+
+    // Sorted by line (line 5 first, then line 10)
+    assert_eq!(collection.all()[0].line, 5);
+    assert_eq!(collection.all()[1].line, 10);
+
+    // Query by line
+    assert!(collection.for_line(5).is_some());
+    assert_eq!(collection.for_line(5).unwrap().severity, DiagnosticSeverity::Warning);
+    assert!(collection.for_line(10).is_some());
+    assert_eq!(collection.for_line(10).unwrap().severity, DiagnosticSeverity::Error);
+    assert!(collection.for_line(99).is_none());
+
+    // Navigation: next and previous
+    let next = collection.next_diagnostic(2);
+    assert_eq!(next.unwrap().line, 5);
+
+    let next2 = collection.next_diagnostic(5);
+    assert_eq!(next2.unwrap().line, 10);
+
+    let prev = collection.prev_diagnostic(8);
+    assert_eq!(prev.unwrap().line, 5);
+
+    // Display string format
+    let disp = collection.for_line(10).unwrap().to_display_string();
+    assert!(disp.contains("Error [E0499]"));
+    assert!(disp.contains("L10:5"));
+}
+
+#[test]
+fn test_cargo_json_diagnostic_parsing() {
+    use rustext::editor::diagnostic::{DiagnosticCollection, DiagnosticSeverity};
+
+    let sample_cargo_json = r#"{"reason":"compiler-artifact","package_id":"rustext 0.1.0"}
+{"reason":"compiler-message","package_id":"rustext 0.1.0","message":{"rendered":"error[E0499]: cannot borrow...","code":{"code":"E0499"},"level":"error","message":"cannot borrow `*self` as mutable more than once at a time","spans":[{"column_end":13,"column_start":9,"file_name":"src/editor/app.rs","is_primary":true,"line_end":1645,"line_start":1645}]}}
+{"reason":"build-finished","success":false}
+"#;
+
+    let diags = DiagnosticCollection::parse_cargo_json(sample_cargo_json);
+    assert_eq!(diags.len(), 1);
+    let diag = &diags[0];
+    assert_eq!(diag.severity, DiagnosticSeverity::Error);
+    assert_eq!(diag.line, 1645);
+    assert_eq!(diag.col, 9);
+    assert_eq!(diag.code.as_deref(), Some("E0499"));
+    assert!(diag.message.contains("cannot borrow"));
+
+    // Test standard compiler line parser
+    let standard_err = "src/main.rs:42:15: error: expected `;`, found `}`\n";
+    let parsed_std = DiagnosticCollection::parse_standard_errors(standard_err, None);
+    assert_eq!(parsed_std.len(), 1);
+    assert_eq!(parsed_std[0].line, 42);
+    assert_eq!(parsed_std[0].col, 15);
+    assert_eq!(parsed_std[0].severity, DiagnosticSeverity::Error);
+}
+
+#[test]
+fn test_editor_actions_formatting_and_diagnostics() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+    use rustext::editor::diagnostic::{Diagnostic, DiagnosticSeverity};
+
+    let mut editor = Editor::new(TextBuffer::from_str("line 1\nline 2\nline 3\nline 4\nline 5\n"));
+
+    editor.diagnostics.add(Diagnostic::new(
+        None,
+        4,
+        2,
+        DiagnosticSeverity::Error,
+        "mismatched types".to_string(),
+        Some("E0308".to_string()),
+    ));
+
+    // Jump to next diagnostic
+    editor.execute_action(EditorAction::NextDiagnostic);
+    let pos = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(pos.line, 3); // line 4 is 0-indexed 3
+    assert_eq!(pos.col, 1);
+
+    // Status message should reflect the diagnostic
+    assert!(editor.status_message.is_some());
+    let (msg, _) = editor.status_message.as_ref().unwrap();
+    assert!(msg.contains("Error [E0308]"));
+    assert!(msg.contains("mismatched types"));
+
+    // Check menu bar has Herramientas
+    assert!(editor.menu_bar.categories.iter().any(|c| c.name == "Herramientas"));
+}
+
+#[test]
+fn test_config_format_and_check_on_save() {
+    use rustext::editor::config::EditorConfig;
+
+    let ini_text = r#"
+[editor]
+tab_size = 2
+auto_indent = true
+auto_close_brackets = true
+auto_surround = true
+show_line_numbers = true
+format_on_save = true
+check_on_save = false
+
+[theme]
+name = monokai
+"#;
+
+    let config = EditorConfig::parse(ini_text);
+    assert_eq!(config.editor.tab_size, 2);
+    assert!(config.editor.format_on_save);
+    assert!(!config.editor.check_on_save);
+
+    let serialized = config.to_ini_string();
+    assert!(serialized.contains("format_on_save = true"));
+    assert!(serialized.contains("check_on_save = false"));
+}
+
+
 
 
 

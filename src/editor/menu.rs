@@ -118,6 +118,16 @@ impl MenuBar {
                 ],
             },
             MenuCategory {
+                name: "Herramientas",
+                items: vec![
+                    MenuItem::action("Formatear Documento", "Ctrl+Shift+I", EditorAction::FormatDocument),
+                    MenuItem::action("Comprobar Errores (Check / Lint)", "F7", EditorAction::CheckDocument),
+                    MenuItem::separator(),
+                    MenuItem::action("Siguiente Error", "F8", EditorAction::NextDiagnostic),
+                    MenuItem::action("Error Anterior", "Shift+F8", EditorAction::PrevDiagnostic),
+                ],
+            },
+            MenuCategory {
                 name: "Ayuda",
                 items: vec![
                     MenuItem::action("Paleta de Comandos", "Ctrl+P", EditorAction::OpenCommandPalette),

@@ -232,6 +232,7 @@ pub struct GfxRenderer {
     pub status_bar_height: usize,
     pub scrollbar_width: usize,
     pub show_line_numbers: bool,
+    pub diagnostics: Option<crate::editor::diagnostic::DiagnosticCollection>,
 }
 
 impl GfxRenderer {
@@ -243,6 +244,7 @@ impl GfxRenderer {
             status_bar_height: 22,
             scrollbar_width: 14,
             show_line_numbers: true,
+            diagnostics: None,
         }
     }
 
@@ -428,10 +430,21 @@ impl GfxRenderer {
             let py = content_y_start + row * FONT_HEIGHT;
 
             if line_idx < total_lines {
-                // Line Number in gutter
+                // Line Number in gutter with diagnostic badge
                 if self.show_line_numbers {
+                    let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                    let (fg_col, badge) = if let Some(d) = diag {
+                        (d.severity.color_hex(), Some(d.severity.badge()))
+                    } else {
+                        (self.colors.gutter_fg, None)
+                    };
+
                     let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, FONT_WIDTH, py, self.colors.gutter_fg, None);
+                    fb.draw_text(&num_str, FONT_WIDTH, py, fg_col, None);
+
+                    if let Some(b) = badge {
+                        fb.draw_text(b, 2, py, fg_col, None);
+                    }
                 }
 
                 // Line Content

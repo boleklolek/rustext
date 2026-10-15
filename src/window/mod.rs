@@ -35,6 +35,7 @@ impl UnsupportedWindow {
         WindowEvent::None
     }
     pub fn present(&mut self, _fb: &crate::gfx::Framebuffer) {}
+    pub fn set_title(&mut self, _title: &str) {}
     pub fn should_close(&self) -> bool {
         true
     }

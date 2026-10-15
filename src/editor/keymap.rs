@@ -42,6 +42,11 @@ pub enum EditorAction {
     Paste,
     PreviousTabstop,
     InsertSnippet(String),
+    // Formatting & Diagnostics
+    FormatDocument,
+    CheckDocument,
+    NextDiagnostic,
+    PrevDiagnostic,
     // Tabs & Multiple Buffers
     NewTab,
     CloseTab,
@@ -100,6 +105,10 @@ impl Keymap {
             Key::Ctrl('h') | Key::Ctrl('r') => EditorAction::OpenReplacePrompt,
             Key::Ctrl('p') => EditorAction::OpenCommandPalette,
             Key::Ctrl('q') => EditorAction::Quit,
+
+            // Tools & Diagnostics
+            Key::F(7) => EditorAction::CheckDocument,
+            Key::F(8) => EditorAction::NextDiagnostic,
 
             // Help & About
             Key::F(1) => EditorAction::OpenAboutDialog,

@@ -44,6 +44,7 @@ pub struct Editor {
     pub auto_close_brackets: bool,
     pub auto_surround: bool,
     pub snippet_session: Option<crate::editor::snippet::SnippetSession>,
+    pub diagnostics: crate::editor::diagnostic::DiagnosticCollection,
     pub should_quit: bool,
 }
 
@@ -94,6 +95,7 @@ impl Editor {
             auto_close_brackets,
             auto_surround,
             snippet_session: None,
+            diagnostics: crate::editor::diagnostic::DiagnosticCollection::new(),
             should_quit: false,
         }
     }
@@ -555,6 +557,19 @@ impl Editor {
                 }
             }
 
+            EditorAction::FormatDocument => {
+                self.format_active_document();
+            }
+            EditorAction::CheckDocument => {
+                self.check_active_document();
+            }
+            EditorAction::NextDiagnostic => {
+                self.jump_to_next_diagnostic();
+            }
+            EditorAction::PrevDiagnostic => {
+                self.jump_to_prev_diagnostic();
+            }
+
             EditorAction::None => {}
         }
     }
@@ -578,6 +593,110 @@ impl Editor {
         let _ = self.config.save();
         self.screen.theme = crate::ui::Theme::by_name(theme_name);
         self.set_status(format!("Tema cambiado a '{}'", theme_name));
+    }
+
+    /// Formats the current document using the system formatter for its language.
+    pub fn format_active_document(&mut self) {
+        let (lang, text, file_path) = {
+            let doc = self.doc();
+            (doc.language, doc.buffer.to_string(), doc.buffer.file_path().map(|p| p.to_path_buf()))
+        };
+
+        match crate::editor::formatter::format_code(lang, &text, file_path.as_deref()) {
+            Ok(formatted) => {
+                if formatted != text {
+                    let doc = self.doc_mut();
+                    let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                    let total_chars = doc.buffer.len_chars();
+                    doc.buffer.delete_range(0, total_chars);
+                    tx.ops.push(EditOp::Delete { offset: 0, text: text.clone() });
+                    doc.buffer.insert(0, &formatted);
+                    tx.ops.push(EditOp::Insert { offset: 0, text: formatted.clone() });
+                    let primary_head = doc.cursors.primary().head.min(formatted.chars().count());
+                    doc.cursors.set_single(primary_head);
+                    tx.cursors_after = doc.cursors.cursors().to_vec();
+                    doc.history.record(tx);
+                    self.set_status(format!("Documento formateado con éxito ({})", lang.name()));
+                } else {
+                    self.set_status("Documento ya está formateado correctamente");
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("Formateo: {}", e));
+            }
+        }
+    }
+
+    /// Checks the current document for compiler/linter diagnostics.
+    pub fn check_active_document(&mut self) {
+        let (lang, text, file_path) = {
+            let doc = self.doc();
+            (doc.language, doc.buffer.to_string(), doc.buffer.file_path().map(|p| p.to_path_buf()))
+        };
+
+        match crate::editor::diagnostic::DiagnosticCollection::run_check(lang, file_path.as_deref(), &text) {
+            Ok(diags) => {
+                let count = diags.len();
+                let errors = diags.iter().filter(|d| d.severity == crate::editor::diagnostic::DiagnosticSeverity::Error).count();
+                let warnings = diags.iter().filter(|d| d.severity == crate::editor::diagnostic::DiagnosticSeverity::Warning).count();
+                self.diagnostics.set(diags);
+                if count == 0 {
+                    self.set_status(format!("Verificación {}: 0 errores, 0 avisos (Código limpio)", lang.name()));
+                } else {
+                    self.set_status(format!(
+                        "Diagnósticos {}: {} errores, {} avisos [F8: Siguiente error]",
+                        lang.name(), errors, warnings
+                    ));
+                }
+            }
+            Err(e) => {
+                self.set_status(format!("Verificación: {}", e));
+            }
+        }
+    }
+
+    /// Jumps the primary cursor to the next diagnostic line.
+    pub fn jump_to_next_diagnostic(&mut self) {
+        let current_line = {
+            let doc = self.doc();
+            let pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+            pos.line + 1
+        };
+
+        if let Some(diag) = self.diagnostics.next_diagnostic(current_line).cloned() {
+            let target_line = diag.line.saturating_sub(1);
+            let target_col = diag.col.saturating_sub(1);
+            let doc = self.doc_mut();
+            let total_lines = doc.buffer.len_lines();
+            let line = target_line.min(total_lines.saturating_sub(1));
+            let char_offset = doc.buffer.position_to_char(Position::new(line, target_col));
+            doc.cursors.set_single(char_offset);
+            self.set_status(diag.to_display_string());
+        } else {
+            self.set_status("No hay más diagnósticos ni errores registrados");
+        }
+    }
+
+    /// Jumps the primary cursor to the previous diagnostic line.
+    pub fn jump_to_prev_diagnostic(&mut self) {
+        let current_line = {
+            let doc = self.doc();
+            let pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+            pos.line + 1
+        };
+
+        if let Some(diag) = self.diagnostics.prev_diagnostic(current_line).cloned() {
+            let target_line = diag.line.saturating_sub(1);
+            let target_col = diag.col.saturating_sub(1);
+            let doc = self.doc_mut();
+            let total_lines = doc.buffer.len_lines();
+            let line = target_line.min(total_lines.saturating_sub(1));
+            let char_offset = doc.buffer.position_to_char(Position::new(line, target_col));
+            doc.cursors.set_single(char_offset);
+            self.set_status(diag.to_display_string());
+        } else {
+            self.set_status("No hay diagnósticos ni errores registrados");
+        }
     }
 
     /// Executes an extension command on the current selection or entire document buffer.
@@ -1051,6 +1170,15 @@ impl Editor {
             content = transformed;
         }
 
+        // Auto-format on save if enabled in configuration
+        if self.config.editor.format_on_save {
+            let lang = self.doc().language;
+            let file_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
+            if let Ok(formatted) = crate::editor::formatter::format_code(lang, &content, file_path.as_deref()) {
+                content = formatted;
+            }
+        }
+
         let doc = self.doc_mut();
         if content != doc.buffer.to_string() {
             let path = doc.buffer.file_path().map(|p| p.to_path_buf());
@@ -1069,6 +1197,11 @@ impl Editor {
                     .and_then(|p| p.to_str())
                     .unwrap_or("file");
                 self.set_status(format!("Saved {}", path_str));
+
+                // Auto-run diagnostics check if enabled in config
+                if self.config.editor.check_on_save {
+                    self.check_active_document();
+                }
 
                 // Auto-reload configuration if saving config.ini
                 if let Some(p) = saved_path {
@@ -1773,10 +1906,12 @@ impl Editor {
                 ));
             }
             EditorMode::Normal => {
+                let diag_msg = self.diagnostics.for_line(primary_pos.line + 1).map(|d| d.to_display_string());
                 let msg_text = self
                     .status_message
                     .as_ref()
                     .map(|(msg, _)| msg.as_str())
+                    .or(diag_msg.as_deref())
                     .unwrap_or("");
                 self.screen.render_prompt_line(msg_text);
             }
@@ -2378,7 +2513,15 @@ impl Editor {
 
             // Render current frame into framebuffer with scrollbar hover/drag state
             let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
-            let status_msg = self.status_message.as_ref().map(|(msg, _)| msg.as_str());
+            renderer.diagnostics = Some(self.diagnostics.clone());
+            let diag_line_msg = if self.status_message.is_none() {
+                let primary_head = self.documents[active_idx].cursors.primary().head;
+                let primary_pos = self.documents[active_idx].buffer.char_to_position(primary_head);
+                self.diagnostics.for_line(primary_pos.line + 1).map(|d| d.to_display_string())
+            } else {
+                None
+            };
+            let status_msg = self.status_message.as_ref().map(|(msg, _)| msg.as_str()).or(diag_line_msg.as_deref());
 
             let menu_bar = if self.config.gui.menu_bar {
                 Some(&self.menu_bar)

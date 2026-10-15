@@ -38,6 +38,8 @@ impl CocoaWindow {
         })
     }
 
+    pub fn set_title(&mut self, _title: &str) {}
+
     pub fn poll_event(&mut self) -> WindowEvent {
         WindowEvent::None
     }

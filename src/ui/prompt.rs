@@ -77,6 +77,10 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Snippet: Insertar Bucle for", shortcut: "Tab", action: EditorAction::InsertSnippet("for".to_string()) },
         CommandItem { name: "Snippet: Insertar Expresión match", shortcut: "Tab", action: EditorAction::InsertSnippet("match".to_string()) },
         CommandItem { name: "Snippet: Insertar Test unitario (test)", shortcut: "Tab", action: EditorAction::InsertSnippet("test".to_string()) },
+        CommandItem { name: "Herramientas: Formatear Documento", shortcut: "Ctrl+Shift+I", action: EditorAction::FormatDocument },
+        CommandItem { name: "Herramientas: Comprobar Errores (Lint / Check)", shortcut: "F7", action: EditorAction::CheckDocument },
+        CommandItem { name: "Herramientas: Siguiente Error", shortcut: "F8", action: EditorAction::NextDiagnostic },
+        CommandItem { name: "Herramientas: Error Anterior", shortcut: "Shift+F8", action: EditorAction::PrevDiagnostic },
         CommandItem { name: "Acerca de Rustext", shortcut: "F1", action: EditorAction::OpenAboutDialog },
         CommandItem { name: "Salir de Rustext", shortcut: "Ctrl+Q", action: EditorAction::Quit },
     ]

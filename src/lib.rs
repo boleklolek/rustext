@@ -22,4 +22,5 @@ pub use window::{NativeWindow, WindowEvent, MouseButton};
 pub use editor::{
     Editor, EditorMode, EditorAction, Keymap, Document, EditorConfig, EditorTheme,
     Snippet, SnippetSession, SnippetRegistry,
+    Diagnostic, DiagnosticSeverity, DiagnosticCollection, format_code,
 };

@@ -41,6 +41,8 @@ pub struct EditorSettings {
     pub auto_close_brackets: bool,
     pub auto_surround: bool,
     pub show_line_numbers: bool,
+    pub format_on_save: bool,
+    pub check_on_save: bool,
 }
 
 impl Default for EditorSettings {
@@ -51,6 +53,8 @@ impl Default for EditorSettings {
             auto_close_brackets: true,
             auto_surround: true,
             show_line_numbers: true,
+            format_on_save: false,
+            check_on_save: true,
         }
     }
 }
@@ -124,6 +128,12 @@ auto_surround = true
 ; Mostrar u ocultar columna de números de línea
 show_line_numbers = true
 
+; Auto-formatear código al guardar (rustfmt, black, clang-format, prettier)
+format_on_save = false
+
+; Comprobación de errores/linter al guardar archivo (cargo check, py_compile, gcc)
+check_on_save = true
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), monokai, solarized, light
@@ -152,6 +162,8 @@ auto_indent = {}
 auto_close_brackets = {}
 auto_surround = {}
 show_line_numbers = {}
+format_on_save = {}
+check_on_save = {}
 
 [theme]
 name = {}
@@ -168,6 +180,8 @@ scrollbar = {}
             self.editor.auto_close_brackets,
             self.editor.auto_surround,
             self.editor.show_line_numbers,
+            self.editor.format_on_save,
+            self.editor.check_on_save,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -240,6 +254,16 @@ scrollbar = {}
                         "show_line_numbers" => {
                             if let Some(b) = as_bool {
                                 config.editor.show_line_numbers = b;
+                            }
+                        }
+                        "format_on_save" => {
+                            if let Some(b) = as_bool {
+                                config.editor.format_on_save = b;
+                            }
+                        }
+                        "check_on_save" => {
+                            if let Some(b) = as_bool {
+                                config.editor.check_on_save = b;
                             }
                         }
                         _ => {}
