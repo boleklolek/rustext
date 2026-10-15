@@ -66,6 +66,21 @@ impl PieceTable {
         self.total_chars == 0
     }
 
+    /// Returns the total byte length across all pieces.
+    pub fn len_bytes(&self) -> usize {
+        self.pieces.iter().map(|p| p.length).sum()
+    }
+
+    /// Returns the number of pieces currently in the table.
+    pub fn piece_count(&self) -> usize {
+        self.pieces.len()
+    }
+
+    /// Provides zero-copy iterator over all string slices in the piece table.
+    pub fn chunks(&self) -> impl Iterator<Item = &str> {
+        self.pieces.iter().map(|piece| self.piece_text(piece))
+    }
+
     /// Helper to get a string slice reference for a given piece.
     fn piece_text<'a>(&'a self, piece: &Piece) -> &'a str {
         match piece.source {
@@ -309,7 +324,8 @@ impl PieceTable {
 
     /// Returns the complete buffer content as a String.
     pub fn to_string(&self) -> String {
-        let mut output = String::with_capacity(self.total_chars * 2);
+        let total_bytes = self.len_bytes();
+        let mut output = String::with_capacity(total_bytes);
         for piece in &self.pieces {
             output.push_str(self.piece_text(piece));
         }

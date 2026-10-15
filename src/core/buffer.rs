@@ -103,13 +103,13 @@ impl TextBuffer {
         self.line_starts.clear();
         self.line_starts.push(0);
 
-        let content = self.table.to_string();
         let mut char_offset = 0;
-
-        for ch in content.chars() {
-            char_offset += 1;
-            if ch == '\n' {
-                self.line_starts.push(char_offset);
+        for chunk in self.table.chunks() {
+            for ch in chunk.chars() {
+                char_offset += 1;
+                if ch == '\n' {
+                    self.line_starts.push(char_offset);
+                }
             }
         }
     }
@@ -211,11 +211,17 @@ impl TextBuffer {
 
     /// Retrieves a single character at a character offset, if within bounds.
     pub fn char_at(&self, char_idx: usize) -> Option<char> {
-        if char_idx < self.len_chars() {
-            self.table.slice_chars(char_idx, char_idx + 1).chars().next()
-        } else {
-            None
-        }
+        self.table.char_at(char_idx)
+    }
+
+    /// Returns the number of pieces currently in the piece table.
+    pub fn piece_count(&self) -> usize {
+        self.table.piece_count()
+    }
+
+    /// Returns the total byte length across all pieces.
+    pub fn len_bytes(&self) -> usize {
+        self.table.len_bytes()
     }
 
     /// Retrieves the content of a specific line as a String (excluding the trailing newline).
