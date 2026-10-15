@@ -52,6 +52,10 @@ pub enum EditorAction {
     CloseTab,
     NextTab,
     PrevTab,
+    // File Explorer Sidebar
+    ToggleSidebar,
+    RefreshSidebar,
+    FocusSidebar,
     Quit,
     None,
 }
@@ -62,6 +66,9 @@ impl Keymap {
     /// Maps a raw key event to an editor action in normal editing mode.
     pub fn resolve_key(key: Key) -> EditorAction {
         match key {
+            // Sidebar shortcut (Sublime / VS Code Ctrl+B)
+            Key::Ctrl('b') => EditorAction::ToggleSidebar,
+
             // Document navigation
             Key::Left => EditorAction::MoveLeft { select: false },
             Key::Right => EditorAction::MoveRight { select: false },

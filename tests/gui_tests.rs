@@ -1170,6 +1170,193 @@ fn test_renderer_with_custom_cursor_and_spacing() {
     assert!(non_bg2 > 200);
 }
 
+#[test]
+fn test_file_explorer_tree_scan_and_expansion() {
+    use std::fs;
+    use rustext::editor::sidebar::FileExplorer;
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_sidebar_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let _ = fs::create_dir_all(&test_dir);
+    let src_dir = test_dir.join("src");
+    let nested_dir = src_dir.join("nested");
+    let target_dir = test_dir.join("target");
+    let git_dir = test_dir.join(".git");
+
+    let _ = fs::create_dir_all(&nested_dir);
+    let _ = fs::create_dir_all(&target_dir);
+    let _ = fs::create_dir_all(&git_dir);
+
+    let _ = fs::write(test_dir.join("Cargo.toml"), "[package]\nname = \"demo\"\n");
+    let _ = fs::write(test_dir.join("README.md"), "# Demo\n");
+    let _ = fs::write(src_dir.join("main.rs"), "fn main() {}\n");
+    let _ = fs::write(src_dir.join("lib.rs"), "pub fn hello() {}\n");
+    let _ = fs::write(nested_dir.join("mod.rs"), "// nested\n");
+    let _ = fs::write(target_dir.join("debug.bin"), "bin");
+    let _ = fs::write(git_dir.join("config"), "git config");
+
+    let mut explorer = FileExplorer::new(test_dir.clone());
+    assert!(explorer.is_visible);
+    assert_eq!(explorer.width, 220);
+
+    // Initial root scan: target and .git must be ignored!
+    let names: Vec<String> = explorer.visible_items.iter().map(|i| i.name.clone()).collect();
+    assert!(names.contains(&"src".to_string()));
+    assert!(names.contains(&"Cargo.toml".to_string()));
+    assert!(names.contains(&"README.md".to_string()));
+    assert!(!names.contains(&"target".to_string()));
+    assert!(!names.contains(&".git".to_string()));
+
+    // src/main.rs should not be visible before src is expanded
+    assert!(!names.contains(&"main.rs".to_string()));
+
+    // Find index of "src"
+    let src_idx = explorer.visible_items.iter().position(|i| i.name == "src").unwrap();
+    explorer.selected_idx = src_idx;
+    assert!(explorer.expand_selected());
+
+    // Now src is expanded, main.rs and lib.rs should be visible!
+    let expanded_names: Vec<String> = explorer.visible_items.iter().map(|i| i.name.clone()).collect();
+    assert!(expanded_names.contains(&"main.rs".to_string()));
+    assert!(expanded_names.contains(&"lib.rs".to_string()));
+    assert!(expanded_names.contains(&"nested".to_string()));
+
+    // Test collapse
+    explorer.selected_idx = src_idx;
+    assert!(explorer.collapse_selected());
+    let collapsed_names: Vec<String> = explorer.visible_items.iter().map(|i| i.name.clone()).collect();
+    assert!(!collapsed_names.contains(&"main.rs".to_string()));
+
+    // Test color hint by extension
+    let colors = ThemeColors::tokyo_night();
+    let rs_item = explorer.visible_items.iter().find(|i| i.name.ends_with(".toml")).unwrap();
+    assert_eq!(rs_item.color_hint(&colors), colors.syntax_type);
+
+    // Cleanup test directory
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_file_explorer_mouse_clicks_and_scroll() {
+    use std::fs;
+    use rustext::editor::sidebar::{FileExplorer, SidebarClickResult};
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_click_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let _ = fs::create_dir_all(&test_dir);
+    let _ = fs::write(test_dir.join("file1.rs"), "fn a() {}");
+    let _ = fs::write(test_dir.join("file2.rs"), "fn b() {}");
+
+    let mut explorer = FileExplorer::new(test_dir.clone());
+    let header_h = 26;
+    let row_h = 20;
+
+    // Click close button in header (top-right)
+    let close_x = explorer.width - 10;
+    let res = explorer.handle_click(close_x, 10, row_h, header_h);
+    assert_eq!(res, SidebarClickResult::CloseSidebar);
+
+    // Click refresh button in header
+    let refresh_x = explorer.width - 28;
+    let res = explorer.handle_click(refresh_x, 10, row_h, header_h);
+    assert_eq!(res, SidebarClickResult::Refresh);
+
+    // Click new file button in header
+    let new_file_x = explorer.width - 48;
+    let res = explorer.handle_click(new_file_x, 10, row_h, header_h);
+    assert_eq!(res, SidebarClickResult::NewFile);
+
+    // Click on first row (file1.rs or file2.rs)
+    let first_row_y = header_h + 10;
+    let res = explorer.handle_click(10, first_row_y, row_h, header_h);
+    match res {
+        SidebarClickResult::OpenFile(p) => {
+            assert!(p.exists());
+        }
+        _ => panic!("Expected OpenFile on clicking file item"),
+    }
+
+    // Test mouse scrolling
+    explorer.handle_scroll(-1, 1);
+    assert!(explorer.scroll_offset <= explorer.visible_items.len());
+    explorer.handle_scroll(1, 1);
+    assert_eq!(explorer.scroll_offset, 0);
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_file_explorer_editor_integration() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::keymap::EditorAction;
+    use rustext::editor::Editor;
+
+    let mut editor = Editor::new(TextBuffer::new());
+    let initial_visibility = editor.sidebar.is_visible;
+
+    // Toggle sidebar
+    editor.execute_action(EditorAction::ToggleSidebar);
+    assert_eq!(editor.sidebar.is_visible, !initial_visibility);
+
+    // Toggle again
+    editor.execute_action(EditorAction::ToggleSidebar);
+    assert_eq!(editor.sidebar.is_visible, initial_visibility);
+
+    // Refresh action
+    editor.execute_action(EditorAction::RefreshSidebar);
+    assert!(editor.status_message.is_some());
+
+    // Focus action
+    editor.sidebar.is_visible = true;
+    editor.sidebar.is_focused = false;
+    editor.execute_action(EditorAction::FocusSidebar);
+    assert!(editor.sidebar.is_focused);
+}
+
+#[test]
+fn test_file_explorer_gfx_rendering_and_glyphs() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::sidebar::FileExplorer;
+    use rustext::gfx::font::get_glyph;
+
+    // Test font glyphs
+    let down_arrow = get_glyph('▼');
+    let right_arrow = get_glyph('▶');
+    let refresh_glyph = get_glyph('↺');
+    assert!(down_arrow.iter().any(|&b| b != 0));
+    assert!(right_arrow.iter().any(|&b| b != 0));
+    assert!(refresh_glyph.iter().any(|&b| b != 0));
+
+    // Render frame with sidebar
+    let mut fb = Framebuffer::new(800, 600);
+    let doc = Document::new(TextBuffer::from_str("fn main() {\n    println!(\"Hello\");\n}"));
+    let renderer = GfxRenderer::new();
+    let tabs = vec!["main.rs".to_string()];
+    let explorer = FileExplorer::new(std::env::current_dir().unwrap());
+
+    renderer.render_full_frame(
+        &mut fb,
+        &doc,
+        &tabs,
+        0,
+        Some("Ready"),
+        None,
+        None,
+        Some(&explorer),
+        false,
+        false,
+    );
+
+    // Sidebar region x: 0..220 should contain non-background pixels (header, text, divider)
+    let mut sidebar_pixels = 0;
+    for y in 0..600 {
+        for x in 0..220 {
+            if fb.get_pixel(x, y) != renderer.colors.background {
+                sidebar_pixels += 1;
+            }
+        }
+    }
+    assert!(sidebar_pixels > 500, "Sidebar should render header, divider border and tree rows");
+}
+
 
 
 

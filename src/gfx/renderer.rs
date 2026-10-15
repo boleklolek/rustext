@@ -422,6 +422,7 @@ pub struct GfxRenderer {
     pub shadows: bool,
     pub cursor_style: String,
     pub cursor_blink: bool,
+    pub sidebar_width: usize,
 }
 
 impl GfxRenderer {
@@ -440,6 +441,7 @@ impl GfxRenderer {
             shadows: true,
             cursor_style: "bar".to_string(),
             cursor_blink: true,
+            sidebar_width: 220,
         }
     }
 
@@ -575,6 +577,34 @@ impl GfxRenderer {
         scrollbar_hovered: bool,
         scrollbar_dragging: bool,
     ) {
+        self.render_full_frame(
+            fb,
+            doc,
+            tab_titles,
+            active_tab_idx,
+            status_msg,
+            modal,
+            menu_bar,
+            None,
+            scrollbar_hovered,
+            scrollbar_dragging,
+        );
+    }
+
+    /// Renders a complete editor frame into the software framebuffer with optional sidebar and scrollbar state.
+    pub fn render_full_frame(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        tab_titles: &[String],
+        active_tab_idx: usize,
+        status_msg: Option<&str>,
+        modal: Option<&crate::ui::prompt::PromptModal>,
+        menu_bar: Option<&crate::editor::menu::MenuBar>,
+        sidebar: Option<&crate::editor::sidebar::FileExplorer>,
+        scrollbar_hovered: bool,
+        scrollbar_dragging: bool,
+    ) {
         // Clear background
         fb.clear(self.colors.background);
 
@@ -585,10 +615,27 @@ impl GfxRenderer {
             self.render_menu_bar(fb, mb);
         }
 
-        // 2. Draw Tab Bar at top
-        self.render_tab_bar(fb, tab_titles, active_tab_idx, menu_offset);
+        // 2. Determine Sidebar Width & Draw Sidebar
+        let sidebar_w = sidebar
+            .filter(|sb| sb.is_visible)
+            .map(|sb| sb.width.min(fb.width.saturating_sub(100)))
+            .unwrap_or(0);
 
-        // 3. Compute Viewport geometry
+        let content_y_start = menu_offset + self.tab_bar_height;
+        let content_y_end = fb.height.saturating_sub(self.status_bar_height);
+        let content_height = content_y_end.saturating_sub(content_y_start);
+
+        if let Some(sb) = sidebar {
+            if sb.is_visible && sidebar_w > 0 {
+                let sb_h = fb.height.saturating_sub(menu_offset + self.status_bar_height);
+                self.render_sidebar(fb, sb, menu_offset, sb_h, doc.buffer.file_path());
+            }
+        }
+
+        // 3. Draw Tab Bar next to sidebar
+        self.render_tab_bar(fb, tab_titles, active_tab_idx, sidebar_w, menu_offset);
+
+        // 4. Compute Viewport geometry
         let total_lines = doc.buffer.len_lines();
         let gutter_cols = total_lines.to_string().len().max(3);
         let gutter_width = if self.show_line_numbers {
@@ -597,20 +644,18 @@ impl GfxRenderer {
             8
         };
 
-        let content_y_start = menu_offset + self.tab_bar_height;
-        let content_y_end = fb.height.saturating_sub(self.status_bar_height);
-        let content_height = content_y_end.saturating_sub(content_y_start);
         let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
         let visible_lines = content_height / line_height;
         let max_code_x = fb.width.saturating_sub(self.scrollbar_width);
+        let canvas_x_start = sidebar_w;
 
-        // 3. Draw Gutter background & divider
+        // 5. Draw Gutter background & divider
         if self.show_line_numbers {
-            fb.fill_rect(0, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
-            fb.fill_rect(gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
+            fb.fill_rect(canvas_x_start, content_y_start, gutter_width, content_height, self.colors.gutter_bg);
+            fb.fill_rect(canvas_x_start + gutter_width - 1, content_y_start, 1, content_height, self.colors.gutter_border);
         }
 
-        // 4. Collect selections & cursor pixel positions
+        // 6. Collect selections & cursor pixel positions
         let mut selections = Vec::new();
         let mut cursor_positions = Vec::new();
 
@@ -626,7 +671,7 @@ impl GfxRenderer {
             }
         }
 
-        // 5. Draw Document Lines & Syntax
+        // 7. Draw Document Lines & Syntax
         for row in 0..visible_lines {
             let line_idx = doc.scroll_row + row;
             let py = content_y_start + row * line_height;
@@ -643,19 +688,19 @@ impl GfxRenderer {
                     };
 
                     let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, FONT_WIDTH, text_y, fg_col, None);
+                    fb.draw_text(&num_str, canvas_x_start + FONT_WIDTH, text_y, fg_col, None);
 
                     if let Some(b) = badge {
-                        fb.draw_text(b, 2, text_y, fg_col, None);
+                        fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
                     }
                 }
 
                 // Line Content
                 let line_text = doc.buffer.line(line_idx).unwrap_or_default();
                 let text_start_x = if self.show_line_numbers {
-                    gutter_width + FONT_WIDTH
+                    canvas_x_start + gutter_width + FONT_WIDTH
                 } else {
-                    8
+                    canvas_x_start + 8
                 };
 
                 // Selection background (clamped to max_code_x)
@@ -721,25 +766,153 @@ impl GfxRenderer {
                 }
             } else if self.show_line_numbers {
                 // Tilde past end of file
-                fb.draw_char('~', FONT_WIDTH, text_y, self.colors.gutter_fg, None);
+                fb.draw_char('~', canvas_x_start + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
             }
         }
 
-        // 6. Draw Interactive Scrollbar
+        // 8. Draw Interactive Scrollbar
         let scroll_geom = self.scrollbar_geometry(fb.width, fb.height, doc, menu_bar.is_some());
         self.render_scrollbar(fb, &scroll_geom, scrollbar_hovered, scrollbar_dragging);
 
-        // 7. Draw Status Bar at bottom
+        // 9. Draw Status Bar at bottom
         self.render_status_bar(fb, doc, status_msg);
 
-        // 8. Draw Prompt Modal overlay if present
+        // 10. Draw Prompt Modal overlay if present
         if let Some(m) = modal {
             self.render_prompt_overlay(fb, m);
         }
 
-        // 9. Draw Open Dropdown Menu if present (drawn on top)
+        // 11. Draw Open Dropdown Menu if present (drawn on top)
         if let Some(mb) = menu_bar {
             self.render_menu_dropdown(fb, mb);
+        }
+    }
+
+    /// Renders the file explorer sidebar docked to the left.
+    pub fn render_sidebar(
+        &self,
+        fb: &mut Framebuffer,
+        sidebar: &crate::editor::sidebar::FileExplorer,
+        offset_y: usize,
+        height: usize,
+        active_file_path: Option<&std::path::Path>,
+    ) {
+        let sidebar_w = sidebar.width.min(fb.width.saturating_sub(100));
+        if sidebar_w == 0 || height == 0 {
+            return;
+        }
+
+        let header_h = self.tab_bar_height;
+        let body_y = offset_y + header_h;
+        let body_h = height.saturating_sub(header_h);
+
+        // 1. Sidebar Container Background
+        fb.fill_rect(0, offset_y, sidebar_w, height, self.colors.gutter_bg);
+
+        // 2. Right Vertical Divider Border
+        fb.fill_rect(sidebar_w - 1, offset_y, 1, height, self.colors.gutter_border);
+
+        // 3. Header Background
+        fb.fill_rect(0, offset_y, sidebar_w - 1, header_h, self.colors.modal_header_bg);
+        fb.fill_rect(0, offset_y + header_h - 1, sidebar_w - 1, 1, self.colors.gutter_border);
+
+        // Header Title: EXPLORER / Folder Name
+        let title_max_chars = sidebar_w.saturating_sub(70) / FONT_WIDTH;
+        let raw_name = if sidebar.root_name.is_empty() { "EXPLORER" } else { &sidebar.root_name };
+        let display_title = if raw_name.len() > title_max_chars && title_max_chars > 3 {
+            format!("{}...", &raw_name[..title_max_chars - 3])
+        } else {
+            raw_name.to_string()
+        };
+        let text_y = offset_y + (header_h.saturating_sub(FONT_HEIGHT)) / 2;
+        fb.draw_text(&display_title.to_uppercase(), 8, text_y, self.colors.status_bar_fg, None);
+
+        // Header Action Buttons: [+] [↺] [×]
+        let btn_w = 16;
+        let close_x = sidebar_w.saturating_sub(btn_w + 6);
+        let refresh_x = close_x.saturating_sub(btn_w + 4);
+        let new_file_x = refresh_x.saturating_sub(btn_w + 4);
+
+        // [+] New File
+        fb.draw_char('+', new_file_x + 4, text_y, self.colors.tab_inactive_fg, None);
+
+        // [↺] Refresh
+        fb.draw_char('↺', refresh_x + 4, text_y, self.colors.tab_inactive_fg, None);
+
+        // [×] Close Sidebar
+        fb.draw_char('×', close_x + 4, text_y, self.colors.tab_inactive_fg, None);
+
+        // 4. File Tree Rows
+        let row_h = (FONT_HEIGHT + 4).max(18);
+        let visible_rows = body_h / row_h;
+
+        if sidebar.visible_items.is_empty() {
+            fb.draw_text("(vacío)", 16, body_y + 8, self.colors.gutter_fg, None);
+            return;
+        }
+
+        for (screen_row, item_idx) in (sidebar.scroll_offset..sidebar.visible_items.len()).enumerate() {
+            if screen_row >= visible_rows {
+                break;
+            }
+            let item = &sidebar.visible_items[item_idx];
+            let row_y = body_y + screen_row * row_h;
+            let item_text_y = row_y + (row_h.saturating_sub(FONT_HEIGHT)) / 2;
+            let is_selected = item_idx == sidebar.selected_idx;
+            let is_active_file = !item.is_dir && active_file_path.map_or(false, |p| p == item.path);
+
+            // Row Highlight
+            if is_selected {
+                let sel_bg = if sidebar.is_focused {
+                    self.colors.selection_bg
+                } else {
+                    self.colors.button_hover_bg
+                };
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(4, row_y + 1, sidebar_w.saturating_sub(8), row_h - 2, 3, sel_bg);
+                } else {
+                    fb.fill_rect(2, row_y, sidebar_w.saturating_sub(4), row_h, sel_bg);
+                }
+                if sidebar.is_focused {
+                    fb.fill_rect(2, row_y + 2, 2, row_h.saturating_sub(4), self.colors.accent);
+                }
+            } else if is_active_file {
+                fb.fill_rect(2, row_y, sidebar_w.saturating_sub(4), row_h, self.colors.button_bg);
+                fb.fill_rect(2, row_y + 2, 2, row_h.saturating_sub(4), self.colors.accent);
+            }
+
+            // Indentation
+            let indent_x = 8 + item.depth * 14;
+
+            if item.is_dir {
+                // Arrow
+                let arrow_char = if item.is_expanded { '▼' } else { '▶' };
+                fb.draw_char(arrow_char, indent_x, item_text_y, self.colors.status_bar_fg, None);
+
+                let label_x = indent_x + FONT_WIDTH + 4;
+                let max_chars = (sidebar_w.saturating_sub(label_x + 8)) / FONT_WIDTH;
+                let text = if item.name.chars().count() > max_chars && max_chars > 2 {
+                    let mut s: String = item.name.chars().take(max_chars.saturating_sub(2)).collect();
+                    s.push_str("..");
+                    s
+                } else {
+                    item.name.clone()
+                };
+                fb.draw_text(&text, label_x, item_text_y, self.colors.tab_active_fg, None);
+            } else {
+                let color = item.color_hint(&self.colors);
+                let label_x = indent_x + FONT_WIDTH + 4;
+                let max_chars = (sidebar_w.saturating_sub(label_x + 8)) / FONT_WIDTH;
+                let text = if item.name.chars().count() > max_chars && max_chars > 2 {
+                    let mut s: String = item.name.chars().take(max_chars.saturating_sub(2)).collect();
+                    s.push_str("..");
+                    s
+                } else {
+                    item.name.clone()
+                };
+                fb.draw_char('•', indent_x, item_text_y, color, None);
+                fb.draw_text(&text, label_x, item_text_y, color, None);
+            }
         }
     }
 
@@ -844,11 +1017,13 @@ impl GfxRenderer {
         fb: &mut Framebuffer,
         tab_titles: &[String],
         active_tab_idx: usize,
+        offset_x: usize,
         offset_y: usize,
     ) {
-        fb.fill_rect(0, offset_y, fb.width, self.tab_bar_height, self.colors.tab_bar_bg);
+        let bar_w = fb.width.saturating_sub(offset_x);
+        fb.fill_rect(offset_x, offset_y, bar_w, self.tab_bar_height, self.colors.tab_bar_bg);
 
-        let mut cur_x = 8;
+        let mut cur_x = offset_x + 8;
         let text_y = offset_y + (self.tab_bar_height - FONT_HEIGHT) / 2;
 
         for (idx, title) in tab_titles.iter().enumerate() {

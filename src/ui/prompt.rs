@@ -63,6 +63,8 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Cursor Único", shortcut: "Esc", action: EditorAction::CollapseCursors },
         CommandItem { name: "Pestaña Siguiente", shortcut: "PageDown", action: EditorAction::NextTab },
         CommandItem { name: "Pestaña Anterior", shortcut: "PageUp", action: EditorAction::PrevTab },
+        CommandItem { name: "Ver: Alternar Explorador Lateral", shortcut: "Ctrl+B", action: EditorAction::ToggleSidebar },
+        CommandItem { name: "Ver: Actualizar Árbol del Explorador", shortcut: "", action: EditorAction::RefreshSidebar },
         CommandItem { name: "Administrador de Extensiones...", shortcut: "Ctrl+Shift+X", action: EditorAction::OpenExtensionsManager },
         CommandItem { name: "Extensiones: Recargar", shortcut: "", action: EditorAction::ReloadExtensions },
         CommandItem { name: "Extensiones: Crear Extensión de Ejemplo", shortcut: "", action: EditorAction::CreateSampleExtension },

@@ -91,6 +91,9 @@ impl MenuBar {
             MenuCategory {
                 name: "Ver",
                 items: vec![
+                    MenuItem::action("Explorador Lateral", "Ctrl+B", EditorAction::ToggleSidebar),
+                    MenuItem::action("Actualizar Explorador", "", EditorAction::RefreshSidebar),
+                    MenuItem::separator(),
                     MenuItem::action("Pestaña Siguiente", "PageDown", EditorAction::NextTab),
                     MenuItem::action("Pestaña Anterior", "PageUp", EditorAction::PrevTab),
                     MenuItem::separator(),

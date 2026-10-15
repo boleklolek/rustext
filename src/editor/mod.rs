@@ -6,6 +6,7 @@ pub mod config;
 pub mod snippet;
 pub mod diagnostic;
 pub mod formatter;
+pub mod sidebar;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -15,3 +16,4 @@ pub use config::{EditorConfig, EditorTheme, EditorSettings, ThemeSettings, GuiSe
 pub use snippet::{Snippet, SnippetSession, SnippetRegistry, SnippetTabstop, ExpandedSnippet};
 pub use diagnostic::{Diagnostic, DiagnosticSeverity, DiagnosticCollection};
 pub use formatter::format_code;
+pub use sidebar::{FileExplorer, FileItem, SidebarClickResult};

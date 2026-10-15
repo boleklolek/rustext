@@ -96,6 +96,8 @@ pub struct GuiSettings {
     pub shadows: bool,
     pub cursor_style: String,
     pub cursor_blink: bool,
+    pub sidebar: bool,
+    pub sidebar_width: usize,
 }
 
 impl Default for GuiSettings {
@@ -112,6 +114,8 @@ impl Default for GuiSettings {
             shadows: true,
             cursor_style: "bar".to_string(),
             cursor_blink: true,
+            sidebar: true,
+            sidebar_width: 220,
         }
     }
 }
@@ -187,6 +191,12 @@ cursor_style = bar
 
 ; Parpadeo suave del cursor
 cursor_blink = true
+
+; Barra lateral del explorador de archivos del proyecto (true = visible, false = oculta)
+sidebar = true
+
+; Ancho en píxeles de la barra lateral (por defecto 220)
+sidebar_width = 220
 "#
     }
 
@@ -219,6 +229,8 @@ rounded_corners = {}
 shadows = {}
 cursor_style = {}
 cursor_blink = {}
+sidebar = {}
+sidebar_width = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -239,6 +251,8 @@ cursor_blink = {}
             self.gui.shadows,
             self.gui.cursor_style,
             self.gui.cursor_blink,
+            self.gui.sidebar,
+            self.gui.sidebar_width,
         )
     }
 
@@ -381,6 +395,16 @@ cursor_blink = {}
                         "cursor_blink" => {
                             if let Some(b) = as_bool {
                                 config.gui.cursor_blink = b;
+                            }
+                        }
+                        "sidebar" => {
+                            if let Some(b) = as_bool {
+                                config.gui.sidebar = b;
+                            }
+                        }
+                        "sidebar_width" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.sidebar_width = n.clamp(140, 600);
                             }
                         }
                         _ => {}

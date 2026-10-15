@@ -45,6 +45,7 @@ pub struct Editor {
     pub auto_surround: bool,
     pub snippet_session: Option<crate::editor::snippet::SnippetSession>,
     pub diagnostics: crate::editor::diagnostic::DiagnosticCollection,
+    pub sidebar: crate::editor::sidebar::FileExplorer,
     pub should_quit: bool,
 }
 
@@ -76,6 +77,11 @@ impl Editor {
         let mut screen = Screen::new();
         screen.theme = crate::ui::Theme::by_name(&config.theme.name);
 
+        let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let mut sidebar = crate::editor::sidebar::FileExplorer::new(root_dir);
+        sidebar.is_visible = config.gui.sidebar;
+        sidebar.width = config.gui.sidebar_width;
+
         Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
@@ -96,6 +102,7 @@ impl Editor {
             auto_surround,
             snippet_session: None,
             diagnostics: crate::editor::diagnostic::DiagnosticCollection::new(),
+            sidebar,
             should_quit: false,
         }
     }
@@ -557,6 +564,25 @@ impl Editor {
                 }
             }
 
+            EditorAction::ToggleSidebar => {
+                self.sidebar.is_visible = !self.sidebar.is_visible;
+                if self.sidebar.is_visible {
+                    self.sidebar.refresh();
+                    self.set_status("Barra lateral mostrada");
+                } else {
+                    self.set_status("Barra lateral oculta");
+                }
+            }
+            EditorAction::RefreshSidebar => {
+                self.sidebar.refresh();
+                self.set_status("Árbol de archivos actualizado");
+            }
+            EditorAction::FocusSidebar => {
+                if self.sidebar.is_visible {
+                    self.sidebar.is_focused = !self.sidebar.is_focused;
+                }
+            }
+
             EditorAction::FormatDocument => {
                 self.format_active_document();
             }
@@ -581,6 +607,8 @@ impl Editor {
         self.auto_indent = new_cfg.editor.auto_indent;
         self.auto_close_brackets = new_cfg.editor.auto_close_brackets;
         self.auto_surround = new_cfg.editor.auto_surround;
+        self.sidebar.is_visible = new_cfg.gui.sidebar;
+        self.sidebar.width = new_cfg.gui.sidebar_width;
         self.screen.theme = crate::ui::Theme::by_name(&new_cfg.theme.name);
         let theme_name = new_cfg.theme.name.clone();
         self.config = new_cfg;
@@ -1990,6 +2018,8 @@ impl Editor {
                 renderer.shadows = self.config.gui.shadows;
                 renderer.cursor_style = self.config.gui.cursor_style.clone();
                 renderer.cursor_blink = self.config.gui.cursor_blink;
+                self.sidebar.is_visible = self.config.gui.sidebar;
+                self.sidebar.width = self.config.gui.sidebar_width;
                 active_gui_settings = self.config.gui.clone();
                 needs_redraw = true;
             }
@@ -2297,72 +2327,120 @@ impl Editor {
                                 if let Some(action) = self.menu_bar.handle_mouse_click(x, y, crate::gfx::FONT_WIDTH) {
                                     self.execute_action(action);
                                 } else if !self.menu_bar.is_open() {
-                                    // 2. Check Scrollbar Hit Test FIRST
-                                    let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
-                                    if scroll_geom.contains_point(x, y) {
-                                        if scroll_geom.thumb_contains_point(x, y) {
-                                            is_dragging_scrollbar = true;
-                                            scrollbar_drag_offset_y = y.saturating_sub(scroll_geom.thumb_y);
-                                        } else if y < scroll_geom.thumb_y {
-                                            // Click track above thumb -> Page Up
-                                            let visible = scroll_geom.visible_lines.max(1);
-                                            self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
-                                        } else {
-                                            // Click track below thumb -> Page Down
-                                            let visible = scroll_geom.visible_lines.max(1);
-                                            self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(scroll_geom.max_scroll);
-                                        }
-                                        adjust_viewport = false;
-                                        needs_redraw = true;
+                                    let sidebar_w = if self.sidebar.is_visible {
+                                        self.sidebar.width.min(fb.width.saturating_sub(100))
                                     } else {
-                                        // 3. Check Tab Bar
-                                        let tab_bar_y = renderer.menu_bar_height;
-                                        let tab_bar_h = renderer.tab_bar_height;
-                                        if y >= tab_bar_y && y < tab_bar_y + tab_bar_h {
-                                            let mut cur_x = 8;
-                                            let mut clicked = false;
-                                            for idx in 0..self.documents.len() {
-                                                let title = self.documents[idx].tab_title();
-                                                let tab_text = format!(" {} {} × ", idx + 1, title);
-                                                let tab_w = tab_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
-                                                if x >= cur_x && x < cur_x + tab_w {
-                                                    let close_x = cur_x + tab_w - 2 * crate::gfx::FONT_WIDTH - 4;
-                                                    if x >= close_x {
-                                                        self.close_tab_at(idx);
-                                                    } else {
-                                                        self.active_doc_idx = idx;
-                                                        adjust_viewport = true;
-                                                    }
-                                                    clicked = true;
-                                                    break;
-                                                }
-                                                cur_x += tab_w + 2;
-                                            }
-                                            if !clicked && x >= cur_x && x < cur_x + 24 {
-                                                self.new_tab();
+                                        0
+                                    };
+                                    let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                                    let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+
+                                    // 2. Check Sidebar Hit Test
+                                    if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
+                                        let rel_x = x;
+                                        let rel_y = y - menu_offset;
+                                        let row_h = (crate::gfx::FONT_HEIGHT + 4).max(18);
+                                        let header_h = renderer.tab_bar_height;
+                                        match self.sidebar.handle_click(rel_x, rel_y, row_h, header_h) {
+                                            crate::editor::sidebar::SidebarClickResult::OpenFile(path) => {
+                                                self.open_file(&path);
+                                                self.sidebar.is_focused = false;
                                                 adjust_viewport = true;
                                             }
+                                            crate::editor::sidebar::SidebarClickResult::NewFile => {
+                                                self.new_tab();
+                                                self.sidebar.is_focused = false;
+                                                adjust_viewport = true;
+                                            }
+                                            crate::editor::sidebar::SidebarClickResult::Refresh => {
+                                                self.set_status("Árbol de archivos actualizado");
+                                            }
+                                            crate::editor::sidebar::SidebarClickResult::CloseSidebar => {
+                                                self.sidebar.is_visible = false;
+                                                self.set_status("Barra lateral cerrada (Ctrl+B para reabrir)");
+                                            }
+                                            crate::editor::sidebar::SidebarClickResult::ToggleFolder => {
+                                                // Directory expanded/collapsed
+                                            }
+                                            crate::editor::sidebar::SidebarClickResult::None => {}
+                                        }
+                                        needs_redraw = true;
+                                    } else {
+                                        // 3. Check Scrollbar Hit Test FIRST
+                                        let scroll_geom = renderer.scrollbar_geometry(fb.width, fb.height, self.doc(), true);
+                                        if scroll_geom.contains_point(x, y) {
+                                            if scroll_geom.thumb_contains_point(x, y) {
+                                                is_dragging_scrollbar = true;
+                                                scrollbar_drag_offset_y = y.saturating_sub(scroll_geom.thumb_y);
+                                            } else if y < scroll_geom.thumb_y {
+                                                // Click track above thumb -> Page Up
+                                                let visible = scroll_geom.visible_lines.max(1);
+                                                self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(visible);
+                                            } else {
+                                                // Click track below thumb -> Page Down
+                                                let visible = scroll_geom.visible_lines.max(1);
+                                                self.doc_mut().scroll_row = (self.doc().scroll_row + visible).min(scroll_geom.max_scroll);
+                                            }
+                                            adjust_viewport = false;
+                                            needs_redraw = true;
                                         } else {
-                                            // 4. Check Editor Code Canvas
-                                            let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
-                                            let total_lines = self.doc().buffer.len_lines();
-                                            let gutter_cols = total_lines.to_string().len().max(3);
-                                            let gutter_width = (gutter_cols + 2) * crate::gfx::FONT_WIDTH;
-                                            let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width);
-                                            if y >= content_y_start && x < max_code_x {
-                                                let row = (y - content_y_start) / crate::gfx::FONT_HEIGHT;
-                                                let target_line = self.doc().scroll_row + row;
-                                                if target_line < total_lines {
-                                                    let text_start_x = gutter_width + crate::gfx::FONT_WIDTH;
-                                                    let col = if x >= text_start_x {
-                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
-                                                    } else {
-                                                        0
-                                                    };
-                                                    let pos = Position::new(target_line, col);
-                                                    let char_offset = self.doc().buffer.position_to_char(pos);
-                                                    self.doc_mut().cursors.set_single(char_offset);
+                                            // 4. Check Tab Bar
+                                            let tab_bar_y = menu_offset;
+                                            let tab_bar_h = renderer.tab_bar_height;
+                                            if y >= tab_bar_y && y < tab_bar_y + tab_bar_h {
+                                                let mut cur_x = sidebar_w + 8;
+                                                let mut clicked = false;
+                                                for idx in 0..self.documents.len() {
+                                                    let title = self.documents[idx].tab_title();
+                                                    let tab_text = format!(" {} {} × ", idx + 1, title);
+                                                    let tab_w = tab_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
+                                                    if x >= cur_x && x < cur_x + tab_w {
+                                                        let close_x = cur_x + tab_w - 2 * crate::gfx::FONT_WIDTH - 4;
+                                                        if x >= close_x {
+                                                            self.close_tab_at(idx);
+                                                        } else {
+                                                            self.active_doc_idx = idx;
+                                                            self.sidebar.is_focused = false;
+                                                            adjust_viewport = true;
+                                                        }
+                                                        clicked = true;
+                                                        break;
+                                                    }
+                                                    cur_x += tab_w + 3;
+                                                }
+                                                if !clicked && x >= cur_x && x < cur_x + 24 {
+                                                    self.new_tab();
+                                                    self.sidebar.is_focused = false;
                                                     adjust_viewport = true;
+                                                }
+                                            } else {
+                                                // 5. Check Editor Code Canvas
+                                                let content_y_start = menu_offset + renderer.tab_bar_height;
+                                                let total_lines = self.doc().buffer.len_lines();
+                                                let gutter_cols = total_lines.to_string().len().max(3);
+                                                let gutter_width = if renderer.show_line_numbers {
+                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                } else {
+                                                    8
+                                                };
+                                                let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width);
+                                                if y >= content_y_start && x >= sidebar_w && x < max_code_x {
+                                                    self.sidebar.is_focused = false;
+                                                    let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                    let row = (y - content_y_start) / line_height;
+                                                    let target_line = self.doc().scroll_row + row;
+                                                    if target_line < total_lines {
+                                                        let text_start_x = sidebar_w + gutter_width + crate::gfx::FONT_WIDTH;
+                                                        let col = if x >= text_start_x {
+                                                            (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                        } else {
+                                                            0
+                                                        };
+                                                        let pos = Position::new(target_line, col);
+                                                        let char_offset = self.doc().buffer.position_to_char(pos);
+                                                        self.doc_mut().cursors.set_single(char_offset);
+                                                        adjust_viewport = true;
+                                                    }
                                                 }
                                             }
                                         }
@@ -2410,12 +2488,23 @@ impl Editor {
                     }
                     crate::window::WindowEvent::ScrollUp { .. } => {
                         needs_redraw = true;
+                        let sidebar_w = if self.sidebar.is_visible {
+                            self.sidebar.width.min(fb.width.saturating_sub(100))
+                        } else {
+                            0
+                        };
+                        let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                        let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+
                         if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                             if modal.is_file_dialog() {
                                 modal.scroll_up(3);
                             }
                         } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
                             *scroll_offset = scroll_offset.saturating_sub(1);
+                        } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
+                            let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
+                            self.sidebar.handle_scroll(1, max_visible);
                         } else {
                             self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
                             adjust_viewport = false;
@@ -2423,6 +2512,14 @@ impl Editor {
                     }
                     crate::window::WindowEvent::ScrollDown { .. } => {
                         needs_redraw = true;
+                        let sidebar_w = if self.sidebar.is_visible {
+                            self.sidebar.width.min(fb.width.saturating_sub(100))
+                        } else {
+                            0
+                        };
+                        let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                        let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+
                         if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                             if modal.is_file_dialog() {
                                 let box_h = fb.height.min(480).max(360);
@@ -2435,6 +2532,9 @@ impl Editor {
                             if *scroll_offset + 1 < ext_count {
                                 *scroll_offset += 1;
                             }
+                        } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
+                            let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
+                            self.sidebar.handle_scroll(-1, max_visible);
                         } else {
                             self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
                             adjust_viewport = false;
@@ -2443,6 +2543,7 @@ impl Editor {
                     crate::window::WindowEvent::Char(c) => {
                         needs_redraw = true;
                         adjust_viewport = true;
+                        self.sidebar.is_focused = false;
                         if self.menu_bar.is_open() {
                             self.menu_bar.close();
                         }
@@ -2469,7 +2570,30 @@ impl Editor {
                                 if self.menu_bar.is_open() {
                                     self.menu_bar.close();
                                 }
-                                self.handle_key(key);
+                                if self.sidebar.is_focused && self.sidebar.is_visible && self.mode == EditorMode::Normal {
+                                    let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
+                                    let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
+                                    let max_visible = content_y_end.saturating_sub(menu_offset + renderer.tab_bar_height) / 20;
+                                    match key {
+                                        Key::Up => self.sidebar.move_up(),
+                                        Key::Down => self.sidebar.move_down(max_visible),
+                                        Key::Right => { self.sidebar.expand_selected(); }
+                                        Key::Left => { self.sidebar.collapse_selected(); }
+                                        Key::Enter => {
+                                            if let Some(path) = self.sidebar.toggle_selected() {
+                                                self.open_file(&path);
+                                                self.sidebar.is_focused = false;
+                                            }
+                                        }
+                                        Key::Esc => self.sidebar.is_focused = false,
+                                        Key::Ctrl('b') => {
+                                            self.execute_action(EditorAction::ToggleSidebar);
+                                        }
+                                        _ => self.handle_key(key),
+                                    }
+                                } else {
+                                    self.handle_key(key);
+                                }
                             }
                         }
                     }
@@ -2498,7 +2622,8 @@ impl Editor {
             let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
             let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height);
             let visible_lines = content_h / crate::gfx::FONT_HEIGHT;
-            let content_w = fb.width.saturating_sub(gutter_width + crate::gfx::FONT_WIDTH);
+            let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
+            let content_w = fb.width.saturating_sub(sidebar_w + gutter_width + crate::gfx::FONT_WIDTH);
             let visible_cols = content_w / crate::gfx::FONT_WIDTH;
 
             if adjust_viewport {
@@ -2548,7 +2673,13 @@ impl Editor {
             };
             renderer.scrollbar_width = if self.config.gui.scrollbar { 14 } else { 0 };
 
-            renderer.render_with_scrollbar_state(
+            let sidebar = if self.sidebar.is_visible {
+                Some(&self.sidebar)
+            } else {
+                None
+            };
+
+            renderer.render_full_frame(
                 &mut fb,
                 &self.documents[active_idx],
                 &tab_titles,
@@ -2556,6 +2687,7 @@ impl Editor {
                 status_msg,
                 None,
                 menu_bar,
+                sidebar,
                 scrollbar_hovered,
                 is_dragging_scrollbar,
             );
