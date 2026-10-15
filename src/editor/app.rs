@@ -175,6 +175,11 @@ impl Editor {
                     self.set_status("Cancelled");
                 }
                 Key::Enter => {
+                    if modal.kind == PromptKind::Replace {
+                        let query = modal.input.clone();
+                        self.find_next_match(&query);
+                        return;
+                    }
                     if modal.kind == PromptKind::CommandPalette {
                         let matches = modal.matching_commands();
                         if let Some(cmd) = matches.get(modal.selected_idx) {
@@ -208,6 +213,10 @@ impl Editor {
                     self.commit_prompt(&modal_clone);
                 }
                 Key::Tab => {
+                    if modal.kind == PromptKind::Replace {
+                        modal.toggle_active_field();
+                        return;
+                    }
                     if modal.is_file_dialog() {
                         if !modal.dir_entries.is_empty() && modal.selected_entry_idx < modal.dir_entries.len() {
                             let entry = &modal.dir_entries[modal.selected_entry_idx];
@@ -224,7 +233,9 @@ impl Editor {
                     }
                 }
                 Key::Down => {
-                    if modal.kind == PromptKind::CommandPalette {
+                    if modal.kind == PromptKind::Replace {
+                        modal.active_field = 1;
+                    } else if modal.kind == PromptKind::CommandPalette {
                         let count = modal.matching_commands().len();
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
@@ -234,7 +245,9 @@ impl Editor {
                     }
                 }
                 Key::Up => {
-                    if modal.kind == PromptKind::CommandPalette {
+                    if modal.kind == PromptKind::Replace {
+                        modal.active_field = 0;
+                    } else if modal.kind == PromptKind::CommandPalette {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.is_file_dialog() {
                         modal.select_prev_entry();
@@ -258,14 +271,49 @@ impl Editor {
                     modal.backspace();
                 }
                 Key::Left => {
-                    if modal.cursor_col > 0 {
-                        modal.cursor_col -= 1;
-                    }
+                    modal.move_cursor_left();
                 }
                 Key::Right => {
-                    let char_count = modal.input.chars().count();
-                    if modal.cursor_col < char_count {
-                        modal.cursor_col += 1;
+                    modal.move_cursor_right();
+                }
+                Key::Alt(c) => {
+                    if modal.kind == PromptKind::Replace {
+                        match c.to_ascii_lowercase() {
+                            'r' => {
+                                let query = modal.input.clone();
+                                let repl = modal.replace_input.clone();
+                                self.replace_current_match(&query, &repl);
+                            }
+                            'a' => {
+                                let query = modal.input.clone();
+                                let repl = modal.replace_input.clone();
+                                self.replace_all_matches(&query, &repl);
+                            }
+                            'p' => {
+                                let query = modal.input.clone();
+                                self.find_prev_match(&query);
+                            }
+                            'n' => {
+                                let query = modal.input.clone();
+                                self.find_next_match(&query);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Key::Ctrl(c) => {
+                    if modal.kind == PromptKind::Replace {
+                        match c.to_ascii_lowercase() {
+                            'p' => {
+                                let query = modal.input.clone();
+                                self.find_prev_match(&query);
+                            }
+                            'n' => {
+                                let query = modal.input.clone();
+                                self.find_next_match(&query);
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 Key::Char(c) => {
@@ -393,7 +441,28 @@ impl Editor {
             // File & Modal commands
             EditorAction::Save => self.save_document(),
             EditorAction::OpenSearchPrompt => {
-                self.mode = EditorMode::ModalPrompt(PromptModal::new(PromptKind::Find));
+                let mut modal = PromptModal::new(PromptKind::Find);
+                if self.doc().cursors.primary().has_selection() {
+                    let range = self.doc().cursors.primary().selection_range();
+                    let sel_text = self.doc().buffer.get_text_range(range.start, range.end);
+                    if !sel_text.contains('\n') && sel_text.chars().count() <= 60 {
+                        modal.cursor_col = sel_text.chars().count();
+                        modal.input = sel_text;
+                    }
+                }
+                self.mode = EditorMode::ModalPrompt(modal);
+            }
+            EditorAction::OpenReplacePrompt => {
+                let mut modal = PromptModal::new(PromptKind::Replace);
+                if self.doc().cursors.primary().has_selection() {
+                    let range = self.doc().cursors.primary().selection_range();
+                    let sel_text = self.doc().buffer.get_text_range(range.start, range.end);
+                    if !sel_text.contains('\n') && sel_text.chars().count() <= 60 {
+                        modal.cursor_col = sel_text.chars().count();
+                        modal.input = sel_text;
+                    }
+                }
+                self.mode = EditorMode::ModalPrompt(modal);
             }
             EditorAction::OpenSaveAsPrompt => {
                 let (dir, filename) = if let Some(path) = self.doc().buffer.file_path() {
@@ -735,19 +804,10 @@ impl Editor {
     /// Handles submission of interactive modal prompts.
     pub fn commit_prompt(&mut self, modal: &PromptModal) {
         match modal.kind {
-            PromptKind::Find => {
+            PromptKind::Find | PromptKind::Replace => {
                 let input = modal.input.trim();
-                if input.is_empty() {
-                    return;
-                }
-                let current_head = self.doc().cursors.primary().head;
-                let buf = self.doc().buffer.clone();
-                if let Some((start, end)) = SearchEngine::find_next(&buf, input, current_head, false) {
-                    self.doc_mut().cursors.set_single(start);
-                    self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
-                    self.set_status(format!("Found match at offset {}", start));
-                } else {
-                    self.set_status(format!("Pattern not found: '{}'", input));
+                if !input.is_empty() {
+                    self.find_next_match(input);
                 }
             }
             PromptKind::SaveAs => {
@@ -803,6 +863,109 @@ impl Editor {
                 }
             }
         }
+    }
+
+    /// Finds the next occurrence of `query` in the current document.
+    pub fn find_next_match(&mut self, query: &str) {
+        let input = query.trim();
+        if input.is_empty() {
+            return;
+        }
+        let current_head = self.doc().cursors.primary().head;
+        let buf = self.doc().buffer.clone();
+        let search_from = if self.doc().cursors.primary().has_selection() {
+            self.doc().cursors.primary().selection_range().end
+        } else {
+            current_head
+        };
+        if let Some((start, end)) = SearchEngine::find_next(&buf, input, search_from, false) {
+            self.doc_mut().cursors.set_single(start);
+            self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
+            self.set_status(format!("Coincidencia en offset {}", start));
+        } else {
+            self.set_status(format!("No se encontró: '{}'", input));
+        }
+    }
+
+    /// Finds the previous occurrence of `query` in the current document.
+    pub fn find_prev_match(&mut self, query: &str) {
+        let input = query.trim();
+        if input.is_empty() {
+            return;
+        }
+        let current_head = self.doc().cursors.primary().head;
+        let buf = self.doc().buffer.clone();
+        let search_from = if self.doc().cursors.primary().has_selection() {
+            self.doc().cursors.primary().selection_range().start
+        } else {
+            current_head
+        };
+        if let Some((start, end)) = SearchEngine::find_prev(&buf, input, search_from, false) {
+            self.doc_mut().cursors.set_single(start);
+            self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
+            self.set_status(format!("Coincidencia anterior en offset {}", start));
+        } else {
+            self.set_status(format!("No se encontró: '{}'", input));
+        }
+    }
+
+    /// Replaces the currently selected match and advances to the next occurrence.
+    pub fn replace_current_match(&mut self, query: &str, replacement: &str) {
+        let input = query.trim();
+        if input.is_empty() {
+            return;
+        }
+        let doc = self.doc_mut();
+        let primary = doc.cursors.primary();
+        let mut replaced = false;
+        if primary.has_selection() {
+            let range = primary.selection_range();
+            let selected_text = doc.buffer.get_text_range(range.start, range.end);
+            if selected_text.eq_ignore_ascii_case(input) {
+                let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                let deleted = doc.buffer.get_text_range(range.start, range.end);
+                doc.buffer.delete_range(range.start, range.end);
+                tx.ops.push(EditOp::Delete { offset: range.start, text: deleted });
+                doc.buffer.insert(range.start, replacement);
+                tx.ops.push(EditOp::Insert { offset: range.start, text: replacement.to_string() });
+                let new_head = range.start + replacement.chars().count();
+                doc.cursors.set_single(new_head);
+                tx.cursors_after = doc.cursors.cursors().to_vec();
+                doc.history.record(tx);
+                replaced = true;
+            }
+        }
+        if replaced {
+            self.set_status(format!("Reemplazado '{}' por '{}'", input, replacement));
+        }
+        self.find_next_match(input);
+    }
+
+    /// Replaces all occurrences of `query` in the current document buffer atomically.
+    pub fn replace_all_matches(&mut self, query: &str, replacement: &str) {
+        let input = query.trim();
+        if input.is_empty() {
+            return;
+        }
+        let matches = SearchEngine::find_all(&self.doc().buffer, input, false);
+        if matches.is_empty() {
+            self.set_status(format!("No se encontraron coincidencias para '{}'", input));
+            return;
+        }
+        let count = matches.len();
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+        for (start, end) in matches.into_iter().rev() {
+            let deleted = doc.buffer.get_text_range(start, end);
+            doc.buffer.delete_range(start, end);
+            tx.ops.push(EditOp::Delete { offset: start, text: deleted });
+            doc.buffer.insert(start, replacement);
+            tx.ops.push(EditOp::Insert { offset: start, text: replacement.to_string() });
+        }
+        doc.cursors.set_single(0);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.set_status(format!("Reemplazadas {} ocurrencias de '{}'", count, input));
     }
 
     /// Saves the current buffer to disk.
@@ -1619,6 +1782,66 @@ impl Editor {
                                             }
                                         }
                                     }
+                                } else if modal.kind == PromptKind::Replace {
+                                    let box_w = fb.width.min(540).max(380);
+                                    let box_h = 168;
+                                    let box_x = (fb.width.saturating_sub(box_w)) / 2;
+                                    let box_y = 28;
+                                    let close_w = 30;
+                                    let close_x = box_x + box_w - close_w;
+
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
+
+                                    if hit_close || hit_outside {
+                                        self.mode = EditorMode::Normal;
+                                    } else {
+                                        let body_y = box_y + 24 + 1;
+                                        let input_margin = 12;
+                                        let label_w = 100;
+                                        let input_w = box_w.saturating_sub(input_margin * 2 + label_w);
+                                        let input_h = 24;
+                                        let row1_y = body_y + 12;
+                                        let row2_y = row1_y + input_h + 10;
+                                        let input_x = box_x + input_margin + label_w;
+
+                                        // Click row 1 input (Buscar)
+                                        if x >= input_x && x < input_x + input_w && y >= row1_y && y < row1_y + input_h {
+                                            modal.active_field = 0;
+                                        // Click row 2 input (Reemplazar)
+                                        } else if x >= input_x && x < input_x + input_w && y >= row2_y && y < row2_y + input_h {
+                                            modal.active_field = 1;
+                                        } else {
+                                            let btn_y = row2_y + input_h + 16;
+                                            let btn_h = 24;
+                                            let b1_x = box_x + input_margin;
+                                            let b1_w = 68;
+                                            let b2_x = b1_x + b1_w + 8;
+                                            let b2_w = 68;
+                                            let b3_x = b2_x + b2_w + 14;
+                                            let b3_w = 98;
+                                            let b4_x = b3_x + b3_w + 8;
+                                            let b4_w = 126;
+
+                                            if y >= btn_y && y < btn_y + btn_h {
+                                                if x >= b1_x && x < b1_x + b1_w {
+                                                    let query = modal.input.clone();
+                                                    self.find_prev_match(&query);
+                                                } else if x >= b2_x && x < b2_x + b2_w {
+                                                    let query = modal.input.clone();
+                                                    self.find_next_match(&query);
+                                                } else if x >= b3_x && x < b3_x + b3_w {
+                                                    let query = modal.input.clone();
+                                                    let repl = modal.replace_input.clone();
+                                                    self.replace_current_match(&query, &repl);
+                                                } else if x >= b4_x && x < b4_x + b4_w {
+                                                    let query = modal.input.clone();
+                                                    let repl = modal.replace_input.clone();
+                                                    self.replace_all_matches(&query, &repl);
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     let is_palette = modal.kind == PromptKind::CommandPalette;
                                     let box_w = fb.width.min(580).max(340);
@@ -1907,6 +2130,8 @@ impl Editor {
             if let EditorMode::ModalPrompt(modal) = &self.mode {
                 let box_w = if modal.is_file_dialog() {
                     fb.width.min(680).max(420)
+                } else if modal.kind == PromptKind::Replace {
+                    fb.width.min(540).max(380)
                 } else {
                     fb.width.min(580).max(340)
                 };
@@ -1914,6 +2139,8 @@ impl Editor {
                     fb.height.min(480).max(360)
                 } else if modal.kind == PromptKind::CommandPalette {
                     340
+                } else if modal.kind == PromptKind::Replace {
+                    168
                 } else {
                     120
                 };

@@ -23,6 +23,7 @@ pub enum EditorAction {
     Redo,
     Save,
     OpenSearchPrompt,
+    OpenReplacePrompt,
     OpenCommandPalette,
     OpenSaveAsPrompt,
     OpenOpenFilePrompt,
@@ -90,6 +91,7 @@ impl Keymap {
             // File & Modal commands
             Key::Ctrl('s') => EditorAction::Save,
             Key::Ctrl('f') => EditorAction::OpenSearchPrompt,
+            Key::Ctrl('h') | Key::Ctrl('r') => EditorAction::OpenReplacePrompt,
             Key::Ctrl('p') => EditorAction::OpenCommandPalette,
             Key::Ctrl('q') => EditorAction::Quit,
 

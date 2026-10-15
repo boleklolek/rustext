@@ -72,6 +72,7 @@ impl MenuBar {
                     MenuItem::action("Pegar", "Ctrl+V", EditorAction::Paste),
                     MenuItem::separator(),
                     MenuItem::action("Buscar...", "Ctrl+F", EditorAction::OpenSearchPrompt),
+                    MenuItem::action("Reemplazar...", "Ctrl+H", EditorAction::OpenReplacePrompt),
                 ],
             },
             MenuCategory {

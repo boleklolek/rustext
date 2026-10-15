@@ -319,22 +319,24 @@ cmd_minify = Minificar JSON
     assert_eq!(info.commands[1].id, "cmd_minify");
     assert_eq!(info.commands[1].label, "Minificar JSON");
 
-    // Test ExtensionManager
-    let mut mgr = ExtensionManager::new();
-    mgr.extensions.push(info);
+    // Test ExtensionManager in isolation
+    let mut mgr = ExtensionManager {
+        extensions: vec![info],
+        base_dirs: Vec::new(),
+    };
 
     let base_count = mgr.get_active_commands().len();
-    assert_eq!(base_count, 4);
+    assert_eq!(base_count, 2);
 
     // Toggle disabled
-    let new_state = mgr.toggle_extension(mgr.extensions.len() - 1);
+    let new_state = mgr.toggle_extension(0);
     assert!(!new_state);
-    assert_eq!(mgr.get_active_commands().len(), 2);
+    assert_eq!(mgr.get_active_commands().len(), 0);
 
     // Toggle enabled again
-    let new_state2 = mgr.toggle_extension(mgr.extensions.len() - 1);
+    let new_state2 = mgr.toggle_extension(0);
     assert!(new_state2);
-    assert_eq!(mgr.get_active_commands().len(), 4);
+    assert_eq!(mgr.get_active_commands().len(), 2);
 }
 
 #[test]
@@ -499,6 +501,121 @@ fn test_scrollbar_interaction_page_up_down_and_drag() {
     let drag_target_thumb_y = new_geom.y + (new_geom.height.saturating_sub(new_geom.thumb_height)) / 2;
     let dragged_row = new_geom.row_for_thumb_y(drag_target_thumb_y);
     assert!(dragged_row > 0 && dragged_row < geom.max_scroll);
+}
+
+#[test]
+fn test_find_and_replace_interactive_flow() {
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+
+    let mut editor = Editor::new(TextBuffer::from_str("foo bar foo baz foo"));
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    // 1. Open Replace Prompt via action
+    editor.execute_action(EditorAction::OpenReplacePrompt);
+    assert_eq!(matches!(editor.mode, EditorMode::ModalPrompt(ref m) if m.kind == PromptKind::Replace), true);
+
+    // 2. Set search and replace query
+    if let EditorMode::ModalPrompt(ref mut modal) = editor.mode {
+        modal.input = "foo".to_string();
+        modal.cursor_col = 3;
+        modal.replace_input = "qux".to_string();
+        modal.replace_cursor_col = 3;
+    }
+
+    // 3. Find next match
+    editor.find_next_match("foo");
+    let primary = editor.doc().cursors.primary();
+    assert!(primary.has_selection());
+    let range = primary.selection_range();
+    assert_eq!(range.start, 0);
+    assert_eq!(range.end, 3);
+
+    // 4. Replace current match
+    editor.replace_current_match("foo", "qux");
+    assert_eq!(editor.doc().buffer.to_string(), "qux bar foo baz foo");
+    // Should automatically select next match (at offset 8..11)
+    let next_primary = editor.doc().cursors.primary();
+    assert!(next_primary.has_selection());
+    let next_range = next_primary.selection_range();
+    assert_eq!(next_range.start, 8);
+    assert_eq!(next_range.end, 11);
+
+    // 5. Replace all remaining matches
+    editor.replace_all_matches("foo", "qux");
+    assert_eq!(editor.doc().buffer.to_string(), "qux bar qux baz qux");
+
+    // 6. Test atomic undo
+    editor.execute_action(EditorAction::Undo);
+    assert_eq!(editor.doc().buffer.to_string(), "qux bar foo baz foo");
+
+    editor.execute_action(EditorAction::Undo);
+    assert_eq!(editor.doc().buffer.to_string(), "foo bar foo baz foo");
+}
+
+#[test]
+fn test_find_replace_dialog_rendering() {
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+
+    let mut modal = PromptModal::new(PromptKind::Replace);
+    modal.input = "rustext".to_string();
+    modal.replace_input = "editor".to_string();
+    modal.active_field = 1;
+
+    renderer.render_prompt_overlay_with_hover(&mut fb, &modal, false);
+
+    let box_w = 800.min(540).max(380);
+    let box_x = (800 - box_w) / 2;
+    let box_y = 28;
+
+    // Header background pixel (left of text)
+    let header_pixel = fb.get_pixel(box_x + 4, box_y + 4);
+    assert_eq!(header_pixel, 0x002D2D2D);
+
+    // Field 2 (Reemplazar) focused border should be blue (0x00007ACC)
+    let field2_border_pixel = fb.get_pixel(box_x + 12 + 100 - 1, box_y + 24 + 1 + 12 + 24 + 10);
+    assert_eq!(field2_border_pixel, 0x00007ACC);
+
+    // Button pixel
+    let btn_pixel = fb.get_pixel(box_x + 12 + 5, box_y + 24 + 1 + 12 + 24 + 10 + 24 + 16 + 5);
+    assert_ne!(btn_pixel, 0x00000000);
+}
+
+#[test]
+fn test_find_replace_field_switching_and_editing() {
+    let mut modal = PromptModal::new(PromptKind::Replace);
+    assert_eq!(modal.active_field, 0);
+
+    // Type into Search field
+    modal.insert_char('f');
+    modal.insert_char('i');
+    modal.insert_char('n');
+    modal.insert_char('d');
+    assert_eq!(modal.input, "find");
+    assert_eq!(modal.cursor_col, 4);
+
+    // Toggle to Replace field
+    modal.toggle_active_field();
+    assert_eq!(modal.active_field, 1);
+
+    // Type into Replace field
+    modal.insert_char('r');
+    modal.insert_char('e');
+    modal.insert_char('p');
+    modal.insert_char('l');
+    assert_eq!(modal.replace_input, "repl");
+    assert_eq!(modal.replace_cursor_col, 4);
+
+    // Backspace in Replace field
+    modal.backspace();
+    assert_eq!(modal.replace_input, "rep");
+    assert_eq!(modal.replace_cursor_col, 3);
+    assert_eq!(modal.input, "find"); // Find field remains untouched
+
+    // Formatted display
+    let display = modal.formatted_display();
+    assert!(display.contains("find"));
+    assert!(display.contains("rep"));
 }
 
 

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptKind {
     Find,
+    Replace,
     SaveAs,
     OpenFile,
     CommandPalette,
@@ -16,6 +17,7 @@ impl PromptKind {
     pub fn label(&self) -> &'static str {
         match self {
             PromptKind::Find => "Buscar: ",
+            PromptKind::Replace => "Buscar: ",
             PromptKind::SaveAs => "Guardar como: ",
             PromptKind::OpenFile => "Abrir: ",
             PromptKind::CommandPalette => "Comando: ",
@@ -25,6 +27,7 @@ impl PromptKind {
     pub fn window_title(&self) -> &'static str {
         match self {
             PromptKind::Find => "Buscar en Documento",
+            PromptKind::Replace => "Buscar y Reemplazar",
             PromptKind::SaveAs => "Guardar Archivo Como",
             PromptKind::OpenFile => "Abrir Archivo",
             PromptKind::CommandPalette => "Paleta de Comandos",
@@ -48,6 +51,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Guardar Como...", shortcut: "", action: EditorAction::OpenSaveAsPrompt },
         CommandItem { name: "Cerrar Pestaña", shortcut: "Ctrl+W", action: EditorAction::CloseTab },
         CommandItem { name: "Buscar en Documento...", shortcut: "Ctrl+F", action: EditorAction::OpenSearchPrompt },
+        CommandItem { name: "Reemplazar en Documento...", shortcut: "Ctrl+H", action: EditorAction::OpenReplacePrompt },
         CommandItem { name: "Deshacer", shortcut: "Ctrl+Z", action: EditorAction::Undo },
         CommandItem { name: "Rehacer", shortcut: "Ctrl+Y", action: EditorAction::Redo },
         CommandItem { name: "Cortar", shortcut: "Ctrl+X", action: EditorAction::Cut },
@@ -175,6 +179,10 @@ pub struct PromptModal {
     pub input: String,
     pub cursor_col: usize,
     pub selected_idx: usize,
+    // Replace fields for PromptKind::Replace
+    pub replace_input: String,
+    pub replace_cursor_col: usize,
+    pub active_field: usize, // 0 = Find input, 1 = Replace input
     // File/Folder browser fields for SaveAs and OpenFile
     pub current_dir: PathBuf,
     pub dir_entries: Vec<DirEntryItem>,
@@ -192,6 +200,9 @@ impl PromptModal {
             input: String::new(),
             cursor_col: 0,
             selected_idx: 0,
+            replace_input: String::new(),
+            replace_cursor_col: 0,
+            active_field: 0,
             current_dir,
             dir_entries: Vec::new(),
             selected_entry_idx: 0,
@@ -225,6 +236,9 @@ impl PromptModal {
             input,
             cursor_col,
             selected_idx: 0,
+            replace_input: String::new(),
+            replace_cursor_col: 0,
+            active_field: 0,
             current_dir: dir,
             dir_entries: Vec::new(),
             selected_entry_idx: 0,
@@ -366,6 +380,26 @@ impl PromptModal {
     }
 
     pub fn insert_char(&mut self, ch: char) {
+        if self.kind == PromptKind::Replace && self.active_field == 1 {
+            let char_count = self.replace_input.chars().count();
+            let idx = self.replace_cursor_col.min(char_count);
+
+            let mut new_input = String::with_capacity(self.replace_input.len() + 4);
+            for (i, c) in self.replace_input.chars().enumerate() {
+                if i == idx {
+                    new_input.push(ch);
+                }
+                new_input.push(c);
+            }
+            if idx == char_count {
+                new_input.push(ch);
+            }
+
+            self.replace_input = new_input;
+            self.replace_cursor_col += 1;
+            return;
+        }
+
         let char_count = self.input.chars().count();
         let idx = self.cursor_col.min(char_count);
 
@@ -386,6 +420,24 @@ impl PromptModal {
     }
 
     pub fn backspace(&mut self) {
+        if self.kind == PromptKind::Replace && self.active_field == 1 {
+            if self.replace_cursor_col == 0 || self.replace_input.is_empty() {
+                return;
+            }
+
+            let delete_idx = self.replace_cursor_col - 1;
+            self.replace_input = self
+                .replace_input
+                .chars()
+                .enumerate()
+                .filter(|(i, _)| *i != delete_idx)
+                .map(|(_, c)| c)
+                .collect();
+
+            self.replace_cursor_col -= 1;
+            return;
+        }
+
         if self.cursor_col == 0 || self.input.is_empty() {
             return;
         }
@@ -403,9 +455,45 @@ impl PromptModal {
         self.selected_idx = 0;
     }
 
+    pub fn move_cursor_left(&mut self) {
+        if self.kind == PromptKind::Replace && self.active_field == 1 {
+            if self.replace_cursor_col > 0 {
+                self.replace_cursor_col -= 1;
+            }
+        } else if self.cursor_col > 0 {
+            self.cursor_col -= 1;
+        }
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        if self.kind == PromptKind::Replace && self.active_field == 1 {
+            let char_count = self.replace_input.chars().count();
+            if self.replace_cursor_col < char_count {
+                self.replace_cursor_col += 1;
+            }
+        } else {
+            let char_count = self.input.chars().count();
+            if self.cursor_col < char_count {
+                self.cursor_col += 1;
+            }
+        }
+    }
+
+    pub fn toggle_active_field(&mut self) {
+        if self.kind == PromptKind::Replace {
+            self.active_field = (self.active_field + 1) % 2;
+        }
+    }
+
     pub fn formatted_display(&self) -> String {
         if self.is_file_dialog() {
             format!("{}[{}] {}", self.kind.label(), self.current_dir.display(), self.input)
+        } else if self.kind == PromptKind::Replace {
+            let field_hint = if self.active_field == 0 { "Campo: Buscar" } else { "Campo: Reemplazar" };
+            format!(
+                "Buscar: {} │ Reemplazar con: {} │ [{}] [Tab: Cambiar] [Enter: Sig] [Alt+R: Reemplazar] [Alt+A: Todo]",
+                self.input, self.replace_input, field_hint
+            )
         } else {
             format!("{}{}", self.kind.label(), self.input)
         }

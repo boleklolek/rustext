@@ -561,6 +561,115 @@ impl GfxRenderer {
         self.render_prompt_overlay_with_hover(fb, modal, false);
     }
 
+    pub fn render_find_replace_dialog(
+        &self,
+        fb: &mut Framebuffer,
+        modal: &crate::ui::prompt::PromptModal,
+        close_hovered: bool,
+    ) {
+        let box_w = fb.width.min(540).max(380);
+        let box_h = 168;
+        let box_x = (fb.width.saturating_sub(box_w)) / 2;
+        let box_y: usize = 28;
+
+        // 1. Drop shadow
+        fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
+
+        // 2. Outer border
+        fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, 0x00007ACC);
+
+        // 3. Title bar
+        let header_h = 24;
+        fb.fill_rect(box_x, box_y, box_w, header_h, 0x002D2D2D);
+        fb.draw_text("Buscar y Reemplazar", box_x + 10, box_y + 4, 0x00FFFFFF, None);
+
+        // Close button [×]
+        let close_w = 30;
+        let close_x = box_x + box_w - close_w;
+        let close_bg = if close_hovered { 0x00E81123 } else { 0x002D2D2D };
+        fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
+        fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
+
+        // Header bottom divider
+        fb.fill_rect(box_x, box_y + header_h, box_w, 1, 0x003A3D41);
+
+        // 4. Window body
+        let body_y = box_y + header_h + 1;
+        let body_h = box_h.saturating_sub(header_h + 1);
+        fb.fill_rect(box_x, body_y, box_w, body_h, 0x00252526);
+
+        let input_margin = 12;
+        let label_w = 100;
+        let input_w = box_w.saturating_sub(input_margin * 2 + label_w);
+        let input_h = 24;
+
+        // Row 1: Buscar
+        let row1_y = body_y + 12;
+        fb.draw_text("Buscar:", box_x + input_margin, row1_y + 4, 0x00CCCCCC, None);
+
+        let input1_x = box_x + input_margin + label_w;
+        let border1 = if modal.active_field == 0 { 0x00007ACC } else { 0x003A3D41 };
+        fb.fill_rect(input1_x.saturating_sub(1), row1_y.saturating_sub(1), input_w + 2, input_h + 2, border1);
+        fb.fill_rect(input1_x, row1_y, input_w, input_h, 0x003C3C3C);
+        fb.draw_text(&modal.input, input1_x + 6, row1_y + 4, 0x00FFFFFF, None);
+
+        if modal.active_field == 0 {
+            let cursor_x = input1_x + 6 + modal.cursor_col * FONT_WIDTH;
+            if cursor_x < input1_x + input_w - 4 {
+                fb.fill_rect(cursor_x, row1_y + 4, 2, FONT_HEIGHT, self.colors.cursor);
+            }
+        }
+
+        // Row 2: Reemplazar
+        let row2_y = row1_y + input_h + 10;
+        fb.draw_text("Reemplazar:", box_x + input_margin, row2_y + 4, 0x00CCCCCC, None);
+
+        let input2_x = box_x + input_margin + label_w;
+        let border2 = if modal.active_field == 1 { 0x00007ACC } else { 0x003A3D41 };
+        fb.fill_rect(input2_x.saturating_sub(1), row2_y.saturating_sub(1), input_w + 2, input_h + 2, border2);
+        fb.fill_rect(input2_x, row2_y, input_w, input_h, 0x003C3C3C);
+        fb.draw_text(&modal.replace_input, input2_x + 6, row2_y + 4, 0x00FFFFFF, None);
+
+        if modal.active_field == 1 {
+            let cursor_x = input2_x + 6 + modal.replace_cursor_col * FONT_WIDTH;
+            if cursor_x < input2_x + input_w - 4 {
+                fb.fill_rect(cursor_x, row2_y + 4, 2, FONT_HEIGHT, self.colors.cursor);
+            }
+        }
+
+        // Row 3: Action Buttons
+        let btn_y = row2_y + input_h + 16;
+        let btn_h = 24;
+
+        // Button 1: [< Ant]
+        let b1_x = box_x + input_margin;
+        let b1_w = 68;
+        fb.fill_rect(b1_x.saturating_sub(1), btn_y.saturating_sub(1), b1_w + 2, btn_h + 2, 0x003A3D41);
+        fb.fill_rect(b1_x, btn_y, b1_w, btn_h, 0x002D2D2D);
+        fb.draw_text("< Ant", b1_x + 12, btn_y + 4, 0x00FFFFFF, None);
+
+        // Button 2: [Sig >]
+        let b2_x = b1_x + b1_w + 8;
+        let b2_w = 68;
+        fb.fill_rect(b2_x.saturating_sub(1), btn_y.saturating_sub(1), b2_w + 2, btn_h + 2, 0x003A3D41);
+        fb.fill_rect(b2_x, btn_y, b2_w, btn_h, 0x002D2D2D);
+        fb.draw_text("Sig >", b2_x + 14, btn_y + 4, 0x00FFFFFF, None);
+
+        // Button 3: [Reemplazar]
+        let b3_x = b2_x + b2_w + 14;
+        let b3_w = 98;
+        fb.fill_rect(b3_x.saturating_sub(1), btn_y.saturating_sub(1), b3_w + 2, btn_h + 2, 0x003A3D41);
+        fb.fill_rect(b3_x, btn_y, b3_w, btn_h, 0x002D2D2D);
+        fb.draw_text("Reemplazar", b3_x + 8, btn_y + 4, 0x00FFFFFF, None);
+
+        // Button 4: [Reemplazar Todo]
+        let b4_x = b3_x + b3_w + 8;
+        let b4_w = 126;
+        fb.fill_rect(b4_x.saturating_sub(1), btn_y.saturating_sub(1), b4_w + 2, btn_h + 2, 0x00007ACC);
+        fb.fill_rect(b4_x, btn_y, b4_w, btn_h, 0x00007ACC);
+        fb.draw_text("Reemplazar Todo", b4_x + 6, btn_y + 4, 0x00FFFFFF, None);
+    }
+
     /// Renders a floating prompt window dialog with title bar, close button, drop shadow, and suggestions.
     pub fn render_prompt_overlay_with_hover(
         &self,
@@ -570,6 +679,11 @@ impl GfxRenderer {
     ) {
         if modal.is_file_dialog() {
             self.render_file_dialog(fb, modal, close_hovered);
+            return;
+        }
+
+        if modal.kind == crate::ui::prompt::PromptKind::Replace {
+            self.render_find_replace_dialog(fb, modal, close_hovered);
             return;
         }
 
