@@ -1782,3 +1782,90 @@ fn test_minimap_and_split_config_and_menu() {
     assert!(has_switch_pane);
     assert!(has_close_split);
 }
+
+#[test]
+fn test_git_integration_editor_and_config() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::{Editor, EditorAction};
+    use rustext::editor::config::EditorConfig;
+
+    let cfg = EditorConfig::load();
+    assert!(cfg.gui.git_gutter);
+
+    let ini = cfg.to_ini_string();
+    assert!(ini.contains("git_gutter = true"));
+
+    let buffer = TextBuffer::from_str("fn main() {\n    println!(\"hello\");\n}\n");
+    let mut editor = Editor::new(buffer);
+
+    // Initial git manager should find the repository
+    assert!(editor.git.git_root.is_some());
+    assert_eq!(editor.git.branch_name(), Some("main"));
+
+    // Toggle git gutter
+    assert!(editor.config.gui.git_gutter);
+    editor.execute_action(EditorAction::ToggleGitGutter);
+    assert!(!editor.config.gui.git_gutter);
+    editor.execute_action(EditorAction::ToggleGitGutter);
+    assert!(editor.config.gui.git_gutter);
+
+    // Refresh git action
+    editor.execute_action(EditorAction::RefreshGit);
+    assert!(editor.status_message.is_some());
+}
+
+#[test]
+fn test_git_gutter_diff_rendering_and_status_bar() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::editor::git::{GitGutterDiff, GitLineStatus, GitFileStatus};
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    let buffer = TextBuffer::from_str("line 1\nline 2 (modified)\nline 3 (added)\nline 4\n");
+    let doc = Document::new(buffer);
+    let mut fb = Framebuffer::new(800, 600);
+    let mut renderer = GfxRenderer::new();
+
+    let mut diff = GitGutterDiff::default();
+    diff.lines = vec![
+        GitLineStatus::None,
+        GitLineStatus::Modified,
+        GitLineStatus::Added,
+        GitLineStatus::None,
+    ];
+    diff.added_count = 1;
+    diff.modified_count = 1;
+
+    let mut statuses = HashMap::new();
+    statuses.insert(PathBuf::from("/tmp/test.rs"), GitFileStatus::Modified);
+
+    renderer.git_diff = Some(diff);
+    renderer.git_branch = Some("main".to_string());
+    renderer.git_statuses = Some(statuses);
+    renderer.git_gutter_enabled = true;
+
+    let tabs = vec!["test.rs".to_string()];
+    renderer.render_full_frame_with_split(
+        &mut fb,
+        &doc,
+        None,
+        None,
+        &tabs,
+        0,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        false,
+        false,
+        None,
+    );
+
+    // Ensure framebuffer drew without crashing and contains non-black pixels
+    assert!(fb.pixels.iter().any(|&p| p != 0));
+}
+

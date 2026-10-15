@@ -95,6 +95,8 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Herramientas: Comprobar Errores (Lint / Check)", shortcut: "F7", action: EditorAction::CheckDocument },
         CommandItem { name: "Herramientas: Siguiente Error", shortcut: "F8", action: EditorAction::NextDiagnostic },
         CommandItem { name: "Herramientas: Error Anterior", shortcut: "Shift+F8", action: EditorAction::PrevDiagnostic },
+        CommandItem { name: "Git: Actualizar Estado del Repositorio", shortcut: "Ctrl+Shift+G", action: EditorAction::RefreshGit },
+        CommandItem { name: "Git: Alternar Diff en Gutter (Git Gutter)", shortcut: "", action: EditorAction::ToggleGitGutter },
         CommandItem { name: "Acerca de Rustext", shortcut: "F1", action: EditorAction::OpenAboutDialog },
         CommandItem { name: "Salir de Rustext", shortcut: "Ctrl+Q", action: EditorAction::Quit },
     ]

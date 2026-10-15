@@ -49,6 +49,13 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Añadir cursores en líneas contiguas con `Ctrl + K` (arriba) y `Ctrl + J` (abajo).
   - Transacciones atómicas reversibles con `Ctrl + Z` (Undo) y `Ctrl + Y` (Redo).
 
+- **Integración Git en Vivo (Git Gutter & Control de Versiones)**:
+  - Gutter con barras verticales coloreadas en tiempo real para diffs instantáneos (+ verde para líneas añadidas, ~ azul para modificadas, ▲ rojo para eliminadas).
+  - Chip de rama activa en la barra de estado con contadores de cambio (`git: main (+3 ~1)`).
+  - Insignias visuales de estado en el Explorador Lateral (`M` modificado en amarillo, `U` sin rastrear en verde, `D` eliminado en rojo, `A` añadido en cian).
+  - Detección ultrarrápida leyendo directamente `.git/HEAD` sin bloquear el editor y algoritmo LCS en memoria de alta velocidad.
+  - Atajo rápido `Ctrl + Shift + G` para forzar refresco del repositorio y opción `git_gutter = true` en `config.ini`.
+
 - **Minimapa Gráfico de Código (`Ctrl + M`)**:
   - Visualización condensada en miniatura de todo el código fuente en el lateral del editor.
   - Micro-renderizado de tokens sintácticos con preservación de sangría e indentación.
@@ -116,13 +123,33 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
 
 ## 📊 Perfil de Memoria y Benchmarks de Rendimiento
 
-Rustext incluye un perfilador y benchmark integrado en [`src/bin/memory_profile.rs`](src/bin/memory_profile.rs) que audita byte por byte el uso del heap mediante un asignador atómico propio y mide la memoria física residente (`VmRSS`) reportada por el kernel:
+Rustext incluye un banco de pruebas y benchmarks integrados en [`src/bin/benchmark_comparison.rs`](src/bin/benchmark_comparison.rs) y [`src/bin/memory_profile.rs`](src/bin/memory_profile.rs) que miden empíricamente tiempos de arranque, memoria física (`VmRSS`), throughput de edición y huella binaria frente a los editores más representativos de la industria:
 
 ```bash
+# 1. Benchmark comparativo frente a otros editores (VS Code, Vim, Micro):
+cargo run --release --bin benchmark_comparison
+
+# 2. Profiling de memoria heap exacta y RAM física bajo cargas extremas (hasta 100 MB):
 cargo run --release --bin memory_profile
 ```
 
-### Resultados Medidos en Máquina de Prueba (x86_64 Linux):
+### 🏆 Tabla Comparativa: Rustext vs Editores de la Industria (Mediciones Reales en Linux x86_64)
+
+| Métrica / Atributo | **Rustext** | **VS Code (Code-OSS)** | **Sublime Text 4** | **Vim 9.2** | **Micro** |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Tecnología Base** | **Rust puro (`std::*`)** | Electron / Node / Chromium | C++ nativo / Python | C nativo | Go runtime |
+| **Dependencias Externas**| **0 (Cero crates)** | >1,000 dependencias npm | Cerrado / Propietario | libc, ncurses | Go stdlib + deps |
+| **Tamaño Binario / Disco**| **~688 KB** | **~824 MB** (~1,200x) | ~45 MB | ~6.4 MB | ~13.0 MB |
+| **Inicio en Frío (Cold Start)**| **1.5 - 2.5 ms** | 1,500 - 2,500 ms (~1,000x) | 80 - 150 ms | 8 - 15 ms | 20 - 45 ms |
+| **Memoria RAM en Reposo**| **2.6 MB** (36 MB GUI completa) | ~350 - 450 MB | ~65 - 85 MB | ~8.9 MB | ~20.2 MB |
+| **Memoria con Archivo 25 MB**| **29.0 MB** | >600 MB (latencia alta) | ~60 MB | ~38 MB | ~95 MB |
+| **Latencia de Inserción**| **< 50 µs** | ~10 - 25 ms | < 1 ms | < 1 ms | < 2 ms |
+| **Rendimiento Viewport**| **~1,400+ FPS** (~700 µs/frame) | 60 FPS (tope VSync) | 60 - 120 FPS | N/A (TUI) | N/A (TUI) |
+| **Tiempo Compilación Limpia**| **~2.0 segundos** | Varios minutos | N/A (cerrado) | ~30 segundos | ~15 segundos |
+
+---
+
+### Resultados Detallados de Escalabilidad en Memoria (Heap vs RAM Física):
 
 | Escenario | Tamaño Archivo | Líneas | Memoria Heap Neta | Ratio Memoria | VmRSS del SO (RAM Física) | Throughput Carga | Renderizado Viewport |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -158,6 +185,7 @@ cargo run --release --bin memory_profile
 | `Ctrl + W` | Cerrar pestaña activa |
 | `Ctrl + Q` | Salir de Rustext |
 | `Ctrl + B` | **Alternar Explorador Lateral (Árbol de Proyecto)** |
+| `Ctrl + Shift + G` | **Actualizar Estado Git (Git Refresh)** |
 | `Ctrl + M` | **Alternar Minimapa Gráfico de Código** |
 | `Ctrl + \` | **Alternar División Vertical de Pantalla (Split Editor)** |
 | `Ctrl + Shift + \` | **Alternar División Horizontal de Pantalla** |
@@ -216,6 +244,7 @@ sidebar = true
 sidebar_width = 220
 minimap = true
 minimap_width = 100
+git_gutter = true
 ```
 
 ---

@@ -97,6 +97,10 @@ impl PieceTable {
         if char_offset >= piece.char_len {
             return piece.length;
         }
+        // O(1) fast-path: If byte length equals character length, the entire piece is ASCII
+        if piece.length == piece.char_len {
+            return char_offset;
+        }
 
         let text = self.piece_text(piece);
         let mut count = 0;

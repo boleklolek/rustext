@@ -137,6 +137,9 @@ impl MenuBar {
                     MenuItem::separator(),
                     MenuItem::action("Siguiente Error", "F8", EditorAction::NextDiagnostic),
                     MenuItem::action("Error Anterior", "Shift+F8", EditorAction::PrevDiagnostic),
+                    MenuItem::separator(),
+                    MenuItem::action("Actualizar Estado Git", "Ctrl+Shift+G", EditorAction::RefreshGit),
+                    MenuItem::action("Alternar Git Gutter", "", EditorAction::ToggleGitGutter),
                 ],
             },
             MenuCategory {

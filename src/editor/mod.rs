@@ -9,6 +9,7 @@ pub mod formatter;
 pub mod sidebar;
 pub mod autocomplete;
 pub mod split;
+pub mod git;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -21,3 +22,4 @@ pub use formatter::format_code;
 pub use sidebar::{FileExplorer, FileItem, SidebarClickResult};
 pub use autocomplete::{AutocompleteState, CompletionItem, CompletionKind};
 pub use split::{SplitDirection, SplitState};
+pub use git::{GitManager, GitFileStatus, GitLineStatus, GitGutterDiff};

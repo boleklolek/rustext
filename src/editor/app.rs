@@ -48,6 +48,7 @@ pub struct Editor {
     pub sidebar: crate::editor::sidebar::FileExplorer,
     pub autocomplete: crate::editor::autocomplete::AutocompleteState,
     pub split: crate::editor::split::SplitState,
+    pub git: crate::editor::git::GitManager,
     pub should_quit: bool,
 }
 
@@ -80,9 +81,11 @@ impl Editor {
         screen.theme = crate::ui::Theme::by_name(&config.theme.name);
 
         let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let mut sidebar = crate::editor::sidebar::FileExplorer::new(root_dir);
+        let mut sidebar = crate::editor::sidebar::FileExplorer::new(root_dir.clone());
         sidebar.is_visible = config.gui.sidebar;
         sidebar.width = config.gui.sidebar_width;
+
+        let git = crate::editor::git::GitManager::new(&root_dir);
 
         Self {
             documents: vec![initial_doc],
@@ -107,6 +110,7 @@ impl Editor {
             sidebar,
             autocomplete: crate::editor::autocomplete::AutocompleteState::new(),
             split: crate::editor::split::SplitState::new(),
+            git,
             should_quit: false,
         }
     }
@@ -710,8 +714,28 @@ impl Editor {
                 self.close_split();
             }
 
+            EditorAction::RefreshGit => {
+                self.refresh_git();
+            }
+            EditorAction::ToggleGitGutter => {
+                self.toggle_git_gutter();
+            }
+
             EditorAction::None => {}
         }
+    }
+
+    /// Refreshes Git working tree statuses and current branch.
+    pub fn refresh_git(&mut self) {
+        self.git.refresh_statuses();
+        let branch = self.git.branch_name().unwrap_or("sin git");
+        self.set_status(format!("Git actualizado: rama '{}'", branch));
+    }
+
+    /// Toggles live Git Gutter diff indicator bars.
+    pub fn toggle_git_gutter(&mut self) {
+        self.config.gui.git_gutter = !self.config.gui.git_gutter;
+        self.set_status(format!("Git Gutter {}", if self.config.gui.git_gutter { "activado" } else { "desactivado" }));
     }
 
     /// Toggles visibility of the code minimap.
@@ -1447,6 +1471,9 @@ impl Editor {
                 if self.config.editor.check_on_save {
                     self.check_active_document();
                 }
+
+                // Refresh Git status and gutter diffs on save
+                self.git.refresh_statuses();
 
                 // Auto-reload configuration if saving config.ini
                 if let Some(p) = saved_path {
@@ -3406,6 +3433,30 @@ impl Editor {
             } else {
                 None
             };
+
+            let primary_text = primary_doc.buffer.to_string();
+            let primary_git_diff = if self.config.gui.git_gutter {
+                Some(self.git.diff_document(primary_doc.buffer.file_path(), &primary_text))
+            } else {
+                None
+            };
+
+            let secondary_git_diff = if self.config.gui.git_gutter {
+                if let Some(sec_doc) = secondary_doc {
+                    let sec_text = sec_doc.buffer.to_string();
+                    Some(self.git.diff_document(sec_doc.buffer.file_path(), &sec_text))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            renderer.git_diff = primary_git_diff;
+            renderer.secondary_git_diff = secondary_git_diff;
+            renderer.git_branch = self.git.branch.clone();
+            renderer.git_statuses = Some(self.git.file_statuses.clone());
+            renderer.git_gutter_enabled = self.config.gui.git_gutter;
 
             renderer.render_full_frame_with_split(
                 &mut fb,

@@ -104,6 +104,7 @@ pub struct GuiSettings {
     pub sidebar_width: usize,
     pub minimap: bool,
     pub minimap_width: usize,
+    pub git_gutter: bool,
 }
 
 impl Default for GuiSettings {
@@ -124,6 +125,7 @@ impl Default for GuiSettings {
             sidebar_width: 220,
             minimap: true,
             minimap_width: 100,
+            git_gutter: true,
         }
     }
 }
@@ -255,6 +257,7 @@ sidebar = {}
 sidebar_width = {}
 minimap = {}
 minimap_width = {}
+git_gutter = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -281,6 +284,7 @@ minimap_width = {}
             self.gui.sidebar_width,
             self.gui.minimap,
             self.gui.minimap_width,
+            self.gui.git_gutter,
         )
     }
 
@@ -453,6 +457,11 @@ minimap_width = {}
                         "minimap_width" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 config.gui.minimap_width = n.clamp(40, 300);
+                            }
+                        }
+                        "git_gutter" => {
+                            if let Some(b) = as_bool {
+                                config.gui.git_gutter = b;
                             }
                         }
                         _ => {}

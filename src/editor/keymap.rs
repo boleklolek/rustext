@@ -66,6 +66,9 @@ pub enum EditorAction {
     ToggleSplitHorizontal,
     SwitchSplitPane,
     CloseSplit,
+    // Git Integration
+    RefreshGit,
+    ToggleGitGutter,
     Quit,
     None,
 }
@@ -86,6 +89,9 @@ impl Keymap {
             Key::Ctrl('\\') => EditorAction::ToggleSplitVertical,
             Key::CtrlShift('\\') | Key::CtrlShift('|') => EditorAction::ToggleSplitHorizontal,
             Key::Alt('\\') => EditorAction::SwitchSplitPane,
+
+            // Git Integration (Ctrl+Shift+G)
+            Key::CtrlShift('g') | Key::CtrlShift('G') => EditorAction::RefreshGit,
 
             // Document navigation
             Key::Left => EditorAction::MoveLeft { select: false },

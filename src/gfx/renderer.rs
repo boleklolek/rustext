@@ -524,6 +524,11 @@ pub struct GfxRenderer {
     pub sidebar_width: usize,
     pub minimap_enabled: bool,
     pub minimap_width: usize,
+    pub git_diff: Option<crate::editor::git::GitGutterDiff>,
+    pub secondary_git_diff: Option<crate::editor::git::GitGutterDiff>,
+    pub git_branch: Option<String>,
+    pub git_statuses: Option<std::collections::HashMap<std::path::PathBuf, crate::editor::git::GitFileStatus>>,
+    pub git_gutter_enabled: bool,
 }
 
 impl GfxRenderer {
@@ -545,6 +550,11 @@ impl GfxRenderer {
             sidebar_width: 220,
             minimap_enabled: true,
             minimap_width: 100,
+            git_diff: None,
+            secondary_git_diff: None,
+            git_branch: None,
+            git_statuses: None,
+            git_gutter_enabled: true,
         }
     }
 
@@ -1237,6 +1247,30 @@ impl GfxRenderer {
                     if let Some(b) = badge {
                         fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
                     }
+
+                    // Git Gutter diff indicator bar
+                    if self.git_gutter_enabled {
+                        let diff_opt = if is_active {
+                            self.git_diff.as_ref()
+                        } else {
+                            self.secondary_git_diff.as_ref().or(self.git_diff.as_ref())
+                        };
+                        if let Some(diff) = diff_opt {
+                            let bar_x = pane_x + gutter_w - 3;
+                            match diff.status_for_line(line_idx) {
+                                crate::editor::git::GitLineStatus::Added => {
+                                    fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                }
+                                crate::editor::git::GitLineStatus::Modified => {
+                                    fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                }
+                                crate::editor::git::GitLineStatus::DeletedAbove => {
+                                    fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                }
+                                crate::editor::git::GitLineStatus::None => {}
+                            }
+                        }
+                    }
                 }
 
                 // Line Content
@@ -1433,6 +1467,25 @@ impl GfxRenderer {
 
                         if let Some(b) = badge {
                             fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
+                        }
+
+                        // Git Gutter diff indicator bar
+                        if self.git_gutter_enabled {
+                            if let Some(diff) = &self.git_diff {
+                                let bar_x = canvas_x_start + gutter_width - 3;
+                                match diff.status_for_line(line_idx) {
+                                    crate::editor::git::GitLineStatus::Added => {
+                                        fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                    }
+                                    crate::editor::git::GitLineStatus::Modified => {
+                                        fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                    }
+                                    crate::editor::git::GitLineStatus::DeletedAbove => {
+                                        fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                    }
+                                    crate::editor::git::GitLineStatus::None => {}
+                                }
+                            }
                         }
                     }
 
@@ -1750,7 +1803,7 @@ impl GfxRenderer {
             } else {
                 let color = item.color_hint(&self.colors);
                 let label_x = indent_x + FONT_WIDTH + 4;
-                let max_chars = (sidebar_w.saturating_sub(label_x + 8)) / FONT_WIDTH;
+                let max_chars = (sidebar_w.saturating_sub(label_x + 20)) / FONT_WIDTH;
                 let text = if item.name.chars().count() > max_chars && max_chars > 2 {
                     let mut s: String = item.name.chars().take(max_chars.saturating_sub(2)).collect();
                     s.push_str("..");
@@ -1760,6 +1813,15 @@ impl GfxRenderer {
                 };
                 fb.draw_char('•', indent_x, item_text_y, color, None);
                 fb.draw_text(&text, label_x, item_text_y, color, None);
+
+                // Git status badge ('M', 'U', 'A', 'D', 'R')
+                if let Some(statuses) = &self.git_statuses {
+                    let canon = item.path.canonicalize().unwrap_or_else(|_| item.path.clone());
+                    if let Some(status) = statuses.get(&canon) {
+                        let badge_x = sidebar_w.saturating_sub(16);
+                        fb.draw_char(status.badge_char(), badge_x, item_text_y, status.color(), None);
+                    }
+                }
             }
         }
     }
@@ -1981,6 +2043,37 @@ impl GfxRenderer {
                     fb.fill_rect(left_x, chip_y, diag_w, chip_h, self.colors.chip_bg);
                 }
                 fb.draw_text(&diag_text, left_x + 2, text_y, diag_fg, None);
+                left_x += diag_w + 6;
+            }
+
+            // Git Branch & Stats Chip
+            if let Some(branch) = &self.git_branch {
+                let git_text = if let Some(diff) = &self.git_diff {
+                    if !diff.is_empty() {
+                        let mut parts = Vec::new();
+                        if diff.added_count > 0 {
+                            parts.push(format!("+{}", diff.added_count));
+                        }
+                        if diff.modified_count > 0 {
+                            parts.push(format!("~{}", diff.modified_count));
+                        }
+                        if diff.deleted_count > 0 {
+                            parts.push(format!("-{}", diff.deleted_count));
+                        }
+                        format!(" git: {} ({}) ", branch, parts.join(" "))
+                    } else {
+                        format!(" git: {} ", branch)
+                    }
+                } else {
+                    format!(" git: {} ", branch)
+                };
+                let git_w = git_text.chars().count() * FONT_WIDTH + 4;
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(left_x, chip_y, git_w, chip_h, 3, self.colors.chip_bg);
+                } else {
+                    fb.fill_rect(left_x, chip_y, git_w, chip_h, self.colors.chip_bg);
+                }
+                fb.draw_text(&git_text, left_x + 2, text_y, self.colors.syntax_keyword, None);
             }
         }
 
