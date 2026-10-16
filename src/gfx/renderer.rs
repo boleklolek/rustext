@@ -47,6 +47,9 @@ pub struct ThemeColors {
     pub syntax_operator: u32,
     pub syntax_punctuation: u32,
     pub syntax_plain: u32,
+    pub bracket_0: u32,
+    pub bracket_1: u32,
+    pub bracket_2: u32,
 }
 
 impl ThemeColors {
@@ -89,6 +92,9 @@ impl ThemeColors {
             syntax_operator: 0x0089DDFF,
             syntax_punctuation: 0x00C0CAF5,
             syntax_plain: 0x00C0CAF5,
+            bracket_0: 0x00FFD700,
+            bracket_1: 0x00BB9AF7,
+            bracket_2: 0x007DCFFF,
         }
     }
 
@@ -131,6 +137,9 @@ impl ThemeColors {
             syntax_operator: 0x0089DCEB,
             syntax_punctuation: 0x00CDD6F4,
             syntax_plain: 0x00CDD6F4,
+            bracket_0: 0x00F9E2AF,
+            bracket_1: 0x00CBA6F7,
+            bracket_2: 0x0089DCEB,
         }
     }
 
@@ -173,6 +182,9 @@ impl ThemeColors {
             syntax_operator: 0x0056B6C2,
             syntax_punctuation: 0x00ABB2BF,
             syntax_plain: 0x00ABB2BF,
+            bracket_0: 0x00E5C07B,
+            bracket_1: 0x00C678DD,
+            bracket_2: 0x0061AFEF,
         }
     }
 
@@ -215,6 +227,9 @@ impl ThemeColors {
             syntax_operator: 0x00D4D4D4,
             syntax_punctuation: 0x00D4D4D4,
             syntax_plain: 0x00D4D4D4,
+            bracket_0: 0x00FFD700,
+            bracket_1: 0x00DA70D6,
+            bracket_2: 0x00179FFF,
         }
     }
 
@@ -257,6 +272,9 @@ impl ThemeColors {
             syntax_operator: 0x00F92672,
             syntax_punctuation: 0x00F8F8F2,
             syntax_plain: 0x00F8F8F2,
+            bracket_0: 0x00E6DB74,
+            bracket_1: 0x00AE81FF,
+            bracket_2: 0x0066D9EF,
         }
     }
 
@@ -299,6 +317,9 @@ impl ThemeColors {
             syntax_operator: 0x00859900,
             syntax_punctuation: 0x0093A1A1,
             syntax_plain: 0x00839496,
+            bracket_0: 0x00B58900,
+            bracket_1: 0x006C71C4,
+            bracket_2: 0x002AA198,
         }
     }
 
@@ -341,6 +362,9 @@ impl ThemeColors {
             syntax_operator: 0x00CF222E,
             syntax_punctuation: 0x0024292F,
             syntax_plain: 0x0024292F,
+            bracket_0: 0x00B8860B,
+            bracket_1: 0x008B008B,
+            bracket_2: 0x00008B8B,
         }
     }
 
@@ -366,6 +390,11 @@ impl ThemeColors {
             TokenType::Operator => self.syntax_operator,
             TokenType::Punctuation => self.syntax_punctuation,
             TokenType::Identifier | TokenType::PlainText => self.syntax_plain,
+            TokenType::Bracket(depth) => match depth % 3 {
+                0 => self.bracket_0,
+                1 => self.bracket_1,
+                _ => self.bracket_2,
+            },
         }
     }
 }

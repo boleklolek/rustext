@@ -18,10 +18,11 @@ pub fn format_code(
         Language::Rust => format_rust(code),
         Language::Python => format_python(code),
         Language::C => format_c(code),
-        Language::JavaScript | Language::Json | Language::Markdown => {
+        Language::JavaScript | Language::Json | Language::Markdown | Language::Html | Language::Css | Language::Yaml => {
             format_prettier(language, code, file_path)
         }
-        Language::Toml | Language::PlainText => {
+        Language::Shell => format_shell(code),
+        Language::Sql | Language::Toml | Language::PlainText => {
             Err(format!("No hay formateador por defecto para {}", language.name()))
         }
     }
@@ -56,13 +57,16 @@ fn format_c(code: &str) -> Result<String, String> {
     execute_formatter(cmd, code)
 }
 
-/// Formats JS/JSON/MD using `prettier`.
+/// Formats JS/JSON/MD/HTML/CSS/YAML using `prettier`.
 fn format_prettier(language: Language, code: &str, file_path: Option<&Path>) -> Result<String, String> {
     let mut cmd = Command::new("prettier");
     let parser = match language {
         Language::JavaScript => "babel",
         Language::Json => "json",
         Language::Markdown => "markdown",
+        Language::Html => "html",
+        Language::Css => "css",
+        Language::Yaml => "yaml",
         _ => "babel",
     };
 
@@ -72,6 +76,13 @@ fn format_prettier(language: Language, code: &str, file_path: Option<&Path>) -> 
         cmd.args(["--parser", parser]);
     }
 
+    execute_formatter(cmd, code)
+}
+
+/// Formats Shell scripts using `shfmt`.
+fn format_shell(code: &str) -> Result<String, String> {
+    let mut cmd = Command::new("shfmt");
+    cmd.args(["-i", "4", "-"]);
     execute_formatter(cmd, code)
 }
 

@@ -37,7 +37,8 @@ impl FileItem {
                 "rs" => colors.syntax_number, // orange
                 "toml" | "ini" | "json" | "yaml" | "yml" => colors.syntax_type, // cyan
                 "md" | "txt" => colors.syntax_string, // green
-                "c" | "cpp" | "h" | "hpp" => colors.syntax_keyword, // purple
+                "c" | "cpp" | "h" | "hpp" | "sql" => colors.syntax_keyword, // purple
+                "sh" | "bash" | "zsh" => colors.bracket_1, // vibrant bracket / accent color
                 "py" => colors.syntax_string,
                 "html" | "css" | "js" | "ts" => colors.accent,
                 _ => colors.syntax_plain,

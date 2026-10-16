@@ -499,6 +499,100 @@ impl SnippetRegistry {
             Language::Toml,
         ),
 
+        // ==================== HTML ====================
+        Snippet::new(
+            "html5",
+            "Estructura HTML5 básica",
+            "<!DOCTYPE html>\n<html lang=\"${1:es}\">\n<head>\n    <meta charset=\"UTF-8\">\n    <title>${2:Document}</title>\n</head>\n<body>\n    ${0}\n</body>\n</html>",
+            Language::Html,
+        ),
+        Snippet::new(
+            "div",
+            "Elemento <div> contenedor",
+            "<div class=\"${1:container}\">\n    ${0}\n</div>",
+            Language::Html,
+        ),
+        Snippet::new(
+            "a",
+            "Enlace <a> hipertexto",
+            "<a href=\"${1:#}\">${0:enlace}</a>",
+            Language::Html,
+        ),
+
+        // ==================== CSS ====================
+        Snippet::new(
+            "flex",
+            "Contenedor Flexbox centrado",
+            "display: flex;\njustify-content: ${1:center};\nalign-items: ${2:center};\n${0}",
+            Language::Css,
+        ),
+        Snippet::new(
+            "grid",
+            "Contenedor Grid responsivo",
+            "display: grid;\ngrid-template-columns: repeat(${1:auto-fit}, minmax(${2:250px}, 1fr));\ngap: ${3:1rem};\n${0}",
+            Language::Css,
+        ),
+        Snippet::new(
+            "media",
+            "Media query para responsive design",
+            "@media (max-width: ${1:768px}) {\n    ${0}\n}",
+            Language::Css,
+        ),
+
+        // ==================== YAML ====================
+        Snippet::new(
+            "kv",
+            "Par clave: valor",
+            "${1:key}: ${2:value}\n${0}",
+            Language::Yaml,
+        ),
+        Snippet::new(
+            "item",
+            "Elemento de lista YAML",
+            "- ${1:name}: ${2:value}\n${0}",
+            Language::Yaml,
+        ),
+
+        // ==================== Shell ====================
+        Snippet::new(
+            "sh",
+            "Shebang para bash",
+            "#!/usr/bin/env bash\nset -euo pipefail\n\n${0}",
+            Language::Shell,
+        ),
+        Snippet::new(
+            "func",
+            "Definición de función shell",
+            "${1:name}() {\n    ${0:echo \"done\"}\n}",
+            Language::Shell,
+        ),
+        Snippet::new(
+            "if",
+            "Condicional if en shell",
+            "if [ ${1:condition} ]; then\n    ${0}\nfi",
+            Language::Shell,
+        ),
+
+        // ==================== SQL ====================
+        Snippet::new(
+            "select",
+            "Consulta SELECT básica",
+            "SELECT ${1:*}\nFROM ${2:table_name}\nWHERE ${3:condition};\n${0}",
+            Language::Sql,
+        ),
+        Snippet::new(
+            "table",
+            "Sentencia CREATE TABLE",
+            "CREATE TABLE ${1:table_name} (\n    id SERIAL PRIMARY KEY,\n    ${2:column_name} ${3:VARCHAR(255)} NOT NULL\n);\n${0}",
+            Language::Sql,
+        ),
+        Snippet::new(
+            "insert",
+            "Sentencia INSERT INTO",
+            "INSERT INTO ${1:table_name} (${2:columns})\nVALUES (${3:values});\n${0}",
+            Language::Sql,
+        ),
+
         // ==================== Plain Text ====================
         Snippet::new(
             "todo",

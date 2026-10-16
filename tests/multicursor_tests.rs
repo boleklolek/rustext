@@ -252,4 +252,143 @@ fn test_multicursor_auto_close_and_surround() {
     assert_eq!(editor.doc().buffer.to_string(), "line1\nline2\nline3");
 }
 
+#[test]
+fn test_bracket_pair_colorization_cyclic_depth() {
+    use rustext::core::syntax::{SyntaxHighlighter, Language, TokenType};
+    use rustext::gfx::ThemeColors;
+
+    // Expression with nested brackets: ([{}])
+    let line = "let arr = [( { 42 } )]; // ([{}])";
+    let (tokens, final_depth) = SyntaxHighlighter::tokenize_line_with_depth(line, Language::Rust, 0);
+
+    // Final depth should be balanced (0)
+    assert_eq!(final_depth, 0);
+
+    // Find all Bracket tokens
+    let bracket_tokens: Vec<_> = tokens
+        .iter()
+        .filter_map(|t| match t.token_type {
+            TokenType::Bracket(d) => Some((t.text, d)),
+            _ => None,
+        })
+        .collect();
+
+    // Line has:
+    // '[' at depth 0
+    // '(' at depth 1
+    // '{' at depth 2
+    // '}' at depth 2
+    // ')' at depth 1
+    // ']' at depth 0
+    // Note: brackets inside the comment "// ([{}])" are ignored because it's a comment!
+    assert_eq!(
+        bracket_tokens,
+        vec![
+            ("[", 0),
+            ("(", 1),
+            ("{", 2),
+            ("}", 2),
+            (")", 1),
+            ("]", 0),
+        ]
+    );
+
+    // Brackets inside string literals must also be ignored
+    let line_str = "let s = \"([{\"; (ok);";
+    let (tokens_str, _) = SyntaxHighlighter::tokenize_line_with_depth(line_str, Language::Rust, 0);
+    let str_bracket_tokens: Vec<_> = tokens_str
+        .iter()
+        .filter_map(|t| match t.token_type {
+            TokenType::Bracket(d) => Some((t.text, d)),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(str_bracket_tokens, vec![("(", 0), (")", 0)]);
+
+    // Verify ThemeColors mapping for cyclic depth % 3
+    let theme = ThemeColors::tokyo_night();
+    assert_eq!(theme.token_color(TokenType::Bracket(0)), theme.bracket_0);
+    assert_eq!(theme.token_color(TokenType::Bracket(1)), theme.bracket_1);
+    assert_eq!(theme.token_color(TokenType::Bracket(2)), theme.bracket_2);
+    assert_eq!(theme.token_color(TokenType::Bracket(3)), theme.bracket_0); // cyclic
+    assert_eq!(theme.token_color(TokenType::Bracket(4)), theme.bracket_1); // cyclic
+}
+
+#[test]
+fn test_new_languages_syntax_detection_and_tokenization() {
+    use rustext::core::syntax::{Language, SyntaxHighlighter, TokenType};
+    use std::path::Path;
+
+    // 1. Language file extension detection
+    assert_eq!(Language::from_path(Path::new("index.html")), Language::Html);
+    assert_eq!(Language::from_path(Path::new("page.htm")), Language::Html);
+    assert_eq!(Language::from_path(Path::new("styles.css")), Language::Css);
+    assert_eq!(Language::from_path(Path::new("styles.scss")), Language::Css);
+    assert_eq!(Language::from_path(Path::new("docker-compose.yaml")), Language::Yaml);
+    assert_eq!(Language::from_path(Path::new("config.yml")), Language::Yaml);
+    assert_eq!(Language::from_path(Path::new("deploy.sh")), Language::Shell);
+    assert_eq!(Language::from_path(Path::new("setup.bash")), Language::Shell);
+    assert_eq!(Language::from_path(Path::new(".zshrc")), Language::Shell);
+    assert_eq!(Language::from_path(Path::new(".bashrc")), Language::Shell);
+    assert_eq!(Language::from_path(Path::new(".env")), Language::Shell);
+    assert_eq!(Language::from_path(Path::new("schema.sql")), Language::Sql);
+    assert_eq!(Language::from_path(Path::new("README.md")), Language::Markdown);
+
+    // 2. HTML Tokenizer: tags and attributes
+    let html_tokens = SyntaxHighlighter::tokenize_line("<div class=\"main\">content</div>", Language::Html);
+    assert!(html_tokens.iter().any(|t| t.text == "<div" && t.token_type == TokenType::Keyword));
+    assert!(html_tokens.iter().any(|t| t.text == "class" && t.token_type == TokenType::Type));
+    assert!(html_tokens.iter().any(|t| t.text == "\"main\"" && t.token_type == TokenType::StringLiteral));
+
+    // 3. CSS Tokenizer: selector, property, hex color
+    let css_tokens = SyntaxHighlighter::tokenize_line(".btn { display: flex; color: #ff00aa; }", Language::Css);
+    assert!(css_tokens.iter().any(|t| t.text == "display" && t.token_type == TokenType::Keyword));
+    assert!(css_tokens.iter().any(|t| t.text == "#ff00aa" && t.token_type == TokenType::Number));
+
+    // 4. YAML Tokenizer: keys and booleans
+    let yaml_tokens = SyntaxHighlighter::tokenize_line("port: 8080\nenabled: true", Language::Yaml);
+    assert!(yaml_tokens.iter().any(|t| t.text == "8080" && t.token_type == TokenType::Number));
+    assert!(yaml_tokens.iter().any(|t| t.text == "true" && t.token_type == TokenType::Keyword));
+
+    // 5. Shell Tokenizer: variables and comments
+    let sh_tokens = SyntaxHighlighter::tokenize_line("echo $USER ${HOME} # print user", Language::Shell);
+    assert!(sh_tokens.iter().any(|t| t.text == "echo" && t.token_type == TokenType::Keyword));
+    assert!(sh_tokens.iter().any(|t| t.text == "$USER" && t.token_type == TokenType::Type));
+    assert!(sh_tokens.iter().any(|t| t.text == "${HOME}" && t.token_type == TokenType::Type));
+    assert!(sh_tokens.iter().any(|t| t.text == "# print user" && t.token_type == TokenType::Comment));
+
+    // 6. SQL Tokenizer: keywords case-insensitive
+    let sql_tokens = SyntaxHighlighter::tokenize_line("SELECT id, name FROM users WHERE active = true;", Language::Sql);
+    assert!(sql_tokens.iter().any(|t| t.text == "SELECT" && t.token_type == TokenType::Keyword));
+    assert!(sql_tokens.iter().any(|t| t.text == "FROM" && t.token_type == TokenType::Keyword));
+    assert!(sql_tokens.iter().any(|t| t.text == "WHERE" && t.token_type == TokenType::Keyword));
+    assert!(sql_tokens.iter().any(|t| t.text == "true" && t.token_type == TokenType::Keyword));
+
+    // 7. Markdown Tokenizer: headers and inline code
+    let md_header = SyntaxHighlighter::tokenize_line("# Header 1", Language::Markdown);
+    assert!(md_header.iter().any(|t| t.text == "#" && t.token_type == TokenType::Keyword));
+    assert!(md_header.iter().any(|t| t.text == " Header 1" && t.token_type == TokenType::Type));
+
+    let md_code = SyntaxHighlighter::tokenize_line("Text with `code` block", Language::Markdown);
+    assert!(md_code.iter().any(|t| t.text == "`code`" && t.token_type == TokenType::StringLiteral));
+}
+
+#[test]
+fn test_snippets_for_new_languages() {
+    use rustext::core::syntax::Language;
+    use rustext::editor::snippet::SnippetRegistry;
+
+    assert!(SnippetRegistry::find(Language::Html, "html5").is_some());
+    assert!(SnippetRegistry::find(Language::Html, "div").is_some());
+    assert!(SnippetRegistry::find(Language::Css, "flex").is_some());
+    assert!(SnippetRegistry::find(Language::Css, "grid").is_some());
+    assert!(SnippetRegistry::find(Language::Yaml, "kv").is_some());
+    assert!(SnippetRegistry::find(Language::Shell, "sh").is_some());
+    assert!(SnippetRegistry::find(Language::Shell, "func").is_some());
+    assert!(SnippetRegistry::find(Language::Sql, "select").is_some());
+    assert!(SnippetRegistry::find(Language::Sql, "table").is_some());
+}
+
+
 

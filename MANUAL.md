@@ -20,7 +20,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 7. [Motor de Edición y Multicursor](#7-motor-de-edición-y-multicursor)
 8. [Autocompletado Contextual Inteligente](#8-autocompletado-contextual-inteligente)
 9. [Búsqueda Global en Todo el Proyecto](#9-búsqueda-global-en-todo-el-proyecto)
-10. [Sistema de Snippets e Indentación Inteligente](#10-sistema-de-snippets-e-indentación-inteligente)
+10. [Sistema de Snippets, Sintaxis y Bracket Pair Colorization](#10-sistema-de-snippets-sintaxis-y-bracket-pair-colorization)
 11. [Diagnósticos en Vivo, Linter y Formato de Código](#11-diagnósticos-en-vivo-linter-y-formato-de-código)
 12. [Paleta de Comandos y Atajos de Teclado](#12-paleta-de-comandos-y-atajos-de-teclado)
 13. [Sistema de Configuración (`config.ini`)](#13-sistema-de-configuración-configini)
@@ -414,17 +414,74 @@ La **Búsqueda Global en Todo el Proyecto (`Ctrl + Shift + F`)** permite localiz
 
 ---
 
-## 10. Sistema de Snippets e Indentación Inteligente
+## 10. Sistema de Snippets, Sintaxis y Bracket Pair Colorization
 
-Rustext incluye un motor de plantillas y snippets sin dependencias externas:
+Rustext incluye un motor de resaltado léxico sin dependencias externas con soporte especializado para **Bracket Pair Colorization** y plantillas de código (*snippets*):
 
-### Snippets Integrados:
-Escriba el prefijo y presione `Tab`:
-- `fn` $\rightarrow$ `fn nombre(args) -> Retorno {\n    \n}`
-- `struct` $\rightarrow$ `pub struct Nombre {\n    campo: Tipo,\n}`
-- `for` $\rightarrow$ `for item in iter {\n    \n}`
-- `match` $\rightarrow$ `match valor {\n    Patron => {},\n    _ => {}\n}`
-- `test` $\rightarrow$ `#[test]\nfn test_nombre() {\n    assert!(true);\n}`
+### 10.1 Coloreado de Paréntesis (*Bracket Pair Colorization*)
+- **Profundidad Anidada Cíclica**:
+  - Los delimitadores `()`, `[]` y `{}` se analizan en tiempo real calculando la profundidad de anidamiento (`depth`).
+  - La profundidad se proyecta cíclicamente con módulo 3 (`depth % 3`) asignando colores de alto contraste (`bracket_0`, `bracket_1`, `bracket_2`).
+- **Paletas cromáticas integradas**:
+  - **Tokyo Night**: Dorado `#E0AF68`, Púrpura `#BB9AF7`, Azul/Cian `#7AA2F7`.
+  - **Catppuccin Mocha**: Amarillo `#F9E2AF`, Malva `#CBA6F7`, Zafiro `#74C7EC`.
+  - **One Dark**: Amarillo `#E5C07B`, Púrpura `#C678DD`, Cian `#56B6C2`.
+  - **Monokai**: Amarillo `#E6DB74`, Magenta `#F92672`, Cian `#66D9EF`.
+  - **Modo Consola TUI**: Códigos de escape ANSI 24-bit (`\x1b[1;33m`, `\x1b[1;35m`, `\x1b[1;36m`).
+- **Inmunidad a Cadenas y Comentarios**:
+  - Los paréntesis, corchetes o llaves dentro de literales de cadena (`"()"`), plantillas o comentarios (`// []`, `/* {} */`, `# ()`) se ignoran estrictamente para no alterar la profundidad estructural del código.
+
+### 10.2 Lenguajes Sintácticos Soportados
+Rustext detecta automáticamente el lenguaje por extensión o nombre:
+- **Rust** (`.rs`)
+- **Python** (`.py`)
+- **C / C++** (`.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.cxx`)
+- **JavaScript / TypeScript** (`.js`, `.ts`, `.jsx`, `.tsx`, `.mjs`, `.cjs`)
+- **HTML / XML** (`.html`, `.htm`, `.xhtml`, `.xml`, `.svg`)
+- **CSS / SCSS** (`.css`, `.scss`, `.sass`, `.less`)
+- **JSON** (`.json`)
+- **YAML** (`.yaml`, `.yml`)
+- **TOML** (`.toml`)
+- **Shell / Bash** (`.sh`, `.bash`, `.zsh`, `.fish`, `.env`, `.bashrc`, `.profile`, `Dockerfile`)
+- **SQL** (`.sql`)
+- **Markdown** (`.md`, `.markdown`)
+
+### 10.3 Catálogo de Snippets Integrados:
+Escriba el disparador y presione `Tab` para expandirlo:
+
+| Lenguaje | Trigger | Descripción | Expansión |
+| :--- | :--- | :--- | :--- |
+| **Rust** | `fn` | Función con Result | `fn name(params) -> Result<(), ...> { ... }` |
+| **Rust** | `pfn` | Función pública | `pub fn name(params) -> () { ... }` |
+| **Rust** | `struct` | Estructura con derive | `#[derive(Debug, Clone)] pub struct Name { ... }` |
+| **Rust** | `enum` | Enumeración con derive | `#[derive(Debug, Clone, PartialEq, Eq)] pub enum Name { ... }` |
+| **Rust** | `impl` | Bloque implementación | `impl Type { ... }` |
+| **Rust** | `match` | Expresión match | `match expr { pattern => expr, _ => todo!() }` |
+| **Rust** | `test` | Test unitario | `#[test] fn test_name() { assert!(true); }` |
+| **Python** | `def` | Función con docstring | `def name(args): """Docstring""" pass` |
+| **Python** | `class` | Definición de clase | `class ClassName: def __init__(self): pass` |
+| **Python** | `main` | Bloque de entrada | `if __name__ == "__main__": main()` |
+| **C / C++** | `main` | Función main | `int main(int argc, char *argv[]) { return 0; }` |
+| **C / C++** | `inc` | Directiva include | `#include <stdio.h>` |
+| **JS / TS** | `fn` | Función estándar | `function name(params) { ... }` |
+| **JS / TS** | `afn` | Función flecha (arrow) | `const name = (params) => { ... };` |
+| **JS / TS** | `clg` | Imprimir en consola | `console.log(...);` |
+| **HTML** | `html5` | Estructura HTML5 | Documento HTML completo con head y body |
+| **HTML** | `div` | Contenedor div | `<div class="container">...</div>` |
+| **HTML** | `a` | Enlace hipertexto | `<a href="#">enlace</a>` |
+| **CSS** | `flex` | Flexbox centrado | `display: flex; justify-content: center; ...` |
+| **CSS** | `grid` | Grid responsivo | `display: grid; grid-template-columns: ...` |
+| **CSS** | `media` | Media query responsive | `@media (max-width: 768px) { ... }` |
+| **YAML** | `kv` | Par clave: valor | `key: value` |
+| **YAML** | `item` | Elemento de lista | `- name: value` |
+| **Shell** | `sh` | Shebang seguro Bash | `#!/usr/bin/env bash set -euo pipefail` |
+| **Shell** | `func` | Función Shell | `name() { echo "done"; }` |
+| **Shell** | `if` | Condicional Shell | `if [ condition ]; then ... fi` |
+| **SQL** | `select` | Consulta SELECT | `SELECT * FROM table_name WHERE condition;` |
+| **SQL** | `table` | Sentencia CREATE TABLE | `CREATE TABLE table_name (id SERIAL PRIMARY KEY, ...);` |
+| **SQL** | `insert` | Sentencia INSERT INTO | `INSERT INTO table_name (columns) VALUES (values);` |
+| **Markdown** | `code` | Bloque de código | ````rust ... ```` |
+| **Markdown** | `link` | Enlace markdown | `[texto](url)` |
 
 ### Navegación de Placeholders:
 - Presione `Tab` para avanzar al siguiente campo del snippet.
@@ -440,6 +497,7 @@ Rustext incluye herramientas de verificación y corrección de código integrada
 - **Rust**: Ejecuta `cargo check --message-format=json` de forma transparente y mapea los errores y advertencias línea por línea en el buffer.
 - **Python**: Valida sintaxis con `python -m py_compile` o `pyflakes`.
 - **C/C++**: Ejecuta `clang -fsyntax-only`.
+- **Shell**: Valida sintaxis de scripts con `bash -n`.
 - **Visualización**: Las líneas con error se señalan en el gutter con insignias de color:
   - `[E]` Rojo: Error de compilación.
   - `[W]` Amarillo: Advertencia (Warning).
@@ -454,7 +512,8 @@ Alinea el archivo utilizando el formateador del lenguaje disponible en el sistem
 - Rust: `rustfmt`
 - Python: `black` o `autopep8`
 - C/C++: `clang-format`
-- Web / JS / TS / JSON / Markdown: `prettier`
+- Web / HTML / CSS / JS / TS / JSON / YAML / Markdown: `prettier`
+- Shell / Bash: `shfmt`
 - Go: `gofmt`
 
 ### 4. Automatización al Guardar:

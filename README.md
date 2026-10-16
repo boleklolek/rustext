@@ -114,23 +114,44 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Botones interactivos en cabecera `[Limpiar]` y `[x]` para cerrar, historial de comandos (`↑`/`↓`), atajos de interrupción `Ctrl+C` y limpieza `Ctrl+L`.
   - Configurable desde `config.ini` (`terminal_height = 180`, `terminal_shell = ""`).
 
+- **Coloreado de Paréntesis por Pares (*Bracket Pair Colorization*)**:
+  - Algoritmo léxico en tiempo real de profundidad anidada cíclica (`depth % 3`) para pares de delimitadores `()`, `[]` y `{}`.
+  - Paletas cromáticas de alto contraste adaptadas específicamente a los 8 temas visuales (dorado/amarillo, magenta/púrpura y cian/azul).
+  - Parser contextual inteligente que ignora delimitadores dentro de cadenas de texto y comentarios para una precisión absoluta.
+  - Soporte bidireccional tanto en la interfaz gráfica acelerada (GUI Framebuffer) como en consola (secuencias ANSI de 24-bit en TUI).
+
+- **Soporte Sintáctico Ampliado y Multi-Lenguaje Nativo**:
+  - Detección automática por extensión y por nombre para: **Rust**, **Python**, **C/C++**, **JavaScript/TypeScript**, **HTML**, **CSS/SCSS**, **JSON**, **YAML**, **TOML**, **Shell/Bash** (`.sh`, `.bash`, `.zsh`, `.env`, `.bashrc`, Dockerfile), **SQL** y **Markdown**.
+  - Resaltador léxico especializado con clasificación de tags y atributos HTML, selectores y propiedades CSS, variables de entorno y parámetros `$VAR` en Shell, y palabras clave SQL insensibles a mayúsculas/minúsculas.
+  - Resaltado jerárquico de Markdown para encabezados (`#`), citas (`>`), listas (`-`, `*`) y bloques de código inline (`` `código` ``).
+
 - **Autocompletado Contextual Inteligente (`Ctrl + Espacio`)**:
   - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
-  - Palabras clave nativas por lenguaje (Rust, Python, C, C++, Go, JS, TS) más identificadores extraídos en vivo de todos los búferes abiertos.
+  - Palabras clave nativas y tipos primitivos de todos los lenguajes soportados más identificadores extraídos en vivo de todos los búferes abiertos.
   - Compatibilidad total con edición multicursor (aplica la palabra seleccionada en todos los cursores activos al mismo tiempo).
   - Navegación fluida por teclado (`↑`/`↓`, `Tab`/`Enter`, `Esc`) y ratón (hover y clic).
 
 - **Diagnósticos del Compilador y Linter en Vivo**:
-  - Integración nativa con `cargo check --message-format=json`, `pyflakes` y `clang`.
+  - Integración nativa con `cargo check --message-format=json`, `pyflakes`, `clang` y `bash -n`.
   - Insignias de severidad en el gutter (`[E]` Error, `[W]` Warning, `[I]` Info) y mensaje detallado en la barra de estado.
   - Navegación rápida entre errores con `F8` (Siguiente) y `Shift + F8` (Anterior).
 
 - **Formateo Automático de Código**:
-  - Formateo instantáneo con `Ctrl + Shift + I` mediante los formateadores del sistema (`rustfmt`, `black`, `clang-format`, `prettier`, `gofmt`).
+  - Formateo instantáneo con `Ctrl + Shift + I` mediante los formateadores del sistema (`rustfmt`, `black`, `clang-format`, `prettier`, `shfmt`, `gofmt`).
   - Opción de formateo y comprobación automática al guardar (`format_on_save`, `check_on_save`).
 
 - **Motor de Snippets e Indentación Inteligente**:
-  - Snippets de lenguaje expandibles con `Tab` (`fn`, `struct`, `for`, `match`, `test`).
+  - Snippets de lenguaje expandibles con `Tab` para todos los lenguajes soportados:
+    - **Rust**: `fn`, `pfn`, `struct`, `enum`, `impl`, `for`, `match`, `if`, `test`, `println`, `main`.
+    - **Python**: `def`, `class`, `if`, `for`, `main`, `try`, `print`.
+    - **C / C++**: `main`, `fn`, `struct`, `for`, `if`, `inc`.
+    - **JavaScript / TypeScript**: `fn`, `afn`, `clg`, `for`, `if`, `try`.
+    - **HTML**: `html5`, `div`, `a`.
+    - **CSS**: `flex`, `grid`, `media`.
+    - **YAML**: `kv`, `item`.
+    - **Shell**: `sh`, `func`, `if`.
+    - **SQL**: `select`, `table`, `insert`.
+    - **Markdown**: `link`, `img`, `code`.
   - Navegación entre marcadores de posición mediante `Tab` y `Shift + Tab`.
   - Auto-cierre de delimitadores (`()`, `[]`, `{}`, `""`, `''`) y auto-envoltorio de selecciones.
 

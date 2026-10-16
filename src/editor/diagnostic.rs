@@ -173,6 +173,7 @@ impl DiagnosticCollection {
             Language::Rust => Self::check_rust(file_path),
             Language::Python => Self::check_python(file_path),
             Language::C => Self::check_c(file_path),
+            Language::Shell => Self::check_shell(file_path),
             _ => Ok(Vec::new()),
         }
     }
@@ -247,6 +248,44 @@ impl DiagnosticCollection {
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         Ok(Self::parse_standard_errors(&stderr, file_path))
+    }
+
+    /// Checks Shell script syntax using `bash -n`.
+    fn check_shell(file_path: Option<&Path>) -> Result<Vec<Diagnostic>, String> {
+        let path = match file_path {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+        let output = Command::new("bash")
+            .args(["-n", path.to_str().unwrap_or("")])
+            .output()
+            .map_err(|e| format!("Error ejecutando bash -n: {}", e))?;
+
+        if output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut diags = Vec::new();
+        for line in stderr.lines() {
+            if let Some(pos) = line.find("line ") {
+                let rest = &line[pos + 5..];
+                if let Some(colon) = rest.find(':') {
+                    if let Ok(line_num) = rest[..colon].trim().parse::<usize>() {
+                        let msg = rest[colon + 1..].trim();
+                        diags.push(Diagnostic::new(
+                            Some(path.to_path_buf()),
+                            line_num,
+                            1,
+                            DiagnosticSeverity::Error,
+                            format!("bash: {}", msg),
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(diags)
     }
 
     /// Traverses up directory tree looking for `Cargo.toml`.
