@@ -1,8 +1,13 @@
 //! Software framebuffer with 2D rendering primitives and font rasterization.
 //! Zero third-party dependencies, purely standard library Rust.
 
+use super::analytic_aa::AnalyticAA;
+use super::blur::BlurEngine;
+use super::edge_perception::EdgePerception;
 use super::font::{get_glyph, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
 use super::gamma::blend_pixel_gamma;
+use super::hinting::{FontHinter, HintingLevel};
+use super::shaping::FontShaper;
 
 /// Software pixel buffer in 32-bit ARGB (0xAARRGGBB) format.
 #[derive(Debug, Clone)]
@@ -477,6 +482,170 @@ impl Framebuffer {
             self.draw_char_raw(ch, cur_x, y, fg, bg);
             cur_x += FONT_WIDTH;
         }
+    }
+
+    /// Draws text applying full font shaping (programming ligatures), font hinting, and perceptual edge contrast tuning.
+    pub fn draw_shaped_text(
+        &mut self,
+        text: &str,
+        x: usize,
+        y: usize,
+        fg: u32,
+        bg: Option<u32>,
+        enable_ligatures: bool,
+        hinting: HintingLevel,
+        edge_enhance: bool,
+    ) {
+        let glyphs = FontShaper::shape_text(text, self.font_scale, enable_ligatures);
+        let mut cur_x = x;
+
+        for glyph in glyphs {
+            if cur_x >= self.width {
+                break;
+            }
+
+            let effective_cov = if hinting != HintingLevel::None {
+                FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, hinting)
+            } else {
+                glyph.coverage.clone()
+            };
+
+            let max_w = (cur_x + glyph.width).min(self.width) - cur_x;
+            let max_h = (y + glyph.height).min(self.height) - y;
+
+            for row in 0..max_h {
+                let py = y + row;
+                let row_offset = row * glyph.width;
+                let fb_offset = py * self.width + cur_x;
+
+                for col in 0..max_w {
+                    let mut alpha = effective_cov[row_offset + col];
+                    if alpha == 0 {
+                        if let Some(bg_color) = bg {
+                            self.pixels[fb_offset + col] = bg_color;
+                        }
+                    } else if alpha == 255 {
+                        self.pixels[fb_offset + col] = fg;
+                    } else {
+                        let dst = match bg {
+                            Some(bg_color) => bg_color,
+                            None => self.pixels[fb_offset + col],
+                        };
+                        if edge_enhance {
+                            alpha = EdgePerception::adapt_edge_coverage(alpha, fg, dst);
+                        }
+                        self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                    }
+                }
+            }
+
+            cur_x += glyph.width;
+        }
+    }
+
+    /// Analytical geometric anti-aliased line with subpixel coordinates and thickness.
+    #[inline]
+    pub fn draw_line_aa(&mut self, x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: u32) {
+        AnalyticAA::draw_line(self, x0, y0, x1, y1, width, color);
+    }
+
+    /// Analytical anti-aliased circle.
+    #[inline]
+    pub fn fill_circle_aa(&mut self, cx: f64, cy: f64, radius: f64, color: u32) {
+        AnalyticAA::fill_circle(self, cx, cy, radius, color);
+    }
+
+    /// Analytical anti-aliased circle outline (ring).
+    #[inline]
+    pub fn draw_circle_aa(&mut self, cx: f64, cy: f64, radius: f64, stroke_width: f64, color: u32) {
+        AnalyticAA::draw_circle_outline(self, cx, cy, radius, stroke_width, color);
+    }
+
+    /// Analytical anti-aliased rounded rectangle with exact SDF coverage.
+    #[inline]
+    pub fn fill_rounded_rect_aa(&mut self, x: f64, y: f64, w: f64, h: f64, radius: f64, color: u32) {
+        AnalyticAA::fill_rounded_rect(self, x, y, w, h, radius, color);
+    }
+
+    /// Analytical anti-aliased rounded rectangle with transparency.
+    #[inline]
+    pub fn fill_rounded_rect_alpha_aa(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        radius: f64,
+        color: u32,
+        alpha: u8,
+    ) {
+        AnalyticAA::fill_rounded_rect_alpha(self, x, y, w, h, radius, color, alpha);
+    }
+
+    /// Analytical anti-aliased rounded rectangle outline.
+    #[inline]
+    pub fn draw_rounded_outline_aa(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        radius: f64,
+        stroke_width: f64,
+        color: u32,
+    ) {
+        AnalyticAA::draw_rounded_outline(self, x, y, w, h, radius, stroke_width, color);
+    }
+
+    /// Analytical anti-aliased triangle.
+    #[inline]
+    pub fn fill_triangle_aa(&mut self, p0: (f64, f64), p1: (f64, f64), p2: (f64, f64), color: u32) {
+        AnalyticAA::fill_triangle(self, p0, p1, p2, color);
+    }
+
+    /// Fast Gaussian blur on a subregion.
+    #[inline]
+    pub fn blur_subregion(&mut self, x: usize, y: usize, w: usize, h: usize, radius: usize) {
+        BlurEngine::blur_subregion(self, x, y, w, h, radius);
+    }
+
+    /// Modern frosted glass (acrylic) backdrop.
+    #[inline]
+    pub fn frosted_glass(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        radius: usize,
+        blur_radius: usize,
+        tint_color: u32,
+        tint_alpha: u8,
+    ) {
+        BlurEngine::frosted_glass(self, x, y, w, h, radius, blur_radius, tint_color, tint_alpha);
+    }
+
+    /// Physically-based Gaussian smooth shadow.
+    pub fn draw_smooth_shadow_box(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        radius: usize,
+        blur_radius: usize,
+        offset_x: isize,
+        offset_y: isize,
+        shadow_color: u32,
+        shadow_alpha: u8,
+    ) {
+        BlurEngine::draw_smooth_shadow(self, x, y, w, h, radius, blur_radius, offset_x, offset_y, shadow_color, shadow_alpha);
+    }
+
+    /// Unsharp mask filter for perceived edge contrast enhancement.
+    #[inline]
+    pub fn unsharp_mask_region(&mut self, x: usize, y: usize, w: usize, h: usize, amount: f64) {
+        EdgePerception::unsharp_mask_region(self, x, y, w, h, amount);
     }
 
     /// Returns pixel data as a 32-bit integer slice.

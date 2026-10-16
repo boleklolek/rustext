@@ -1,10 +1,21 @@
+pub mod animation;
+pub mod analytic_aa;
+pub mod blur;
+pub mod edge_perception;
 pub mod font;
 pub mod framebuffer;
 pub mod gamma;
+pub mod hinting;
 pub mod renderer;
+pub mod shaping;
 
+pub use animation::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
+pub use analytic_aa::AnalyticAA;
+pub use blur::BlurEngine;
+pub use edge_perception::EdgePerception;
 pub use font::{get_glyph, FontRasterizer, GlyphCoverage16, FONT_HEIGHT, FONT_WIDTH};
 pub use framebuffer::Framebuffer;
 pub use gamma::{blend_channel_gamma, blend_pixel_gamma, blend_pixel_naive, GAMMA};
+pub use hinting::{FontHinter, HintingLevel};
 pub use renderer::{GfxRenderer, ScrollbarGeometry, ThemeColors};
-
+pub use shaping::{FontShaper, LigatureKind, ShapedGlyph};

@@ -2413,5 +2413,296 @@ fn test_hidpi_framebuffer_and_editor_full_frame() {
     assert!(status_pixels > 0, "Status bar should be rendered in bottom 44 pixels");
 }
 
+#[test]
+fn test_font_shaping_ligatures_and_combining_marks() {
+    use rustext::gfx::{FontShaper, LigatureKind};
 
+    // 1. Prefix matching
+    assert_eq!(LigatureKind::match_prefix("-> hello"), Some((LigatureKind::Arrow, 2)));
+    assert_eq!(LigatureKind::match_prefix("=> world"), Some((LigatureKind::FatArrow, 2)));
+    assert_eq!(LigatureKind::match_prefix("!= 0"), Some((LigatureKind::NotEqual, 2)));
+    assert_eq!(LigatureKind::match_prefix("=== 1"), Some((LigatureKind::TripleEqual, 3)));
+    assert_eq!(LigatureKind::match_prefix("!== null"), Some((LigatureKind::NotDoubleEqual, 3)));
+    assert_eq!(LigatureKind::match_prefix("<= 10"), Some((LigatureKind::LessEqual, 2)));
+    assert_eq!(LigatureKind::match_prefix(">= 20"), Some((LigatureKind::GreaterEqual, 2)));
+    assert_eq!(LigatureKind::match_prefix(":= val"), Some((LigatureKind::Walrus, 2)));
+    assert_eq!(LigatureKind::match_prefix("&& cond"), Some((LigatureKind::LogicalAnd, 2)));
+    assert_eq!(LigatureKind::match_prefix("|| other"), Some((LigatureKind::LogicalOr, 2)));
+    assert_eq!(LigatureKind::match_prefix("::scope"), Some((LigatureKind::Scope, 2)));
+    assert_eq!(LigatureKind::match_prefix("..10"), Some((LigatureKind::Range, 2)));
+    assert_eq!(LigatureKind::match_prefix("...rest"), Some((LigatureKind::Ellipsis, 3)));
 
+    // 2. Shape text with ligatures enabled
+    let shaped = FontShaper::shape_text("fn test() -> bool { a == b && c != d }", 1, true);
+    let lig_clusters: Vec<&str> = shaped.iter().filter(|g| g.is_ligature).map(|g| g.cluster.as_str()).collect();
+    assert!(lig_clusters.contains(&"->"));
+    assert!(lig_clusters.contains(&"=="));
+    assert!(lig_clusters.contains(&"&&"));
+    assert!(lig_clusters.contains(&"!="));
+
+    // Verify ligature cell dimensions
+    let arrow_glyph = shaped.iter().find(|g| g.cluster == "->").unwrap();
+    assert_eq!(arrow_glyph.advance_cells, 2);
+    assert_eq!(arrow_glyph.width, 16); // 8 * 2
+    assert_eq!(arrow_glyph.height, 16);
+    assert!(!arrow_glyph.coverage.is_empty());
+
+    // 3. Shape text with ligatures disabled
+    let plain = FontShaper::shape_text("->", 1, false);
+    assert_eq!(plain.len(), 2);
+    assert_eq!(plain[0].cluster, "-");
+    assert_eq!(plain[1].cluster, ">");
+    assert!(!plain[0].is_ligature);
+
+    // 4. Combining diacritic shaping ('a' + combining acute)
+    let combining_text = "a\u{0301}";
+    let shaped_combining = FontShaper::shape_text(combining_text, 1, true);
+    assert_eq!(shaped_combining.len(), 1);
+    assert_eq!(shaped_combining[0].advance_cells, 1);
+}
+
+#[test]
+fn test_font_hinting_stem_snapping_and_levels() {
+    use rustext::gfx::{FontHinter, HintingLevel};
+
+    assert_eq!(HintingLevel::from_str("none"), HintingLevel::None);
+    assert_eq!(HintingLevel::from_str("slight"), HintingLevel::Slight);
+    assert_eq!(HintingLevel::from_str("medium"), HintingLevel::Medium);
+    assert_eq!(HintingLevel::from_str("full"), HintingLevel::Full);
+
+    assert_eq!(FontHinter::snap_to_pixel(14.4), 14);
+    assert_eq!(FontHinter::snap_to_pixel(14.6), 15);
+    assert_eq!(FontHinter::snap_coord(10.3, HintingLevel::None), 10.3);
+    assert_eq!(FontHinter::snap_coord(10.3, HintingLevel::Medium), 10.0);
+
+    // Baseline snapping
+    let baseline = FontHinter::snap_baseline(100, 20, 16, HintingLevel::Medium);
+    assert_eq!(baseline, 102);
+
+    // Coverage stem hinting
+    let mut raw_cov = vec![0u8; 8 * 16];
+    // Split vertical stroke between col 3 and col 4
+    for y in 2..14 {
+        raw_cov[y * 8 + 3] = 120;
+        raw_cov[y * 8 + 4] = 120;
+    }
+    let hinted = FontHinter::hint_coverage(&raw_cov, 8, 16, HintingLevel::Medium);
+    // Dominant column should be boosted and split bleed attenuated
+    let col3_sum: u32 = (2..14).map(|y| hinted[y * 8 + 3] as u32).sum();
+    let col4_sum: u32 = (2..14).map(|y| hinted[y * 8 + 4] as u32).sum();
+    assert!(col3_sum > 120 * 12 || col4_sum > 120 * 12, "Hinting should consolidate energy into dominant stem column");
+}
+
+#[test]
+fn test_analytic_geometric_anti_aliasing() {
+    use rustext::gfx::{AnalyticAA, Framebuffer};
+
+    let mut fb = Framebuffer::new(100, 100);
+    fb.clear(0x00000000);
+
+    // 1. Analytical anti-aliased line
+    AnalyticAA::draw_line(&mut fb, 10.2, 10.4, 90.7, 50.3, 2.0, 0x00FFFFFF);
+    assert_ne!(fb.get_pixel(10, 10), 0);
+    assert_ne!(fb.get_pixel(90, 50), 0);
+
+    // 2. Analytical anti-aliased circle
+    fb.clear(0x00000000);
+    AnalyticAA::fill_circle(&mut fb, 50.0, 50.0, 20.0, 0x00FF0000);
+    assert_eq!(fb.get_pixel(50, 50), 0x00FF0000);
+    // Boundary pixel at radius ~20.0 should have non-zero anti-aliased alpha
+    assert_ne!(fb.get_pixel(69, 50), 0);
+    // Pixel outside radius 22.0 should remain background
+    assert_eq!(fb.get_pixel(75, 50), 0);
+
+    // 3. Analytical circle outline
+    fb.clear(0x00000000);
+    AnalyticAA::draw_circle_outline(&mut fb, 50.0, 50.0, 20.0, 2.0, 0x0000FF00);
+    assert_eq!(fb.get_pixel(50, 50), 0x00000000); // Hollow interior
+    assert_ne!(fb.get_pixel(69, 50), 0x00000000); // Ring stroke
+
+    // 4. Exact SDF rounded rectangle
+    fb.clear(0x00000000);
+    AnalyticAA::fill_rounded_rect(&mut fb, 10.0, 10.0, 60.0, 40.0, 8.0, 0x000000FF);
+    assert_ne!(fb.get_pixel(40, 30), 0);
+    // Outer corner at (10, 10) outside radius 8 arc should be background
+    assert_eq!(fb.get_pixel(10, 10), 0);
+    // Pixel inside the rounded corner arc should be filled
+    assert_ne!(fb.get_pixel(15, 15), 0);
+
+    // 5. Analytical triangle
+    fb.clear(0x00000000);
+    AnalyticAA::fill_triangle(&mut fb, (20.0, 20.0), (80.0, 20.0), (50.0, 80.0), 0x00FFFF00);
+    assert_ne!(fb.get_pixel(50, 40), 0);
+    assert_eq!(fb.get_pixel(10, 10), 0);
+}
+
+#[test]
+fn test_blur_engine_gaussian_frosted_glass_and_shadows() {
+    use rustext::gfx::{BlurEngine, Framebuffer};
+
+    let mut fb = Framebuffer::new(80, 80);
+    fb.clear(0x00000000);
+
+    // Set a bright impulse block at center
+    fb.fill_rect(38, 38, 4, 4, 0x00FFFFFF);
+    assert_eq!(fb.get_pixel(30, 30), 0);
+
+    // Apply fast 3-pass Gaussian blur
+    BlurEngine::gaussian_blur_argb(&mut fb.pixels, 80, 80, 5);
+    // Impulse energy should spread smoothly to surrounding pixels
+    assert_ne!(fb.get_pixel(35, 35), 0);
+    assert_ne!(fb.get_pixel(45, 45), 0);
+
+    // Frosted glass effect
+    let mut glass_fb = Framebuffer::new(100, 100);
+    glass_fb.clear(0x00202020);
+    BlurEngine::frosted_glass(&mut glass_fb, 10, 10, 60, 40, 6, 3, 0x001A1B26, 180);
+    assert_ne!(glass_fb.get_pixel(30, 30), 0x00202020);
+
+    // Smooth drop shadow
+    let mut shadow_fb = Framebuffer::new(120, 120);
+    shadow_fb.clear(0x00FFFFFF);
+    BlurEngine::draw_smooth_shadow(&mut shadow_fb, 20, 20, 60, 40, 6, 4, 0, 4, 0x00000000, 80);
+    // Pixel underneath/offset from shadow should be darkened from pure white
+    assert_ne!(shadow_fb.get_pixel(50, 45), 0x00FFFFFF);
+}
+
+#[test]
+fn test_animation_curves_easings_and_cubic_bezier() {
+    use rustext::gfx::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
+
+    // 1. Easing boundaries
+    let easings = [
+        Easing::Linear,
+        Easing::EaseInQuad,
+        Easing::EaseOutQuad,
+        Easing::EaseInOutQuad,
+        Easing::EaseInCubic,
+        Easing::EaseOutCubic,
+        Easing::EaseInOutCubic,
+        Easing::EaseInExpo,
+        Easing::EaseOutExpo,
+        Easing::EaseOutBack,
+        Easing::EaseOutBounce,
+        Easing::EaseOutElastic,
+    ];
+
+    for easing in &easings {
+        let start_val = easing.evaluate(0.0);
+        let end_val = easing.evaluate(1.0);
+        assert!((start_val - 0.0).abs() < 1e-4, "{:?} at 0.0 should be 0.0, got {}", easing, start_val);
+        assert!((end_val - 1.0).abs() < 1e-4, "{:?} at 1.0 should be 1.0, got {}", easing, end_val);
+    }
+
+    // 2. Cubic-Bézier solver
+    let ease = CubicBezier::ease();
+    assert_eq!(ease.sample(0.0), 0.0);
+    assert_eq!(ease.sample(1.0), 1.0);
+    let mid = ease.sample(0.5);
+    assert!(mid > 0.0 && mid < 1.0);
+
+    let ease_out = CubicBezier::ease_out();
+    assert!(ease_out.sample(0.2) > 0.2); // Ease out starts fast
+
+    // 3. Stateful AnimatedFloat
+    let mut anim = AnimatedFloat::new(0.0);
+    assert_eq!(anim.current, 0.0);
+    assert!(anim.is_finished);
+
+    anim.animate_to(100.0, 200.0, Easing::EaseOutQuad);
+    assert!(!anim.is_finished);
+
+    // Step 100ms (halfway)
+    let val_half = anim.update(100.0);
+    assert!(val_half > 0.0 && val_half < 100.0);
+    assert!(!anim.is_finished);
+
+    // Step remaining 100ms
+    let val_end = anim.update(100.0);
+    assert_eq!(val_end, 100.0);
+    assert!(anim.is_finished);
+
+    // 4. Spring physics oscillator
+    let mut spring = SpringAnimation::new(0.0);
+    spring.set_target(50.0);
+    for _ in 0..100 {
+        spring.step(0.016);
+    }
+    assert!((spring.value - 50.0).abs() < 1.0, "Spring should settle near target 50.0");
+}
+
+#[test]
+fn test_edge_perception_contrast_and_unsharp_mask() {
+    use rustext::gfx::{EdgePerception, Framebuffer};
+
+    // 1. Relative luminance ITU-R BT.709
+    let lum_black = EdgePerception::relative_luminance(0x00000000);
+    let lum_white = EdgePerception::relative_luminance(0x00FFFFFF);
+    assert_eq!(lum_black, 0.0);
+    assert!((lum_white - 1.0).abs() < 1e-4);
+
+    // 2. Weber-Fechner edge contrast adaptation
+    let alpha_mid = 128u8;
+    // Dark mode (white text on dark background): should boost edge coverage slightly
+    let adapted_dark = EdgePerception::adapt_edge_coverage(alpha_mid, 0x00FFFFFF, 0x001A1B26);
+    assert!(adapted_dark >= alpha_mid);
+
+    // Light mode (dark text on white background): preserves slender stems
+    let adapted_light = EdgePerception::adapt_edge_coverage(alpha_mid, 0x00000000, 0x00FFFFFF);
+    assert!(adapted_light <= alpha_mid);
+
+    // 3. Mask sharpening with Laplacian
+    let mut mask = vec![0u8; 5 * 5];
+    mask[2 * 5 + 2] = 128; // Single edge transition pixel
+    let sharpened = EdgePerception::sharpen_coverage_mask(&mask, 5, 5, 0.5);
+    assert!(sharpened[2 * 5 + 2] >= 128);
+
+    // 4. Unsharp masking on Framebuffer
+    let mut fb = Framebuffer::new(30, 30);
+    fb.clear(0x00101010);
+    fb.fill_rect(10, 10, 10, 10, 0x00EEEEEE);
+    EdgePerception::unsharp_mask_region(&mut fb, 5, 5, 20, 20, 0.5);
+    assert_ne!(fb.get_pixel(15, 15), 0);
+}
+
+#[test]
+fn test_modern_gfx_config_and_renderer_integration() {
+    use rustext::editor::config::EditorConfig;
+    use rustext::gfx::{Framebuffer, GfxRenderer, HintingLevel};
+
+    let ini = "[gui]\nfont_ligatures = true\nfont_hinting = full\nsmooth_shadows = true\nanimation_enabled = true\nedge_perception = true\n";
+    let config = EditorConfig::parse(ini);
+    assert!(config.gui.font_ligatures);
+    assert_eq!(config.gui.font_hinting, "full");
+    assert!(config.gui.smooth_shadows);
+    assert!(config.gui.animation_enabled);
+    assert!(config.gui.edge_perception);
+
+    let serialized = config.to_ini_string();
+    assert!(serialized.contains("font_ligatures = true"));
+    assert!(serialized.contains("font_hinting = full"));
+    assert!(serialized.contains("smooth_shadows = true"));
+
+    let mut fb = Framebuffer::new(200, 60);
+    fb.clear(0x0016161E);
+
+    // Draw shaped text with ligatures, hinting, and edge perception
+    fb.draw_shaped_text("a => b != c", 10, 20, 0x007AA2F7, None, true, HintingLevel::Full, true);
+
+    // Verify non-empty pixel drawing
+    let mut painted_pixels = 0;
+    for y in 0..60 {
+        for x in 0..200 {
+            if fb.get_pixel(x, y) != 0x0016161E {
+                painted_pixels += 1;
+            }
+        }
+    }
+    assert!(painted_pixels > 20, "Shaped text with ligatures should be rendered onto framebuffer");
+
+    // Test renderer shadow delegation
+    let renderer = GfxRenderer::new();
+    assert!(renderer.smooth_shadows);
+    assert!(renderer.font_ligatures);
+    renderer.render_shadow(&mut fb, 20, 20, 80, 30, 6, 4);
+}

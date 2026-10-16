@@ -118,6 +118,11 @@ pub struct GuiSettings {
     pub git_gutter: bool,
     pub terminal_height: usize,
     pub terminal_shell: String,
+    pub font_ligatures: bool,
+    pub font_hinting: String,
+    pub smooth_shadows: bool,
+    pub animation_enabled: bool,
+    pub edge_perception: bool,
 }
 
 impl Default for GuiSettings {
@@ -144,6 +149,11 @@ impl Default for GuiSettings {
             git_gutter: true,
             terminal_height: 180,
             terminal_shell: String::new(),
+            font_ligatures: true,
+            font_hinting: "medium".to_string(),
+            smooth_shadows: true,
+            animation_enabled: true,
+            edge_perception: true,
         }
     }
 }
@@ -312,6 +322,11 @@ minimap_width = {}
 git_gutter = {}
 terminal_height = {}
 terminal_shell = {}
+font_ligatures = {}
+font_hinting = {}
+smooth_shadows = {}
+animation_enabled = {}
+edge_perception = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -348,6 +363,11 @@ terminal_shell = {}
             self.gui.git_gutter,
             self.gui.terminal_height,
             self.gui.terminal_shell,
+            self.gui.font_ligatures,
+            self.gui.font_hinting,
+            self.gui.smooth_shadows,
+            self.gui.animation_enabled,
+            self.gui.edge_perception,
         )
     }
 
@@ -571,6 +591,31 @@ terminal_shell = {}
                         }
                         "terminal_shell" => {
                             config.gui.terminal_shell = val_unquoted.to_string();
+                        }
+                        "font_ligatures" => {
+                            if let Some(b) = as_bool {
+                                config.gui.font_ligatures = b;
+                            }
+                        }
+                        "font_hinting" => {
+                            if !val_unquoted.is_empty() {
+                                config.gui.font_hinting = val_unquoted.to_string();
+                            }
+                        }
+                        "smooth_shadows" => {
+                            if let Some(b) = as_bool {
+                                config.gui.smooth_shadows = b;
+                            }
+                        }
+                        "animation_enabled" => {
+                            if let Some(b) = as_bool {
+                                config.gui.animation_enabled = b;
+                            }
+                        }
+                        "edge_perception" => {
+                            if let Some(b) = as_bool {
+                                config.gui.edge_perception = b;
+                            }
                         }
                         _ => {}
                     },

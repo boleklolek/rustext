@@ -98,6 +98,15 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Mapeo bidireccional exacto de eventos de entrada de ratón y cursor con precisión de subpíxel/píxel físico.
   - Totalmente configurable desde `config.ini` (`scale_factor = 0.0` para autodetección, o fijar factores explícitos como `1.5`, `2.0`).
 
+- **Font Shaping, Hinting, Antialiasing Analítico y Efectos Visuales**:
+  - **Font Shaping y Ligaduras de Programación**: Detección y renderizado continuo de ligaduras de código (`->`, `=>`, `!=`, `==`, `===`, `!==`, `<=`, `>=`, `:=`, `&&`, `||`, `::`, `..`, `...`, `/*`, `*/`, `++`, `--`), con preservación estricta de la celda monoespaciada y soporte de marcas combinadas Unicode.
+  - **Alineación al Píxel (Font Hinting)**: Algoritmo de grid-fitting y *stem snapping* que bloquea trazos verticales, barras horizontales y líneas base a la cuadrícula entera de píxeles físicos, evitando tallos borrosos o débiles (`none`, `slight`, `medium`, `full`).
+  - **Antialiasing Geométrico Analítico (Exact SDF)**: Cálculo de cobertura analítica sin supersampling para primitivas 2D: líneas con espesor subpíxel (Xiaolin Wu), círculos y anillos, esquinas redondeadas matemáticas mediante campos de distancia con signo (SDF 2D Box), contornos redondeados y triángulos analíticos.
+  - **Sombras Suaves y Desenfoque Gaussiano $\mathcal{O}(1)$**: Desenfoque rápido separable mediante 3 pasadas de caja con ventana deslizante móvil $\mathcal{O}(1)$ independiente del radio. Efecto *Frosted Glass* (acrílico translúcido con borde reflectante) y sombras suaves atenuadas físicamente para ventanas flotantes y diálogos modales.
+  - **Curvas de Animación (Easing) y Físicas de Resorte**: Familia completa de curvas paramétricas (Quad, Cubic, Quart, Expo, Circ, Back, Bounce, Elastic), solver de curvas Cubic-Bézier estilo CSS (`cubic-bezier(x1, y1, x2, y2)`) con iteración Newton-Raphson, y oscilador armónico amortiguado para físicas elásticas.
+  - **Percepción de Bordes y Contraste Adaptativo**: Ajuste perceptivo según la ley de Weber-Fechner y la norma ITU-R BT.709 para modular el contraste del contorno tipográfico entre temas oscuros y claros, neutralizando la irradiación visual y ofreciendo filtro *unsharp masking* laplaciano.
+  - Configurable desde `config.ini` (`font_ligatures = true`, `font_hinting = medium`, `smooth_shadows = true`, `animation_enabled = true`, `edge_perception = true`).
+
 - **Árbol de Proyecto y Explorador Lateral (File Explorer)**:
   - Barra lateral acoplada a la izquierda con visibilidad alternable mediante `Ctrl + B`.
   - Escaneo perezoso de carpetas (solo inspecciona en disco lo que se expande).
@@ -316,6 +325,11 @@ terminal_height = 180
 terminal_shell = ""   # Dejar vacío para autodetectar ($SHELL, bash, sh, cmd)
 font_antialiasing = true
 gamma_correction = true
+font_ligatures = true     # Ligaduras de programación continuas (->, =>, !=, ==, etc.)
+font_hinting = medium     # Alineación al píxel: none, slight, medium, full
+smooth_shadows = true     # Sombras suaves gaussianas y efecto frosted glass acrílico
+animation_enabled = true  # Transiciones y curvas de aceleración (easing)
+edge_perception = true    # Adaptación de contraste perceptual de bordes (Weber-Fechner)
 ```
 
 ---

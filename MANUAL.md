@@ -16,6 +16,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
    - [3.3 Terminal Integrado Nativo Acoplado](#33-terminal-integrado-nativo-acoplado-ctrl---ctrl-)
    - [3.4 Rasterizador de Fuentes Tipográficas y Corrección Gamma (sRGB IEC 61966-2-1)](#34-rasterizador-de-fuentes-tipográficas-y-corrección-gamma-srgb-iec-61966-2-1)
    - [3.5 Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor](#35-soporte-hidpi-nativo-y-escalado-de-coordenadas-del-monitor)
+   - [3.6 Font Shaping, Hinting, Antialiasing Analítico y Efectos Visuales](#36-font-shaping-hinting-antialiasing-analítico-y-efectos-visuales)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -292,6 +293,75 @@ Los clics del ratón, desplazamientos y detecciones de hover se calculan con exa
 [gui]
 # Factor de escala HiDPI: 0.0 para autodetección por monitor/OS; o fijar valores como 1.0, 1.5, 2.0
 scale_factor = 0.0
+```
+
+---
+
+### 3.6 Font Shaping, Hinting, Antialiasing Analítico y Efectos Visuales
+
+Rustext incorpora un subsistema de renderizado tipográfico y geométrico avanzado de nivel profesional, escrito íntegramente en Rust estándar sin bibliotecas externas.
+
+#### 1. Font Shaping y Ligaduras de Programación (`src/gfx/shaping.rs`)
+- **Ligaduras Continuas de Código**: Detección léxica y rasterizado vectorizado continuo para los operadores de programación más frecuentes:
+  - Flechas: `->` (flecha delgada continua), `=>` (flecha gruesa fat-arrow doble)
+  - Comparadores: `==` (doble barra extendida), `!=` (desigualdad con barra transversal), `===` (triple barra), `!==` (triple barra tachada), `<=` (menor o igual), `>=` (mayor o igual)
+  - Asignación y bloques: `:=` (walrus operator con dos puntos centrados), `&&` (doble ampersand balanceado), `||` (barras verticales paralelas), `::` (resolución de ámbito alineada)
+  - Rangos y comentarios: `..` (rango doble punto), `...` (puntos suspensivos en 3 celdas), `/*` y `*/` (apertura y cierre de bloque), `++` e `--` (incremento y decremento)
+- **Preservación Estricta de la Cuadrícula Monoespaciada**: Cada ligadura ocupa exactamente $N \times W$ píxeles (donde $N$ es la cantidad de caracteres originales y $W$ el ancho de columna), garantizando que el cursor, selecciones multicursor y columnas de código no se desalineen.
+- **Composición de Marcas Diacríticas Unicode**: Combina caracteres base con marcas diacríticas (`\u{0300}`..=`\u{036F}`) en glifos compuestos directos (`á`, `é`, `í`, `ó`, `ú`, `ñ`, `ü`, etc.).
+
+#### 2. Alineación al Píxel (Font Hinting - `src/gfx/hinting.rs`)
+- **Grid-Fitting y Stem Snapping**: Analiza la distribución de energía del trazo en el glifo y bloquea los tallos verticales y travesaños horizontales a la cuadrícula de píxeles enteros. Evita el desenfoque producido cuando un trazo cae al 50% entre dos columnas contiguas.
+- **Alineación de Línea Base**: Fija la línea base tipográfica en coordenadas enteras exactas del framebuffer.
+- **Control de Contraste Mínimo**: Refuerza los píxeles centrales de trazos delgados para evitar que se desvanezcan en fondos oscuros.
+- **Niveles Configurables**:
+  - `none`: Cobertura continua en coma flotante.
+  - `slight`: Alineación de línea base y métricas verticales.
+  - `medium`: Alineación de línea base y ajuste de tallos verticales (Recomendado).
+  - `full`: Bloqueo completo de cuadrícula en ambos ejes.
+
+#### 3. Antialiasing Geométrico Analítico (Exact SDF - `src/gfx/analytic_aa.rs`)
+- **Cobertura Subpíxel Exacta sin Supersampling**:
+  - **Líneas Analíticas (Xiaolin Wu)**: Trazado de líneas con coordenadas y espesores continuos (`width: f64`), calculando la distancia perpendicular exacta de cada píxel al segmento.
+  - **Círculos y Anillos**: Evaluación analítica de cobertura $\text{clamp}(0.5 + r - d, 0.0, 1.0)$, produciendo bordes 100% lisos sin dientes de sierra.
+  - **Rectángulos Redondeados por SDF 2D Box**: Cálculo exacto mediante campo de distancia con signo:
+    $$q = (|p - c| - (\text{half\_size} - r))^+, \quad d = \|q\| + \min(\max(q_x, q_y), 0) - r$$
+    $$\text{cobertura} = \text{clamp}(0.5 - d, 0.0, 1.0)$$
+    Proporciona esquinas redondeadas matemáticas perfectas con antialiasing analítico para modales, chips de sintaxis y pestañas.
+  - **Triángulos Analíticos**: Cobertura evaluada mediante distancias de borde con signo.
+
+#### 4. Sombras Suaves y Desenfoque Gaussiano $\mathcal{O}(1)$ (`src/gfx/blur.rs`)
+- **Desenfoque Separable en Tiempo Constante**:
+  - Por el Teorema del Límite Central, 3 pasadas horizontales y verticales de filtro de caja (*box blur*) convergen exactamente a un desenfoque Gaussiano 2D.
+  - Implementación con ventana móvil acumulativa: **coste computacional $\mathcal{O}(1)$ por píxel** sin importar la amplitud del radio de desenfoque.
+- **Efecto Frosted Glass (Acrílico Translúcido)**:
+  - Extrae y desenfoca la región inferior del framebuffer, aplica un tinte acrílico translúcido y añade un destello especular superior de 1 píxel para una estética moderna de profundidad de escritorio.
+- **Sombras Suaves Físicamente Atenuadas**:
+  - Genera una máscara SDF de la forma del widget, aplica el desenfoque Gaussiano separable y compone la sombra con atenuación y desplazamiento configurable.
+
+#### 5. Curvas de Animación y Físicas de Resorte (`src/gfx/animation.rs`)
+- **Familia de Funciones Easing**:
+  - `Linear`, `EaseInQuad`, `EaseOutQuad`, `EaseInOutQuad`, `EaseInCubic`, `EaseOutCubic`, `EaseInOutCubic`, `EaseInQuart`, `EaseOutQuart`, `EaseInExpo`, `EaseOutExpo`, `EaseOutBack`, `EaseOutBounce`, `EaseOutElastic`.
+- **Solver Cubic-Bézier estilo CSS**:
+  - Curvas paramétricas `cubic-bezier(x1, y1, x2, y2)` con resolución iterativa de raíces mediante el método de Newton-Raphson y subdivisión binaria de respaldo.
+- **Oscilador Físico de Resorte (Spring Physics)**:
+  - Simula oscilaciones dinámicas naturales ($m \ddot{x} + c \dot{x} + k x = 0$) para animaciones fluidas del cursor y deslizamiento de scroll.
+
+#### 6. Percepción de Bordes y Contraste Adaptativo (`src/gfx/edge_perception.rs`)
+- **Ley de Weber-Fechner y Norma ITU-R BT.709**:
+  - La percepción visual humana del contraste de bordes es no lineal. El motor calcula la luminancia relativa del texto y el fondo para modular la curva S de contraste en los bordes.
+  - Neutraliza la ilusión de irradiación visual (engrosamiento percibido o adelgazamiento de texto blanco sobre fondos oscuros como Tokyo Night o Catppuccin).
+- **Filtro Unsharp Masking Laplaciano**:
+  - Operador espacial diferencial que realza suavemente las altas frecuencias en los contornos tipográficos y elementos de interfaz.
+
+#### 7. Configuración en `config.ini`
+```ini
+[gui]
+font_ligatures = true     # Activar ligaduras de programación continuas (->, =>, !=, ==, etc.)
+font_hinting = medium     # Nivel de alineación a la rejilla: none, slight, medium, full
+smooth_shadows = true     # Sombras suaves gaussianas y efecto frosted glass acrílico
+animation_enabled = true  # Activar animaciones y curvas de aceleración (easing)
+edge_perception = true    # Adaptación de contraste perceptual de bordes (Weber-Fechner)
 ```
 
 ---
@@ -695,6 +765,11 @@ minimap_width = 100      # Ancho del minimapa en píxeles (default: 100)
 git_gutter = true        # Mostrar diff de líneas en el gutter (+ verde, ~ azul, ▲ rojo)
 font_antialiasing = true # Suavizado de fuentes tipográficas con anti-aliasing espacial
 gamma_correction = true  # Composición física de color con corrección gamma IEC 61966-2-1
+font_ligatures = true    # Activar ligaduras de programación continuas (->, =>, !=, ==, etc.)
+font_hinting = medium    # Nivel de alineación a la rejilla de píxeles: none, slight, medium, full
+smooth_shadows = true    # Sombras suaves gaussianas O(1) y efecto frosted glass acrílico
+animation_enabled = true # Animaciones fluidas, easing y físicas de resorte
+edge_perception = true   # Ajuste adaptativo de contraste perceptual de bordes (Weber-Fechner)
 ```
 
 ---

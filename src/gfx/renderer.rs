@@ -1,8 +1,12 @@
 //! Graphical renderer translating editor state into framebuffer pixels.
 //! Zero third-party dependencies, purely standard library Rust.
 
+use super::edge_perception::EdgePerception;
 use super::font::{FONT_HEIGHT, FONT_WIDTH};
 use super::framebuffer::Framebuffer;
+use super::gamma::blend_pixel_gamma;
+use super::hinting::{FontHinter, HintingLevel};
+use super::shaping::FontShaper;
 use crate::core::syntax::{SyntaxHighlighter, TokenType};
 use crate::editor::Document;
 
@@ -562,6 +566,11 @@ pub struct GfxRenderer {
     pub git_statuses: Option<std::collections::HashMap<std::path::PathBuf, crate::editor::git::GitFileStatus>>,
     pub git_gutter_enabled: bool,
     pub terminal_inset: usize,
+    pub font_ligatures: bool,
+    pub font_hinting: HintingLevel,
+    pub smooth_shadows: bool,
+    pub animation_enabled: bool,
+    pub edge_perception: bool,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -600,6 +609,108 @@ impl GfxRenderer {
             git_statuses: None,
             git_gutter_enabled: true,
             terminal_inset: 0,
+            font_ligatures: true,
+            font_hinting: HintingLevel::Medium,
+            smooth_shadows: true,
+            animation_enabled: true,
+            edge_perception: true,
+        }
+    }
+
+    /// Renders a modern drop shadow underneath floating dialogs, menus, and overlays.
+    #[inline]
+    pub fn render_shadow(
+        &self,
+        fb: &mut Framebuffer,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        radius: usize,
+        blur: usize,
+    ) {
+        if !self.shadows {
+            return;
+        }
+        if self.smooth_shadows {
+            fb.draw_smooth_shadow_box(
+                x,
+                y,
+                w,
+                h,
+                radius,
+                blur,
+                0,
+                self.scale_coord(3) as isize,
+                0x00000000,
+                75,
+            );
+        } else {
+            fb.draw_drop_shadow(x, y, w, h, radius, blur);
+        }
+    }
+
+    /// Renders a syntax-highlighted token line with optional programming ligatures, hinting, and edge perception.
+    #[inline]
+    pub fn render_token_line(
+        &self,
+        fb: &mut Framebuffer,
+        tokens: &[crate::core::syntax::TokenSpan<'_>],
+        text_start_x: usize,
+        text_y: usize,
+        max_code_x: usize,
+        scroll_col: usize,
+        bg_color: u32,
+    ) {
+        let mut col_accum = 0;
+        let char_w = self.char_width();
+
+        for token in tokens {
+            let token_color = self.colors.token_color(token.token_type);
+            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception {
+                let shaped_glyphs = FontShaper::shape_text(&token.text, self.font_scale, self.font_ligatures);
+                for glyph in shaped_glyphs {
+                    let col = col_accum;
+                    col_accum += glyph.advance_cells;
+                    if col >= scroll_col {
+                        let px = text_start_x + (col - scroll_col) * char_w;
+                        if px + glyph.width <= max_code_x {
+                            let effective_cov = if self.font_hinting != HintingLevel::None {
+                                FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting)
+                            } else {
+                                glyph.coverage
+                            };
+                            let max_w = glyph.width.min(fb.width.saturating_sub(px));
+                            let max_h = glyph.height.min(fb.height.saturating_sub(text_y));
+                            for row in 0..max_h {
+                                let py = text_y + row;
+                                let row_offset = row * glyph.width;
+                                let fb_offset = py * fb.width + px;
+                                for c in 0..max_w {
+                                    let mut alpha = effective_cov[row_offset + c];
+                                    if alpha > 0 {
+                                        if self.edge_perception {
+                                            alpha = EdgePerception::adapt_edge_coverage(alpha, token_color, bg_color);
+                                        }
+                                        fb.pixels[fb_offset + c] = blend_pixel_gamma(bg_color, token_color, alpha);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                for ch in token.text.chars() {
+                    let col = col_accum;
+                    col_accum += 1;
+                    if col >= scroll_col {
+                        let px = text_start_x + (col - scroll_col) * char_w;
+                        if px + char_w <= max_code_x {
+                            fb.draw_char(ch, px, text_y, token_color, None);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1096,7 +1207,7 @@ impl GfxRenderer {
 
         // 1. Soft Drop Shadow
         if self.shadows {
-            fb.draw_drop_shadow(pop_x, pop_y, pop_w, pop_h, 8, 6);
+            self.render_shadow(fb, pop_x, pop_y, pop_w, pop_h, 8, 6);
         } else {
             fb.fill_rect(pop_x + 3, pop_y + 3, pop_w, pop_h, 0x00101010);
         }
@@ -1406,20 +1517,7 @@ impl GfxRenderer {
 
                 // Syntax Highlighted Tokens
                 let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
-                let mut col_accum = 0;
-                for token in tokens {
-                    let token_color = self.colors.token_color(token.token_type);
-                    for ch in token.text.chars() {
-                        let col = col_accum;
-                        col_accum += 1;
-                        if col >= doc.scroll_col {
-                            let px = text_start_x + (col - doc.scroll_col) * self.char_width();
-                            if px + self.char_width() <= max_code_x {
-                                fb.draw_char(ch, px, text_y, token_color, None);
-                            }
-                        }
-                    }
-                }
+                self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
 
                 // Cursors (only rendered if this pane is active)
                 if is_active {
@@ -1628,22 +1726,7 @@ impl GfxRenderer {
                     }
 
                     let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
-                    let mut col_accum = 0;
-
-                    for token in tokens {
-                        let token_color = self.colors.token_color(token.token_type);
-                        for ch in token.text.chars() {
-                            let col = col_accum;
-                            col_accum += 1;
-
-                            if col >= doc.scroll_col {
-                                let px = text_start_x + (col - doc.scroll_col) * self.char_width();
-                                if px + self.char_width() <= max_code_x {
-                                    fb.draw_char(ch, px, text_y, token_color, None);
-                                }
-                            }
-                        }
-                    }
+                    self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
 
                     for pos in &cursor_positions {
                         if pos.line == line_idx && pos.col >= doc.scroll_col {
@@ -1984,7 +2067,7 @@ impl GfxRenderer {
 
             // 1. Soft Drop shadow
             if self.shadows {
-                fb.draw_drop_shadow(drop_x, drop_y, drop_w, drop_h, 8, 6);
+                self.render_shadow(fb, drop_x, drop_y, drop_w, drop_h, 8, 6);
             } else {
                 fb.fill_rect(drop_x + 4, drop_y + 4, drop_w, drop_h, 0x00101010);
             }
@@ -2261,7 +2344,7 @@ impl GfxRenderer {
 
         // 2. Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+            self.render_shadow(fb, box_x, box_y, box_w, box_h, 10, 8);
         } else {
             fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
         }
@@ -2484,7 +2567,7 @@ impl GfxRenderer {
 
         // 2. Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+            self.render_shadow(fb, box_x, box_y, box_w, box_h, 10, 8);
         } else {
             fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
         }
@@ -2635,7 +2718,7 @@ impl GfxRenderer {
 
         // 2. Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 10, 8);
+            self.render_shadow(fb, box_x, box_y, box_w, box_h, 10, 8);
         } else {
             fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
         }
@@ -2811,7 +2894,7 @@ impl GfxRenderer {
 
         // 1. Soft Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(box_x, box_y, box_w, box_h, 12, 8);
+            self.render_shadow(fb, box_x, box_y, box_w, box_h, 12, 8);
         } else {
             fb.fill_rect(box_x + 6, box_y + 6, box_w, box_h, 0x000A0A0A);
         }
@@ -3017,7 +3100,7 @@ impl GfxRenderer {
 
         // Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+            self.render_shadow(fb, win_x, win_y, win_w, win_h, 12, 8);
         } else {
             fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
         }
@@ -3159,7 +3242,7 @@ impl GfxRenderer {
 
         // Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+            self.render_shadow(fb, win_x, win_y, win_w, win_h, 12, 8);
         } else {
             fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
         }
@@ -3345,7 +3428,7 @@ impl GfxRenderer {
 
         // 2. Drop shadow
         if self.shadows {
-            fb.draw_drop_shadow(win_x, win_y, win_w, win_h, 12, 8);
+            self.render_shadow(fb, win_x, win_y, win_w, win_h, 12, 8);
         } else {
             fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
         }

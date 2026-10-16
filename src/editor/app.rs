@@ -2832,6 +2832,11 @@ impl Editor {
         renderer.shadows = self.config.gui.shadows;
         renderer.cursor_style = self.config.gui.cursor_style.clone();
         renderer.cursor_blink = self.config.gui.cursor_blink;
+        renderer.font_ligatures = self.config.gui.font_ligatures;
+        renderer.font_hinting = crate::gfx::HintingLevel::from_str(&self.config.gui.font_hinting);
+        renderer.smooth_shadows = self.config.gui.smooth_shadows;
+        renderer.animation_enabled = self.config.gui.animation_enabled;
+        renderer.edge_perception = self.config.gui.edge_perception;
         self.sidebar.is_visible = self.config.gui.sidebar;
         self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
         renderer.minimap_enabled = self.config.gui.minimap;
@@ -2885,6 +2890,11 @@ impl Editor {
                 renderer.shadows = self.config.gui.shadows;
                 renderer.cursor_style = self.config.gui.cursor_style.clone();
                 renderer.cursor_blink = self.config.gui.cursor_blink;
+                renderer.font_ligatures = self.config.gui.font_ligatures;
+                renderer.font_hinting = crate::gfx::HintingLevel::from_str(&self.config.gui.font_hinting);
+                renderer.smooth_shadows = self.config.gui.smooth_shadows;
+                renderer.animation_enabled = self.config.gui.animation_enabled;
+                renderer.edge_perception = self.config.gui.edge_perception;
                 self.sidebar.is_visible = self.config.gui.sidebar;
                 self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
                 renderer.minimap_enabled = self.config.gui.minimap;
