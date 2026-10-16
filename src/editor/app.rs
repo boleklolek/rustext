@@ -128,6 +128,7 @@ pub struct Editor {
     pub git: crate::editor::git::GitManager,
     pub session_manager: crate::editor::session::SessionManager,
     pub recent_files: Vec<PathBuf>,
+    pub terminal: crate::editor::terminal_panel::TerminalPanel,
     pub should_quit: bool,
 }
 
@@ -172,6 +173,12 @@ impl Editor {
             crate::editor::session::SessionManager::add_recent_file(&mut recent_files, fp.to_path_buf(), config.editor.max_recent_files);
         }
 
+        let mut terminal = crate::editor::terminal_panel::TerminalPanel::new(root_dir);
+        terminal.height = config.gui.terminal_height;
+        if !config.gui.terminal_shell.is_empty() {
+            terminal.shell_name = config.gui.terminal_shell.clone();
+        }
+
         Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
@@ -198,6 +205,7 @@ impl Editor {
             git,
             session_manager,
             recent_files,
+            terminal,
             should_quit: false,
         }
     }
@@ -237,6 +245,16 @@ impl Editor {
 
     /// Dispatches input key events depending on editor mode.
     pub fn handle_key(&mut self, key: Key) {
+        // If integrated terminal panel is visible and focused, route keys to it
+        if self.terminal.is_visible && self.terminal.is_focused {
+            if matches!(key, Key::Ctrl('`') | Key::Ctrl('~')) {
+                self.execute_action(EditorAction::ToggleTerminal);
+                return;
+            }
+            self.terminal.handle_key(key);
+            return;
+        }
+
         match &mut self.mode {
             EditorMode::UnsavedConfirm(dialog) => {
                 match key {
@@ -848,6 +866,24 @@ impl Editor {
             }
             EditorAction::ToggleGitGutter => {
                 self.toggle_git_gutter();
+            }
+
+            EditorAction::ToggleTerminal => {
+                self.terminal.toggle();
+                if self.terminal.is_visible {
+                    self.set_status(format!("Terminal Integrado activado ({}) - Ctrl+` para alternar", self.terminal.shell_name));
+                } else {
+                    self.set_status("Terminal Integrado oculto");
+                }
+            }
+            EditorAction::FocusTerminal => {
+                if self.terminal.is_visible {
+                    self.terminal.is_focused = true;
+                }
+            }
+            EditorAction::ClearTerminal => {
+                self.terminal.clear();
+                self.set_status("Terminal limpiado");
             }
 
             EditorAction::None => {}
@@ -2798,6 +2834,7 @@ impl Editor {
         let mut is_dragging_minimap = false;
         let mut minimap_hovered = false;
         let mut is_dragging_splitter = false;
+        let mut is_dragging_term_splitter = false;
         let mut adjust_viewport = true;
         let mut needs_redraw = true;
         let mut cached_title = String::new();
@@ -2834,6 +2871,10 @@ impl Editor {
                     self.status_message = None;
                     needs_redraw = true;
                 }
+            }
+            // Poll background terminal output if active
+            if self.terminal.is_visible && self.terminal.poll_output() {
+                needs_redraw = true;
             }
 
             // Drain all pending window events
@@ -3249,7 +3290,38 @@ impl Editor {
                                     0
                                 };
 
-                                // 0. Check Autocomplete Floating Popup Hit Test
+                                // Check Integrated Terminal interaction
+                                let term_hit = if self.terminal.is_visible {
+                                    let term_geom = renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height);
+                                    if term_geom.contains_point(x, y) {
+                                        if term_geom.is_over_close_btn(x, y) {
+                                            self.terminal.is_visible = false;
+                                            self.terminal.is_focused = false;
+                                            self.set_status("Terminal Integrado oculto");
+                                        } else if term_geom.is_over_clear_btn(x, y) {
+                                            self.terminal.clear();
+                                            self.set_status("Terminal limpiado");
+                                        } else if term_geom.is_over_splitter(x, y) {
+                                            is_dragging_term_splitter = true;
+                                        } else {
+                                            self.terminal.is_focused = true;
+                                            self.sidebar.is_focused = false;
+                                        }
+                                        needs_redraw = true;
+                                        true
+                                    } else {
+                                        if self.terminal.is_focused {
+                                            self.terminal.is_focused = false;
+                                            needs_redraw = true;
+                                        }
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if !term_hit {
+                                    // 0. Check Autocomplete Floating Popup Hit Test
                                 let ac_hit = if self.autocomplete.is_active && !self.autocomplete.items.is_empty() {
                                     let ac_geom = renderer.autocomplete_geometry(
                                         fb.width,
@@ -3533,8 +3605,13 @@ impl Editor {
                             }
                         }
                         }
+                        }
                     }
                     crate::window::WindowEvent::MouseUp { .. } => {
+                        if is_dragging_term_splitter {
+                            is_dragging_term_splitter = false;
+                            needs_redraw = true;
+                        }
                         if is_dragging_scrollbar {
                             is_dragging_scrollbar = false;
                             needs_redraw = true;
@@ -3567,7 +3644,13 @@ impl Editor {
                                 }
                             }
 
-                            if is_dragging_splitter && self.split.is_split() {
+                            if is_dragging_term_splitter {
+                                let bottom_anchor = fb.height.saturating_sub(renderer.status_bar_height);
+                                let new_height = bottom_anchor.saturating_sub(y);
+                                let max_allowed = fb.height.saturating_sub(renderer.menu_bar_height + renderer.tab_bar_height + renderer.status_bar_height + 40);
+                                self.terminal.height = new_height.clamp(60, max_allowed);
+                                needs_redraw = true;
+                            } else if is_dragging_splitter && self.split.is_split() {
                                 let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
                                 match self.split.direction {
                                     crate::editor::split::SplitDirection::Vertical => {
@@ -3674,6 +3757,12 @@ impl Editor {
                                 self.menu_bar.handle_mouse_move(x, y, crate::gfx::FONT_WIDTH);
                                 needs_redraw = true;
                             }
+                            if self.terminal.is_visible {
+                                let tg = renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height);
+                                if tg.contains_point(x, y) || tg.contains_point(mouse_x, old_my) {
+                                    needs_redraw = true;
+                                }
+                            }
                         } else {
                             needs_redraw = true;
                         }
@@ -3691,7 +3780,10 @@ impl Editor {
                             let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
                             let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                            if let EditorMode::ModalPrompt(modal) = &mut self.mode {
+                            if self.terminal.is_visible && renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height).contains_point(mouse_x, mouse_y) {
+                                self.terminal.scroll_offset = self.terminal.scroll_offset.saturating_sub(3).max(1);
+                                needs_redraw = true;
+                            } else if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                                 if modal.is_file_dialog() {
                                     modal.scroll_up(3);
                                 } else if modal.kind == PromptKind::GlobalSearch {
@@ -3737,7 +3829,10 @@ impl Editor {
                             let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
                             let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                            if let EditorMode::ModalPrompt(modal) = &mut self.mode {
+                            if self.terminal.is_visible && renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height).contains_point(mouse_x, mouse_y) {
+                                self.terminal.scroll_offset = (self.terminal.scroll_offset + 3).min(self.terminal.lines.len());
+                                needs_redraw = true;
+                            } else if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                                 if modal.is_file_dialog() {
                                     let box_h = fb.height.min(480).max(360);
                                     let list_h = box_h.saturating_sub(190);
@@ -3859,8 +3954,14 @@ impl Editor {
             let gutter_width = if renderer.show_line_numbers { (gutter_cols + 2) * crate::gfx::FONT_WIDTH } else { 8 };
             let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
 
+            let term_inset = if self.terminal.is_visible {
+                renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height).height
+            } else {
+                0
+            };
+
             let (visible_lines, visible_cols) = if self.split.is_split() {
-                let (p0_geom, p1_geom, _) = renderer.pane_geometries(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split);
+                let (p0_geom, p1_geom, _) = renderer.pane_geometries_with_inset(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split, term_inset);
                 let active_geom = if self.split.active_pane == 0 { p0_geom } else { p1_geom };
                 let pane_content_h = active_geom.height.saturating_sub(renderer.tab_bar_height);
                 let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
@@ -3871,7 +3972,7 @@ impl Editor {
                 (vl, vc)
             } else {
                 let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
-                let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height);
+                let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height + term_inset);
                 let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
                 let vl = content_h / line_height;
                 let canvas_w = fb.width.saturating_sub(sidebar_w);
@@ -3969,6 +4070,7 @@ impl Editor {
             renderer.git_branch = self.git.branch.clone();
             renderer.git_statuses = Some(self.git.file_statuses.clone());
             renderer.git_gutter_enabled = self.config.gui.git_gutter;
+            renderer.terminal_inset = term_inset;
 
             renderer.render_full_frame_with_split(
                 &mut fb,
@@ -3987,6 +4089,14 @@ impl Editor {
                 is_dragging_minimap,
                 Some(&self.autocomplete),
             );
+
+            // Render integrated terminal panel if visible
+            if self.terminal.is_visible {
+                let term_geom = renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height);
+                let hover_clear = term_geom.is_over_clear_btn(mouse_x, mouse_y);
+                let hover_close = term_geom.is_over_close_btn(mouse_x, mouse_y);
+                renderer.render_terminal_panel(&mut fb, &self.terminal, &term_geom, hover_clear, hover_close);
+            }
 
             // Render Prompt Modal if active (with interactive hover state)
             if let EditorMode::ModalPrompt(modal) = &self.mode {

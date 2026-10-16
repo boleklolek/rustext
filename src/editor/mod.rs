@@ -11,6 +11,7 @@ pub mod autocomplete;
 pub mod split;
 pub mod git;
 pub mod session;
+pub mod terminal_panel;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -25,3 +26,4 @@ pub use autocomplete::{AutocompleteState, CompletionItem, CompletionKind};
 pub use split::{SplitDirection, SplitState};
 pub use git::{GitManager, GitFileStatus, GitLineStatus, GitGutterDiff};
 pub use session::{SessionManager, SessionState, TabSession};
+pub use terminal_panel::TerminalPanel;

@@ -106,6 +106,14 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Resaltado de nombre de archivo con ruta de directorio atenuada, navegación por teclado (`↑`/`↓`/`Enter`) y clics de ratón con efectos hover.
   - Historial persistente deduplicado y configurable con límite máximo (`max_recent_files = 20`).
 
+- **Terminal Integrado Nativo Acoplado (`Ctrl + \`` / `Ctrl + ~`)**:
+  - Panel de consola interactivo acoplado en la parte inferior del editor para compilar, ejecutar pruebas o interactuar con el sistema sin salir de Rustext.
+  - Detección automática del shell del sistema (`$SHELL`, `/bin/bash`, `/bin/sh` o `cmd.exe`/PowerShell).
+  - Comunicación asíncrona bidireccional no bloqueante mediante pipes nativos (`Stdio::piped()`) y canales en segundo plano.
+  - Barra de división (splitter) arrastrable con el ratón para redimensionar la consola en tiempo real.
+  - Botones interactivos en cabecera `[Limpiar]` y `[x]` para cerrar, historial de comandos (`↑`/`↓`), atajos de interrupción `Ctrl+C` y limpieza `Ctrl+L`.
+  - Configurable desde `config.ini` (`terminal_height = 180`, `terminal_shell = ""`).
+
 - **Autocompletado Contextual Inteligente (`Ctrl + Espacio`)**:
   - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
   - Palabras clave nativas por lenguaje (Rust, Python, C, C++, Go, JS, TS) más identificadores extraídos en vivo de todos los búferes abiertos.
@@ -204,6 +212,7 @@ cargo run --release --bin memory_profile
 | `Ctrl + B` | **Alternar Explorador Lateral (Árbol de Proyecto)** |
 | `Ctrl + Shift + G` | **Actualizar Estado Git (Git Refresh)** |
 | `Ctrl + M` | **Alternar Minimapa Gráfico de Código** |
+| `Ctrl + \`` / `Ctrl + ~` | **Alternar Terminal Integrado Nativo (Consola)** |
 | `Ctrl + \` | **Alternar División Vertical de Pantalla (Split Editor)** |
 | `Ctrl + Shift + \` | **Alternar División Horizontal de Pantalla** |
 | `Alt + \` | **Cambiar Foco de Panel (Switch Split Pane)** |
@@ -266,6 +275,8 @@ sidebar_width = 220
 minimap = true
 minimap_width = 100
 git_gutter = true
+terminal_height = 180
+terminal_shell = ""   # Dejar vacío para autodetectar ($SHELL, bash, sh, cmd)
 ```
 
 ---

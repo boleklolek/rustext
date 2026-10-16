@@ -13,6 +13,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 3. [Guía de la Interfaz Gráfica (Desktop GUI) y TUI](#3-guía-de-la-interfaz-gráfica-desktop-gui-y-tui)
    - [3.1 Diálogo de Protección de Cambios sin Guardar](#31-diálogo-de-protección-de-cambios-sin-guardar)
    - [3.2 Restauración de Sesión, Modo Hot Exit y Archivos Recientes](#32-restauración-de-sesión-modo-hot-exit-y-archivos-recientes)
+   - [3.3 Terminal Integrado Nativo Acoplado](#33-terminal-integrado-nativo-acoplado-ctrl---ctrl-)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -177,6 +178,40 @@ Rustext implementa un subsistema robusto de persistencia de espacio de trabajo q
    - Los nombres de archivo se destacan en blanco brillante y las rutas completas en gris atenuado.
    - Navegue con `↑` / `↓` y presione `Enter` para abrir de inmediato el archivo, o haga clic directo con el ratón.
    - El historial de archivos recientes se deduplica de manera inteligente y su longitud máxima es configurable mediante `max_recent_files = 20`.
+
+---
+
+### 3.3 Terminal Integrado Nativo Acoplado (`Ctrl + \`` / `Ctrl + ~`)
+
+Rustext incluye un **Terminal Integrado Nativo** acoplado en la parte inferior de la ventana, permitiendo compilar proyectos, ejecutar suites de pruebas, comandos de control de versiones o interactuar con el sistema operativo sin abandonar el editor:
+
+1. **Arquitectura y Proceso Asíncrono**:
+   - **Cero Dependencias Externas**: Implementado utilizando exclusivamente las primitivas estándar `std::process::{Command, Stdio, Child}`, hilos nativos (`std::thread`) y canales mpsc (`std::sync::mpsc`).
+   - **Detección Automática de Shell**: Inspecciona dinámicamente la variable de entorno `$SHELL`, seleccionando `/bin/bash` o `/bin/sh` en Linux/macOS, o `cmd.exe`/PowerShell en Windows. Permite especificar un shell personalizado en `config.ini` (`terminal_shell = "/bin/zsh"`).
+   - **Lectura Bidireccional Asíncrona**: Hilos dedicados en segundo plano capturan continuamente `stdout` y `stderr` sin bloquear la fluidez gráfica del editor a 60 FPS.
+   - **Limpieza de Códigos ANSI**: Filtro inteligente de secuencias de escape ANSI para presentar texto limpio y legible.
+
+2. **Controles e Interacción de Usuario**:
+   - **Alternar Visibilidad**: Presione `Ctrl + \`` o `Ctrl + ~` en cualquier momento, o seleccione `Ver > Terminal Integrado` en el menú.
+   - **Foco Inteligente**: Al abrirse, el foco se sitúa de inmediato en la línea de comando del terminal (`❯ `). Para devolver el foco al búfer del documento activo, presione `Esc` o haga clic en el lienzo de código.
+   - **Historial de Comandos**: Navegue por los comandos previamente ejecutados con las teclas `↑` y `↓`.
+   - **Atajos Nemónicos de Terminal**:
+     - `Enter`: Envía el comando actual al stdin del proceso hijo y lo registra en el historial. Comandos como `clear` o `cls` limpian inmediatamente la pantalla.
+     - `Ctrl + C`: Envía interrupción visual y reinicia el prompt actual.
+     - `Ctrl + L`: Limpia de inmediato el búfer de salida del terminal.
+     - `PageUp` / `PageDown`: Desplaza el historial de salida hacia arriba o hacia abajo.
+   - **Desplazamiento con Ratón**: La rueda del ratón realiza scroll automático por las líneas de salida al estar situada sobre el panel del terminal.
+   - **Redimensionamiento en Vivo (Splitter)**: La barra superior divisoria puede arrastrarse fluidamente hacia arriba o abajo con el ratón para ajustar la altura del terminal (entre 60 px y la mitad de la ventana).
+   - **Botones de Cabecera**:
+     - `[Limpiar]`: Vacía el búfer de scrollback y restablece la vista.
+     - `[x]`: Oculta el panel de terminal restaurando todo el espacio a la vista de código.
+
+3. **Opciones de Configuración (`config.ini`)**:
+   ```ini
+   [gui]
+   terminal_height = 180       # Altura inicial en píxeles del panel de terminal
+   terminal_shell = ""         # Ruta a shell específico (dejar vacío para autodetección)
+   ```
 
 ---
 
@@ -456,6 +491,7 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | `Esc` | Cursor único / Cancelar modal | Selección > Cursor Único |
 | `Ctrl + B` | Alternar Explorador Lateral | Ver > Explorador Lateral |
 | `Ctrl + M` | **Alternar Minimapa Gráfico** | Ver > Minimapa |
+| `Ctrl + \`` / `Ctrl + ~` | **Alternar Terminal Integrado Nativo** | Ver > Terminal Integrado |
 | `Ctrl + \` | **Alternar División Vertical (Split)** | Ver > Dividir Verticalmente |
 | `Ctrl + Shift + \`| **Alternar División Horizontal** | Ver > Dividir Horizontalmente |
 | `Alt + \` | **Cambiar Foco de Panel Dividido** | Ver > Cambiar Foco de Panel |

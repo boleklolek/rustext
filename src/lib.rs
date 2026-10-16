@@ -23,5 +23,5 @@ pub use editor::{
     Editor, EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog, EditorAction, Keymap, Document, EditorConfig, EditorTheme,
     Snippet, SnippetSession, SnippetRegistry,
     Diagnostic, DiagnosticSeverity, DiagnosticCollection, format_code,
-    SessionManager, SessionState, TabSession,
+    SessionManager, SessionState, TabSession, TerminalPanel,
 };

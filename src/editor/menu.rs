@@ -97,6 +97,7 @@ impl MenuBar {
                     MenuItem::action("Actualizar Explorador", "", EditorAction::RefreshSidebar),
                     MenuItem::separator(),
                     MenuItem::action("Minimapa", "Ctrl+M", EditorAction::ToggleMinimap),
+                    MenuItem::action("Terminal Integrado", "Ctrl+`", EditorAction::ToggleTerminal),
                     MenuItem::action("Dividir Verticalmente", "Ctrl+\\", EditorAction::ToggleSplitVertical),
                     MenuItem::action("Dividir Horizontalmente", "Ctrl+Shift+\\", EditorAction::ToggleSplitHorizontal),
                     MenuItem::action("Cambiar Foco de Panel", "Alt+\\", EditorAction::SwitchSplitPane),

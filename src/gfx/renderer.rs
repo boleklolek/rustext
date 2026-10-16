@@ -529,6 +529,7 @@ pub struct GfxRenderer {
     pub git_branch: Option<String>,
     pub git_statuses: Option<std::collections::HashMap<std::path::PathBuf, crate::editor::git::GitFileStatus>>,
     pub git_gutter_enabled: bool,
+    pub terminal_inset: usize,
 }
 
 impl GfxRenderer {
@@ -555,6 +556,7 @@ impl GfxRenderer {
             git_branch: None,
             git_statuses: None,
             git_gutter_enabled: true,
+            terminal_inset: 0,
         }
     }
 
@@ -615,7 +617,7 @@ impl GfxRenderer {
     ) -> ScrollbarGeometry {
         let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
         let content_y_start = menu_offset + self.tab_bar_height;
-        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
+        let content_y_end = fb_h.saturating_sub(self.status_bar_height + self.terminal_inset);
         let track_height = content_y_end.saturating_sub(content_y_start);
         let track_width = self.scrollbar_width;
         let track_x = fb_w.saturating_sub(track_width);
@@ -634,7 +636,7 @@ impl GfxRenderer {
     ) -> MinimapGeometry {
         let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
         let content_y_start = menu_offset + self.tab_bar_height;
-        let content_y_end = fb_h.saturating_sub(self.status_bar_height);
+        let content_y_end = fb_h.saturating_sub(self.status_bar_height + self.terminal_inset);
         let track_height = content_y_end.saturating_sub(content_y_start);
         let mm_width = self.minimap_width;
         let mm_x = fb_w.saturating_sub(self.scrollbar_width + mm_width);
@@ -692,11 +694,24 @@ impl GfxRenderer {
         has_menu_bar: bool,
         split: &crate::editor::split::SplitState,
     ) -> (PaneGeometry, PaneGeometry, Option<(usize, usize, usize, usize)>) {
+        self.pane_geometries_with_inset(fb_w, fb_h, sidebar_w, has_menu_bar, split, 0)
+    }
+
+    /// Computes the bounding rectangles of both panes with an optional bottom inset (e.g. terminal panel).
+    pub fn pane_geometries_with_inset(
+        &self,
+        fb_w: usize,
+        fb_h: usize,
+        sidebar_w: usize,
+        has_menu_bar: bool,
+        split: &crate::editor::split::SplitState,
+        bottom_inset: usize,
+    ) -> (PaneGeometry, PaneGeometry, Option<(usize, usize, usize, usize)>) {
         let menu_offset = if has_menu_bar { self.menu_bar_height } else { 0 };
         let canvas_x = sidebar_w;
         let canvas_y = menu_offset;
         let canvas_w = fb_w.saturating_sub(sidebar_w);
-        let canvas_h = fb_h.saturating_sub(menu_offset + self.status_bar_height);
+        let canvas_h = fb_h.saturating_sub(menu_offset + self.status_bar_height + bottom_inset);
 
         match split.direction {
             crate::editor::split::SplitDirection::Vertical => {
@@ -1387,7 +1402,7 @@ impl GfxRenderer {
             .unwrap_or(0);
 
         let content_y_start = menu_offset + self.tab_bar_height;
-        let content_y_end = fb.height.saturating_sub(self.status_bar_height);
+        let content_y_end = fb.height.saturating_sub(self.status_bar_height + self.terminal_inset);
         let content_height = content_y_end.saturating_sub(content_y_start);
 
         if let Some(sb) = sidebar {
@@ -1571,7 +1586,7 @@ impl GfxRenderer {
         } else {
             // SPLIT PANE MODE (Vertical or Horizontal)
             let sp = split.unwrap();
-            let (p0_geom, p1_geom, splitter_opt) = self.pane_geometries(fb.width, fb.height, sidebar_w, menu_bar.is_some(), sp);
+            let (p0_geom, p1_geom, splitter_opt) = self.pane_geometries_with_inset(fb.width, fb.height, sidebar_w, menu_bar.is_some(), sp, self.terminal_inset);
 
             let pane_0_doc = doc;
             let pane_1_doc = secondary_doc.unwrap_or(doc);
@@ -3335,6 +3350,215 @@ impl GfxRenderer {
         render_btn(fb, b0_x, btn_save_w, lbl_save, dialog.selected_button == 0, hovered_button == Some(0), 0);
         render_btn(fb, b1_x, btn_discard_w, lbl_discard, dialog.selected_button == 1, hovered_button == Some(1), 1);
         render_btn(fb, b2_x, btn_cancel_w, lbl_cancel, dialog.selected_button == 2, hovered_button == Some(2), 2);
+    }
+
+    /// Computes the bounding geometry for the docked bottom terminal pane.
+    pub fn terminal_geometry(&self, fb_w: usize, fb_h: usize, sidebar_w: usize, term_h: usize) -> TerminalGeometry {
+        let x = sidebar_w;
+        let width = fb_w.saturating_sub(sidebar_w);
+        let height = term_h.min(fb_h.saturating_sub(self.menu_bar_height + self.tab_bar_height + self.status_bar_height + 40));
+        let y = fb_h.saturating_sub(self.status_bar_height + height);
+
+        let splitter_y = y;
+        let splitter_h = 4;
+
+        let header_y = y + splitter_h;
+        let header_h = 24;
+
+        let content_y = header_y + header_h;
+        let content_h = height.saturating_sub(splitter_h + header_h);
+
+        let btn_close_w = 26;
+        let btn_close_x = x + width.saturating_sub(btn_close_w + 6);
+
+        let btn_clear_w = 68;
+        let btn_clear_x = btn_close_x.saturating_sub(btn_clear_w + 6);
+
+        TerminalGeometry {
+            x,
+            y,
+            width,
+            height,
+            splitter_y,
+            splitter_h,
+            header_y,
+            header_h,
+            content_y,
+            content_h,
+            btn_clear_x,
+            btn_clear_w,
+            btn_close_x,
+            btn_close_w,
+        }
+    }
+
+    /// Renders the integrated bottom terminal panel.
+    pub fn render_terminal_panel(
+        &self,
+        fb: &mut Framebuffer,
+        terminal: &crate::editor::terminal_panel::TerminalPanel,
+        geom: &TerminalGeometry,
+        hovered_clear: bool,
+        hovered_close: bool,
+    ) {
+        if geom.width == 0 || geom.height == 0 {
+            return;
+        }
+
+        // 1. Splitter bar (Drag Handle)
+        let splitter_bg = if terminal.is_focused { self.colors.accent } else { self.colors.gutter_border };
+        fb.fill_rect(geom.x, geom.splitter_y, geom.width, geom.splitter_h, splitter_bg);
+
+        // 2. Header Bar
+        let header_bg = if terminal.is_focused { self.colors.tab_active_bg } else { self.colors.modal_header_bg };
+        fb.fill_rect(geom.x, geom.header_y, geom.width, geom.header_h, header_bg);
+        fb.fill_rect(geom.x, geom.header_y + geom.header_h - 1, geom.width, 1, self.colors.gutter_border);
+
+        // Header Title: [>_ TERMINAL (bash)]
+        let title_icon = ">_ ";
+        let title_text = format!("TERMINAL ({})", terminal.shell_name);
+        let title_x = geom.x + 8;
+        let title_y = geom.header_y + (geom.header_h - FONT_HEIGHT) / 2;
+        fb.draw_text(title_icon, title_x, title_y, self.colors.accent, None);
+        fb.draw_text(&title_text, title_x + title_icon.len() * FONT_WIDTH, title_y, 0x00FFFFFF, None);
+
+        // Working dir hint
+        let dir_str = terminal.working_dir.display().to_string();
+        let max_dir_chars = geom.btn_clear_x.saturating_sub(title_x + 180) / FONT_WIDTH;
+        if max_dir_chars > 8 {
+            let truncated_dir = if dir_str.chars().count() > max_dir_chars {
+                let tail_len = max_dir_chars.saturating_sub(3);
+                let start_idx = dir_str.len().saturating_sub(tail_len);
+                format!("...{}", &dir_str[start_idx..])
+            } else {
+                dir_str
+            };
+            fb.draw_text(&truncated_dir, title_x + 180, title_y, 0x00858585, None);
+        }
+
+        // [Limpiar] Button
+        let btn_clear_bg = if hovered_clear { self.colors.button_hover_bg } else { self.colors.chip_bg };
+        let btn_clear_fg = if hovered_clear { 0x00FFFFFF } else { 0x00CCCCCC };
+        let btn_y = geom.header_y + 2;
+        let btn_h = geom.header_h.saturating_sub(4);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(geom.btn_clear_x, btn_y, geom.btn_clear_w, btn_h, 3, btn_clear_bg);
+        } else {
+            fb.fill_rect(geom.btn_clear_x, btn_y, geom.btn_clear_w, btn_h, btn_clear_bg);
+        }
+        let clear_label = "Limpiar";
+        let clear_lbl_x = geom.btn_clear_x + (geom.btn_clear_w.saturating_sub(clear_label.len() * FONT_WIDTH)) / 2;
+        fb.draw_text(clear_label, clear_lbl_x, btn_y + (btn_h - FONT_HEIGHT) / 2, btn_clear_fg, None);
+
+        // [x] Close Button
+        let btn_close_bg = if hovered_close { 0x00C72C41 } else { self.colors.chip_bg };
+        let btn_close_fg = if hovered_close { 0x00FFFFFF } else { 0x00CCCCCC };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(geom.btn_close_x, btn_y, geom.btn_close_w, btn_h, 3, btn_close_bg);
+        } else {
+            fb.fill_rect(geom.btn_close_x, btn_y, geom.btn_close_w, btn_h, btn_close_bg);
+        }
+        let x_label = "x";
+        let x_lbl_x = geom.btn_close_x + (geom.btn_close_w.saturating_sub(x_label.len() * FONT_WIDTH)) / 2;
+        fb.draw_text(x_label, x_lbl_x, btn_y + (btn_h - FONT_HEIGHT) / 2, btn_close_fg, None);
+
+        // 3. Terminal Content Area (Background)
+        let term_bg = 0x00121212;
+        fb.fill_rect(geom.x, geom.content_y, geom.width, geom.content_h, term_bg);
+
+        // Output lines & input line
+        let line_height = FONT_HEIGHT + 2;
+        let visible_lines = geom.content_h / line_height;
+        if visible_lines == 0 {
+            return;
+        }
+
+        let output_visible_lines = visible_lines.saturating_sub(1);
+        let total_lines = terminal.lines.len();
+        let scroll_end = terminal.scroll_offset.min(total_lines);
+        let start_line = scroll_end.saturating_sub(output_visible_lines);
+
+        let pad_x = geom.x + 8;
+        let mut cur_y = geom.content_y + 4;
+
+        for line_idx in start_line..scroll_end {
+            if cur_y + line_height > geom.content_y + geom.content_h - line_height {
+                break;
+            }
+            let line = &terminal.lines[line_idx];
+            if line.starts_with("❯ ") {
+                fb.draw_text("❯ ", pad_x, cur_y, self.colors.accent, None);
+                fb.draw_text(&line[2..], pad_x + 2 * FONT_WIDTH, cur_y, 0x00FFFFFF, None);
+            } else if line.starts_with("[Error") {
+                fb.draw_text(line, pad_x, cur_y, 0x00F44747, None);
+            } else {
+                fb.draw_text(line, pad_x, cur_y, 0x00CCCCCC, None);
+            }
+            cur_y += line_height;
+        }
+
+        // 4. Active Command Input Line (at the bottom of content)
+        let input_y = geom.content_y + geom.content_h.saturating_sub(line_height + 2);
+        fb.draw_text("❯ ", pad_x, input_y, self.colors.accent, None);
+
+        let prompt_prefix_w = 2 * FONT_WIDTH;
+        let input_text_x = pad_x + prompt_prefix_w;
+        fb.draw_text(&terminal.current_input, input_text_x, input_y, 0x00FFFFFF, None);
+
+        // Draw cursor if focused
+        if terminal.is_focused {
+            let cursor_x = input_text_x + terminal.cursor_pos * FONT_WIDTH;
+            let cursor_w = 8;
+            let cursor_h = FONT_HEIGHT;
+            fb.fill_rect(cursor_x, input_y, cursor_w, cursor_h, self.colors.cursor);
+            if terminal.cursor_pos < terminal.current_input.chars().count() {
+                let under_char: String = terminal.current_input.chars().skip(terminal.cursor_pos).take(1).collect();
+                fb.draw_text(&under_char, cursor_x, input_y, 0x00000000, None);
+            }
+        } else if terminal.current_input.is_empty() {
+            fb.draw_text("(Terminal inactivo - Haga clic para enfocar)", input_text_x + 8, input_y, 0x00555555, None);
+        }
+    }
+}
+
+/// Geometric bounds of the docked terminal panel and its subcomponents.
+#[derive(Debug, Clone, Copy)]
+pub struct TerminalGeometry {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub splitter_y: usize,
+    pub splitter_h: usize,
+    pub header_y: usize,
+    pub header_h: usize,
+    pub content_y: usize,
+    pub content_h: usize,
+    pub btn_clear_x: usize,
+    pub btn_clear_w: usize,
+    pub btn_close_x: usize,
+    pub btn_close_w: usize,
+}
+
+impl TerminalGeometry {
+    #[inline]
+    pub fn contains_point(&self, x: usize, y: usize) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
+    #[inline]
+    pub fn is_over_splitter(&self, x: usize, y: usize) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.splitter_y && y < self.splitter_y + self.splitter_h
+    }
+
+    #[inline]
+    pub fn is_over_clear_btn(&self, x: usize, y: usize) -> bool {
+        x >= self.btn_clear_x && x < self.btn_clear_x + self.btn_clear_w && y >= self.header_y && y < self.header_y + self.header_h
+    }
+
+    #[inline]
+    pub fn is_over_close_btn(&self, x: usize, y: usize) -> bool {
+        x >= self.btn_close_x && x < self.btn_close_x + self.btn_close_w && y >= self.header_y && y < self.header_y + self.header_h
     }
 }
 

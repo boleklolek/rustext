@@ -2178,4 +2178,89 @@ fn test_recent_files_modal_navigation_and_open() {
     let _ = fs::remove_dir_all(&test_dir);
 }
 
+#[test]
+fn test_integrated_terminal_actions_and_keymap() {
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::{EditorAction, Keymap};
+    use rustext::core::buffer::TextBuffer;
+    use rustext::ui::terminal::Key;
+
+    // Test keymap resolution
+    assert_eq!(Keymap::resolve_key(Key::Ctrl('`')), EditorAction::ToggleTerminal);
+    assert_eq!(Keymap::resolve_key(Key::Ctrl('~')), EditorAction::ToggleTerminal);
+
+    let mut editor = Editor::new(TextBuffer::from_str("Initial editor content"));
+    assert!(!editor.terminal.is_visible);
+    assert!(!editor.terminal.is_focused);
+
+    // Toggle terminal open
+    editor.execute_action(EditorAction::ToggleTerminal);
+    assert!(editor.terminal.is_visible);
+    assert!(editor.terminal.is_focused);
+
+    // Typing keys while terminal is focused should go to terminal input, not editor buffer
+    editor.handle_key(Key::Char('e'));
+    editor.handle_key(Key::Char('c'));
+    editor.handle_key(Key::Char('h'));
+    editor.handle_key(Key::Char('o'));
+    assert_eq!(editor.terminal.current_input, "echo");
+    assert_eq!(editor.doc().buffer.to_string(), "Initial editor content");
+
+    // Pressing Esc defocusses terminal
+    editor.handle_key(Key::Esc);
+    assert!(!editor.terminal.is_focused);
+    assert!(editor.terminal.is_visible);
+
+    // Focus terminal action
+    editor.execute_action(EditorAction::FocusTerminal);
+    assert!(editor.terminal.is_focused);
+
+    // Submitting a command with Enter adds prompt line
+    editor.handle_key(Key::Enter);
+    assert!(editor.terminal.lines.iter().any(|l| l.contains("echo")));
+    assert_eq!(editor.terminal.current_input, "");
+
+    // Clear terminal action
+    editor.execute_action(EditorAction::ClearTerminal);
+    assert!(editor.terminal.lines.is_empty());
+
+    // Toggle terminal close
+    editor.execute_action(EditorAction::ToggleTerminal);
+    assert!(!editor.terminal.is_visible);
+    assert!(!editor.terminal.is_focused);
+}
+
+#[test]
+fn test_integrated_terminal_geometry_and_rendering() {
+    use rustext::editor::app::Editor;
+    use rustext::core::buffer::TextBuffer;
+
+    let editor = Editor::new(TextBuffer::from_str("Hello World"));
+    let renderer = GfxRenderer::new();
+    let mut fb = Framebuffer::new(800, 600);
+
+    let geom = renderer.terminal_geometry(fb.width, fb.height, 200, 180);
+    assert_eq!(geom.x, 200);
+    assert_eq!(geom.width, 600);
+    assert_eq!(geom.height, 180);
+
+    // Splitter hit test
+    assert!(geom.is_over_splitter(250, geom.splitter_y + 1));
+    assert!(!geom.is_over_splitter(250, geom.splitter_y + 10));
+
+    // Clear and close button hit test
+    assert!(geom.is_over_clear_btn(geom.btn_clear_x + 5, geom.header_y + 5));
+    assert!(geom.is_over_close_btn(geom.btn_close_x + 5, geom.header_y + 5));
+    assert!(geom.contains_point(geom.x + 50, geom.content_y + 50));
+    assert!(!geom.contains_point(50, 50));
+
+    // Render terminal panel into framebuffer
+    renderer.render_terminal_panel(&mut fb, &editor.terminal, &geom, false, false);
+
+    // Verify terminal background pixel (0x00121212)
+    let term_bg_pixel = fb.get_pixel(geom.x + 20, geom.content_y + 20);
+    assert_eq!(term_bg_pixel, 0x00121212);
+}
+
+
 

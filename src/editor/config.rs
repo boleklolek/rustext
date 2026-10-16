@@ -113,6 +113,8 @@ pub struct GuiSettings {
     pub minimap: bool,
     pub minimap_width: usize,
     pub git_gutter: bool,
+    pub terminal_height: usize,
+    pub terminal_shell: String,
 }
 
 impl Default for GuiSettings {
@@ -134,6 +136,8 @@ impl Default for GuiSettings {
             minimap: true,
             minimap_width: 100,
             git_gutter: true,
+            terminal_height: 180,
+            terminal_shell: String::new(),
         }
     }
 }
@@ -239,6 +243,12 @@ minimap = true
 
 ; Ancho en píxeles del minimapa gráfico (por defecto 100)
 minimap_width = 100
+
+; Altura inicial en píxeles del panel de terminal integrado (por defecto 180)
+terminal_height = 180
+
+; Shell personalizada para el terminal integrado (vacío para autodetección)
+terminal_shell = 
 "#
     }
 
@@ -282,6 +292,8 @@ sidebar_width = {}
 minimap = {}
 minimap_width = {}
 git_gutter = {}
+terminal_height = {}
+terminal_shell = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -313,6 +325,8 @@ git_gutter = {}
             self.gui.minimap,
             self.gui.minimap_width,
             self.gui.git_gutter,
+            self.gui.terminal_height,
+            self.gui.terminal_shell,
         )
     }
 
@@ -511,6 +525,14 @@ git_gutter = {}
                             if let Some(b) = as_bool {
                                 config.gui.git_gutter = b;
                             }
+                        }
+                        "terminal_height" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.terminal_height = n.clamp(60, 1000);
+                            }
+                        }
+                        "terminal_shell" => {
+                            config.gui.terminal_shell = val_unquoted.to_string();
                         }
                         _ => {}
                     },

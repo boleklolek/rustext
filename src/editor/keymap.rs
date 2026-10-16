@@ -70,6 +70,10 @@ pub enum EditorAction {
     // Git Integration
     RefreshGit,
     ToggleGitGutter,
+    // Integrated Terminal
+    ToggleTerminal,
+    FocusTerminal,
+    ClearTerminal,
     Quit,
     None,
 }
@@ -93,6 +97,9 @@ impl Keymap {
 
             // Git Integration (Ctrl+Shift+G)
             Key::CtrlShift('g') | Key::CtrlShift('G') => EditorAction::RefreshGit,
+
+            // Integrated Terminal (Ctrl+` or Ctrl+~)
+            Key::Ctrl('`') | Key::Ctrl('~') => EditorAction::ToggleTerminal,
 
             // Document navigation
             Key::Left => EditorAction::MoveLeft { select: false },
