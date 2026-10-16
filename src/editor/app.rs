@@ -3014,6 +3014,8 @@ impl Editor {
                 renderer.smooth_shadows = self.config.gui.smooth_shadows;
                 renderer.animation_enabled = self.config.gui.animation_enabled;
                 renderer.edge_perception = self.config.gui.edge_perception;
+                renderer.subpixel_antialiasing = self.config.gui.subpixel_antialiasing;
+                fb.subpixel_antialiasing = self.config.gui.subpixel_antialiasing;
                 self.sidebar.is_visible = self.config.gui.sidebar;
                 self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
                 renderer.minimap_enabled = self.config.gui.minimap;

@@ -635,6 +635,7 @@ fn test_config_ini_parsing_and_serialization() {
     assert!(config.gui.menu_bar);
     assert!(config.gui.status_bar);
     assert!(config.gui.scrollbar);
+    assert!(config.gui.subpixel_antialiasing);
 
     // Custom configuration
     let custom_ini = r#"
@@ -654,6 +655,7 @@ window_height = 900
 menu_bar = off
 status_bar = false
 scrollbar = 0
+subpixel_antialiasing = false
 "#;
     let custom_cfg = EditorConfig::parse(custom_ini);
     assert_eq!(custom_cfg.editor.tab_size, 8);
@@ -667,6 +669,7 @@ scrollbar = 0
     assert!(!custom_cfg.gui.menu_bar);
     assert!(!custom_cfg.gui.status_bar);
     assert!(!custom_cfg.gui.scrollbar);
+    assert!(!custom_cfg.gui.subpixel_antialiasing);
 
     // Test serialization roundtrip
     let serialized = custom_cfg.to_ini_string();

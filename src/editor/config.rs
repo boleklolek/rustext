@@ -126,6 +126,7 @@ pub struct GuiSettings {
     pub smooth_shadows: bool,
     pub animation_enabled: bool,
     pub edge_perception: bool,
+    pub subpixel_antialiasing: bool,
 }
 
 impl Default for GuiSettings {
@@ -160,6 +161,7 @@ impl Default for GuiSettings {
             smooth_shadows: true,
             animation_enabled: true,
             edge_perception: true,
+            subpixel_antialiasing: true,
         }
     }
 }
@@ -289,6 +291,9 @@ font_size = 12
 
 ; Grosor de trazo tipográfico: normal, semibold, bold
 font_weight = normal
+
+; Renderizado subpíxel LCD RGB ClearType (true = 3x resolución horizontal suave, false = escala de grises)
+subpixel_antialiasing = true
 "#
     }
 
@@ -345,6 +350,7 @@ font_weight = {}
 smooth_shadows = {}
 animation_enabled = {}
 edge_perception = {}
+subpixel_antialiasing = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -389,6 +395,7 @@ edge_perception = {}
             self.gui.smooth_shadows,
             self.gui.animation_enabled,
             self.gui.edge_perception,
+            self.gui.subpixel_antialiasing,
         )
     }
 
@@ -651,6 +658,11 @@ edge_perception = {}
                         "edge_perception" => {
                             if let Some(b) = as_bool {
                                 config.gui.edge_perception = b;
+                            }
+                        }
+                        "subpixel_antialiasing" => {
+                            if let Some(b) = as_bool {
+                                config.gui.subpixel_antialiasing = b;
                             }
                         }
                         _ => {}

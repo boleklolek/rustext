@@ -227,6 +227,38 @@ pub fn blend_pixel_gamma(dst_color: u32, fg_color: u32, alpha: u8) -> u32 {
     0xFF000000 | ((out_r as u32) << 16) | ((out_g as u32) << 8) | (out_b as u32)
 }
 
+/// Blends an ARGB pixel `0xAARRGGBB` with independent LCD RGB subpixel coverage components
+/// in mathematically exact linear light (IEC 61966-2-1 gamma correction).
+#[inline(always)]
+pub fn blend_pixel_subpixel_gamma(
+    dst_color: u32,
+    fg_color: u32,
+    alpha_r: u8,
+    alpha_g: u8,
+    alpha_b: u8,
+) -> u32 {
+    if alpha_r == 0 && alpha_g == 0 && alpha_b == 0 {
+        return dst_color;
+    }
+    if alpha_r == 255 && alpha_g == 255 && alpha_b == 255 {
+        return fg_color;
+    }
+
+    let dst_r = ((dst_color >> 16) & 0xFF) as u8;
+    let dst_g = ((dst_color >> 8) & 0xFF) as u8;
+    let dst_b = (dst_color & 0xFF) as u8;
+
+    let fg_r = ((fg_color >> 16) & 0xFF) as u8;
+    let fg_g = ((fg_color >> 8) & 0xFF) as u8;
+    let fg_b = (fg_color & 0xFF) as u8;
+
+    let out_r = blend_channel_gamma(dst_r, fg_r, alpha_r);
+    let out_g = blend_channel_gamma(dst_g, fg_g, alpha_g);
+    let out_b = blend_channel_gamma(dst_b, fg_b, alpha_b);
+
+    0xFF000000 | ((out_r as u32) << 16) | ((out_g as u32) << 8) | (out_b as u32)
+}
+
 /// Computes linear blend without gamma correction (naive sRGB blend for comparison/fallback).
 #[inline(always)]
 pub fn blend_pixel_naive(dst_color: u32, fg_color: u32, alpha: u8) -> u32 {
@@ -284,5 +316,18 @@ mod tests {
 
         let mid_gamma = blend_channel_gamma(0, 255, 128);
         assert!(mid_gamma >= 180 && mid_gamma <= 190, "Expected ~186, got {}", mid_gamma);
+    }
+
+    #[test]
+    fn test_subpixel_gamma_blend() {
+        let bg = 0xFF101010;
+        let fg = 0xFFFFFFFF;
+        let blended = blend_pixel_subpixel_gamma(bg, fg, 255, 128, 0);
+        let r = (blended >> 16) & 0xFF;
+        let g = (blended >> 8) & 0xFF;
+        let b = blended & 0xFF;
+        assert_eq!(r, 255, "Red must be full foreground");
+        assert!(g >= 180 && g <= 190, "Green must be gamma blended");
+        assert_eq!(b, 0x10, "Blue must remain background");
     }
 }

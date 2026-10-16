@@ -4,7 +4,7 @@
 use super::edge_perception::EdgePerception;
 use super::font::{FontFamily, FontRasterizer, FontWeight, FONT_HEIGHT, FONT_WIDTH};
 use super::framebuffer::Framebuffer;
-use super::gamma::blend_pixel_gamma;
+use super::gamma::{blend_pixel_gamma, blend_pixel_subpixel_gamma};
 use super::hinting::{FontHinter, HintingLevel};
 use super::shaping::FontShaper;
 use crate::core::syntax::{SyntaxHighlighter, TokenType};
@@ -574,6 +574,7 @@ pub struct GfxRenderer {
     pub smooth_shadows: bool,
     pub animation_enabled: bool,
     pub edge_perception: bool,
+    pub subpixel_antialiasing: bool,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -620,6 +621,7 @@ impl GfxRenderer {
             smooth_shadows: true,
             animation_enabled: true,
             edge_perception: true,
+            subpixel_antialiasing: true,
         }
     }
 
@@ -673,7 +675,7 @@ impl GfxRenderer {
 
         for token in tokens {
             let token_color = self.colors.token_color(token.token_type);
-            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.font_size != 12 {
+            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.font_size != 12 || self.subpixel_antialiasing {
                 let shaped_glyphs = FontShaper::shape_text_ex(&token.text, self.font_scale, self.font_ligatures, self.font_family, self.font_weight, char_w, self.char_height());
                 for glyph in shaped_glyphs {
                     let col = col_accum;
@@ -681,24 +683,51 @@ impl GfxRenderer {
                     if col >= scroll_col {
                         let px = text_start_x + (col - scroll_col) * char_w;
                         if px + glyph.width <= max_code_x {
-                            let effective_cov = if self.font_hinting != HintingLevel::None {
-                                FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting)
-                            } else {
-                                glyph.coverage
-                            };
                             let max_w = glyph.width.min(fb.width.saturating_sub(px));
                             let max_h = glyph.height.min(fb.height.saturating_sub(text_y));
-                            for row in 0..max_h {
-                                let py = text_y + row;
-                                let row_offset = row * glyph.width;
-                                let fb_offset = py * fb.width + px;
-                                for c in 0..max_w {
-                                    let mut alpha = effective_cov[row_offset + c];
-                                    if alpha > 0 {
-                                        if self.edge_perception {
-                                            alpha = EdgePerception::adapt_edge_coverage(alpha, token_color, bg_color);
+                            if self.subpixel_antialiasing && !glyph.is_ligature {
+                                let ch = glyph.cluster.chars().next().unwrap_or(' ');
+                                let (_, _, subpixel_cov) = FontRasterizer::rasterize_glyph_subpixel(
+                                    ch,
+                                    self.font_family,
+                                    glyph.width,
+                                    glyph.height,
+                                    self.font_weight,
+                                );
+                                for row in 0..max_h {
+                                    let py = text_y + row;
+                                    let row_offset = row * glyph.width;
+                                    let fb_offset = py * fb.width + px;
+                                    for c in 0..max_w {
+                                        let [mut ar, mut ag, mut ab] = subpixel_cov[row_offset + c];
+                                        if ar > 0 || ag > 0 || ab > 0 {
+                                            if self.edge_perception {
+                                                ar = EdgePerception::adapt_edge_coverage(ar, token_color, bg_color);
+                                                ag = EdgePerception::adapt_edge_coverage(ag, token_color, bg_color);
+                                                ab = EdgePerception::adapt_edge_coverage(ab, token_color, bg_color);
+                                            }
+                                            fb.pixels[fb_offset + c] = blend_pixel_subpixel_gamma(bg_color, token_color, ar, ag, ab);
                                         }
-                                        fb.pixels[fb_offset + c] = blend_pixel_gamma(bg_color, token_color, alpha);
+                                    }
+                                }
+                            } else {
+                                let effective_cov = if self.font_hinting != HintingLevel::None {
+                                    FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting)
+                                } else {
+                                    glyph.coverage
+                                };
+                                for row in 0..max_h {
+                                    let py = text_y + row;
+                                    let row_offset = row * glyph.width;
+                                    let fb_offset = py * fb.width + px;
+                                    for c in 0..max_w {
+                                        let mut alpha = effective_cov[row_offset + c];
+                                        if alpha > 0 {
+                                            if self.edge_perception {
+                                                alpha = EdgePerception::adapt_edge_coverage(alpha, token_color, bg_color);
+                                            }
+                                            fb.pixels[fb_offset + c] = blend_pixel_gamma(bg_color, token_color, alpha);
+                                        }
                                     }
                                 }
                             }
@@ -1394,6 +1423,12 @@ impl GfxRenderer {
             return;
         }
 
+        fb.subpixel_antialiasing = self.subpixel_antialiasing;
+        fb.font_family = self.font_family;
+        fb.font_weight = self.font_weight;
+        fb.font_size = self.font_size;
+        fb.font_scale = self.font_scale;
+
         let pane_geom = PaneGeometry {
             x: pane_x,
             y: pane_y,
@@ -1596,6 +1631,11 @@ impl GfxRenderer {
     ) {
         // Clear background
         fb.clear(self.colors.background);
+        fb.subpixel_antialiasing = self.subpixel_antialiasing;
+        fb.font_family = self.font_family;
+        fb.font_weight = self.font_weight;
+        fb.font_size = self.font_size;
+        fb.font_scale = self.font_scale;
 
         let menu_offset = if menu_bar.is_some() { self.menu_bar_height } else { 0 };
 
@@ -3813,23 +3853,46 @@ impl GfxRenderer {
                     if cur_gx + prev_char_w > right_x + col_w - self.scale_coord(8) {
                         break;
                     }
-                    let (gw, gh, cov) = FontRasterizer::rasterize_glyph_sized(
-                        ch,
-                        dialog.selected_family,
-                        prev_char_w,
-                        prev_char_h,
-                        dialog.selected_weight,
-                    );
-                    let max_w = gw.min(fb.width.saturating_sub(cur_gx));
-                    let max_h = gh.min(fb.height.saturating_sub(ly));
-                    for row in 0..max_h {
-                        let py = ly + row;
-                        let row_offset = row * gw;
-                        let fb_offset = py * fb.width + cur_gx;
-                        for col in 0..max_w {
-                            let alpha = cov[row_offset + col];
-                            if alpha > 0 {
-                                fb.pixels[fb_offset + col] = blend_pixel_gamma(self.colors.input_bg, line_fg, alpha);
+                    if self.subpixel_antialiasing {
+                        let (gw, gh, sub_cov) = FontRasterizer::rasterize_glyph_subpixel(
+                            ch,
+                            dialog.selected_family,
+                            prev_char_w,
+                            prev_char_h,
+                            dialog.selected_weight,
+                        );
+                        let max_w = gw.min(fb.width.saturating_sub(cur_gx));
+                        let max_h = gh.min(fb.height.saturating_sub(ly));
+                        for row in 0..max_h {
+                            let py = ly + row;
+                            let row_offset = row * gw;
+                            let fb_offset = py * fb.width + cur_gx;
+                            for col in 0..max_w {
+                                let [ar, ag, ab] = sub_cov[row_offset + col];
+                                if ar > 0 || ag > 0 || ab > 0 {
+                                    fb.pixels[fb_offset + col] = blend_pixel_subpixel_gamma(self.colors.input_bg, line_fg, ar, ag, ab);
+                                }
+                            }
+                        }
+                    } else {
+                        let (gw, gh, cov) = FontRasterizer::rasterize_glyph_sized(
+                            ch,
+                            dialog.selected_family,
+                            prev_char_w,
+                            prev_char_h,
+                            dialog.selected_weight,
+                        );
+                        let max_w = gw.min(fb.width.saturating_sub(cur_gx));
+                        let max_h = gh.min(fb.height.saturating_sub(ly));
+                        for row in 0..max_h {
+                            let py = ly + row;
+                            let row_offset = row * gw;
+                            let fb_offset = py * fb.width + cur_gx;
+                            for col in 0..max_w {
+                                let alpha = cov[row_offset + col];
+                                if alpha > 0 {
+                                    fb.pixels[fb_offset + col] = blend_pixel_gamma(self.colors.input_bg, line_fg, alpha);
+                                }
                             }
                         }
                     }

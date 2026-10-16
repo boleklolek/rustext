@@ -7,6 +7,9 @@ pub const FONT_HEIGHT: usize = 16;
 /// Fixed-size 8x16 anti-aliased coverage mask (128 bytes, 0..=255 per subpixel).
 pub type GlyphCoverage16 = [u8; 128];
 
+/// Fixed-size 8x16 subpixel LCD coverage mask (128 pixels, 3 subpixels per pixel [R, G, B] = 384 bytes).
+pub type SubpixelCoverage16 = [[u8; 3]; 128];
+
 /// Font Family identifier for monospace coding fonts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontFamily {
@@ -114,6 +117,10 @@ pub struct FontRasterizer;
 static ASCII_AA_CACHE: OnceLock<Box<[GlyphCoverage16; 95]>> = OnceLock::new();
 static SPECIAL_AA_CACHE: OnceLock<BTreeMap<char, GlyphCoverage16>> = OnceLock::new();
 static UNKNOWN_AA: OnceLock<GlyphCoverage16> = OnceLock::new();
+
+static ASCII_SUBPIXEL_CACHE: OnceLock<Box<[SubpixelCoverage16; 95]>> = OnceLock::new();
+static SPECIAL_SUBPIXEL_CACHE: OnceLock<BTreeMap<char, SubpixelCoverage16>> = OnceLock::new();
+static UNKNOWN_SUBPIXEL: OnceLock<SubpixelCoverage16> = OnceLock::new();
 
 impl FontRasterizer {
     /// Determines if a character is a box-drawing symbol that requires 100% sharp connected edges.
@@ -342,6 +349,202 @@ impl FontRasterizer {
     pub fn rasterize_glyph_scaled(ch: char, scale: usize) -> (usize, usize, Vec<u8>) {
         let scale = scale.max(1);
         Self::rasterize_glyph_sized(ch, FontFamily::Standard, FONT_WIDTH * scale, FONT_HEIGHT * scale, FontWeight::Normal)
+    }
+
+    /// Computes spatial LCD RGB subpixel anti-aliased coverage mask (8x16 = 128 pixels, 3 subpixels [R, G, B] per pixel).
+    /// Triples horizontal spatial sampling to 24 subpixels and applies a [1/4, 2/4, 1/4] FIR filter across subpixels
+    /// to eliminate color fringing while preserving 3x horizontal edge sharpness.
+    pub fn compute_subpixel_coverage(bitmap: &[u8; 16], is_box_drawing: bool) -> SubpixelCoverage16 {
+        let mut out = [[0u8; 3]; 128];
+
+        if is_box_drawing {
+            let cov = Self::compute_coverage(bitmap, true);
+            for i in 0..128 {
+                let v = cov[i];
+                out[i] = [v, v, v];
+            }
+            return out;
+        }
+
+        let get_bit = |x: i32, y: i32| -> bool {
+            if x < 0 || x >= 8 || y < 0 || y >= 16 {
+                return false;
+            }
+            (bitmap[y as usize] & (0x80 >> (x as usize))) != 0
+        };
+
+        // 24 subpixel columns horizontally across 8 pixel columns (3 subpixels per pixel)
+        let mut raw_sub = [0u8; 24 * 16];
+
+        for y in 0..16 {
+            for s in 0..24 {
+                let x_src = s / 3;
+                let is_set = get_bit(x_src as i32, y as i32);
+                raw_sub[(y * 24 + s) as usize] = if is_set { 255 } else { 0 };
+            }
+        }
+
+        // Apply FIR filter [1/4, 2/4, 1/4] along each horizontal row
+        for y in 0..16 {
+            let row_offset = y * 24;
+            let mut filtered = [0u8; 24];
+            for s in 0..24 {
+                let left = if s > 0 { raw_sub[row_offset + s - 1] as u16 } else { 0 };
+                let center = raw_sub[row_offset + s] as u16;
+                let right = if s + 1 < 24 { raw_sub[row_offset + s + 1] as u16 } else { 0 };
+                filtered[s] = ((left + center * 2 + right + 2) / 4).min(255) as u8;
+            }
+
+            for x in 0..8 {
+                let r = filtered[x * 3 + 0];
+                let g = filtered[x * 3 + 1];
+                let b = filtered[x * 3 + 2];
+                out[y * 8 + x] = [r, g, b];
+            }
+        }
+
+        out
+    }
+
+    /// Retrieves precomputed or cached subpixel LCD glyph coverage (O(1)).
+    pub fn get_glyph_subpixel(ch: char) -> &'static SubpixelCoverage16 {
+        let ascii = ch as usize;
+        if (32..=126).contains(&ascii) {
+            let cache = ASCII_SUBPIXEL_CACHE.get_or_init(|| {
+                let mut table = Vec::with_capacity(95);
+                for idx in 0..95 {
+                    let bmp = &ASCII_GLYPHS[idx];
+                    table.push(Self::compute_subpixel_coverage(bmp, false));
+                }
+                table.into_boxed_slice().try_into().unwrap()
+            });
+            &cache[ascii - 32]
+        } else {
+            let special_map = SPECIAL_SUBPIXEL_CACHE.get_or_init(|| {
+                let mut map = BTreeMap::new();
+                let chars = [
+                    '│', '─', '█', 'á', 'é', 'í', 'ó', 'ú', 'Á', 'É', 'Í', 'Ó', 'Ú',
+                    'ñ', 'Ñ', '¡', '¿', '×', 'ü', 'Ü', '•', '©', '▼', '▶', '↺',
+                ];
+                for &c in &chars {
+                    let is_box = Self::is_box_drawing(c);
+                    let bmp = get_glyph(c);
+                    map.insert(c, Self::compute_subpixel_coverage(bmp, is_box));
+                }
+                map
+            });
+
+            if let Some(cov) = special_map.get(&ch) {
+                cov
+            } else {
+                UNKNOWN_SUBPIXEL.get_or_init(|| {
+                    Self::compute_subpixel_coverage(&GLYPH_UNKNOWN, false)
+                })
+            }
+        }
+    }
+
+    /// Rasterizes glyph sized to arbitrary target width and height `(target_w x target_h)`
+    /// with 3x horizontal LCD subpixel resolution and [1/4, 2/4, 1/4] FIR color-fringing filter.
+    pub fn rasterize_glyph_subpixel(
+        ch: char,
+        family: FontFamily,
+        target_w: usize,
+        target_h: usize,
+        weight: FontWeight,
+    ) -> (usize, usize, Vec<[u8; 3]>) {
+        let target_w = target_w.max(1);
+        let target_h = target_h.max(1);
+
+        if target_w == FONT_WIDTH && target_h == FONT_HEIGHT && family == FontFamily::Standard && weight == FontWeight::Normal {
+            return (FONT_WIDTH, FONT_HEIGHT, Self::get_glyph_subpixel(ch).to_vec());
+        }
+
+        if Self::is_box_drawing(ch) || family == FontFamily::Retro {
+            let (_, _, cov) = Self::rasterize_glyph_sized(ch, family, target_w, target_h, weight);
+            let sub: Vec<[u8; 3]> = cov.into_iter().map(|v| [v, v, v]).collect();
+            return (target_w, target_h, sub);
+        }
+
+        let bmp = get_family_glyph(ch, family);
+        let mut dilated = [0u8; 16];
+        let effective_bitmap = match weight {
+            FontWeight::Bold => {
+                for y in 0..16 {
+                    dilated[y] = bmp[y] | (bmp[y] >> 1);
+                }
+                &dilated
+            }
+            _ => bmp,
+        };
+
+        let sub_w = target_w * 3;
+        let sx_scale = 8.0 / (sub_w as f64);
+        let sy_scale = 16.0 / (target_h as f64);
+        let cell_area = sx_scale * sy_scale;
+
+        let mut raw_sub = vec![0u8; sub_w * target_h];
+
+        for y in 0..target_h {
+            let v0 = (y as f64) * sy_scale;
+            let v1 = ((y + 1) as f64) * sy_scale;
+            let sy_start = (v0.floor() as usize).min(15);
+            let sy_end = (((v1 - 1e-6).floor() as usize)).min(15);
+
+            for s in 0..sub_w {
+                let u0 = (s as f64) * sx_scale;
+                let u1 = ((s + 1) as f64) * sx_scale;
+                let sx_start = (u0.floor() as usize).min(7);
+                let sx_end = (((u1 - 1e-6).floor() as usize)).min(7);
+
+                let mut accum = 0.0;
+                for sy in sy_start..=sy_end {
+                    let y_overlap = (v1.min(sy as f64 + 1.0) - v0.max(sy as f64)).max(0.0);
+                    for sx in sx_start..=sx_end {
+                        let x_overlap = (u1.min(sx as f64 + 1.0) - u0.max(sx as f64)).max(0.0);
+                        let is_set = (effective_bitmap[sy] & (0x80 >> sx)) != 0;
+                        if is_set {
+                            accum += (x_overlap * y_overlap / cell_area) * 255.0;
+                        }
+                    }
+                }
+
+                let mut val = accum.round().clamp(0.0, 255.0) as u8;
+                if weight == FontWeight::Semibold && val > 0 && val < 255 {
+                    val = (val as u16 + 35).min(255) as u8;
+                }
+                raw_sub[y * sub_w + s] = val;
+            }
+        }
+
+        // Apply FIR filter [1/4, 2/4, 1/4] horizontally across subpixel columns
+        let mut out = Vec::with_capacity(target_w * target_h);
+
+        for y in 0..target_h {
+            let row_offset = y * sub_w;
+            let mut filtered = vec![0u8; sub_w];
+            for s in 0..sub_w {
+                let left = if s > 0 { raw_sub[row_offset + s - 1] as u16 } else { 0 };
+                let center = raw_sub[row_offset + s] as u16;
+                let right = if s + 1 < sub_w { raw_sub[row_offset + s + 1] as u16 } else { 0 };
+                filtered[s] = ((left + center * 2 + right + 2) / 4).min(255) as u8;
+            }
+
+            for x in 0..target_w {
+                let r = filtered[x * 3 + 0];
+                let g = filtered[x * 3 + 1];
+                let b = filtered[x * 3 + 2];
+                out.push([r, g, b]);
+            }
+        }
+
+        (target_w, target_h, out)
+    }
+
+    /// Rasterizes glyph scaled to `(8 * scale) x (16 * scale)` with 3x horizontal LCD subpixel resolution.
+    pub fn rasterize_glyph_subpixel_scaled(ch: char, scale: usize) -> (usize, usize, Vec<[u8; 3]>) {
+        let scale = scale.max(1);
+        Self::rasterize_glyph_subpixel(ch, FontFamily::Standard, FONT_WIDTH * scale, FONT_HEIGHT * scale, FontWeight::Normal)
     }
 }
 
@@ -895,5 +1098,29 @@ mod tests {
 
         let cov_tilde = FontRasterizer::get_glyph_coverage('ñ');
         assert!(cov_tilde.iter().any(|&val| val > 0 && val < 255));
+    }
+
+    #[test]
+    fn test_font_rasterizer_subpixel_lcd_cleartype() {
+        let cov_sub = FontRasterizer::get_glyph_subpixel('o');
+        assert_eq!(cov_sub.len(), 128);
+
+        // Verify that subpixel rendering differentiates R, G, B components on diagonal/curve edges
+        let has_subpixel_differentiation = cov_sub.iter().any(|&[r, g, b]| {
+            (r != g || g != b) && (r > 0 || g > 0 || b > 0)
+        });
+        assert!(has_subpixel_differentiation, "Subpixel rendering must produce color-differentiated LCD components");
+
+        // Verify solid core pixels
+        let has_solid_rgb = cov_sub.iter().any(|&[r, g, b]| r == 255 && g == 255 && b == 255);
+        assert!(has_solid_rgb, "Subpixel rendering must preserve solid 255 core pixels");
+
+        // Test scaled subpixel rasterization
+        let (w, h, sub_data) = FontRasterizer::rasterize_glyph_subpixel('A', FontFamily::Standard, 10, 20, FontWeight::Normal);
+        assert_eq!(w, 10);
+        assert_eq!(h, 20);
+        assert_eq!(sub_data.len(), 200);
+        let has_scaled_diff = sub_data.iter().any(|&[r, g, b]| (r != g || g != b) && (r > 0 || g > 0 || b > 0));
+        assert!(has_scaled_diff, "Scaled subpixel glyph must maintain differentiated LCD components");
     }
 }

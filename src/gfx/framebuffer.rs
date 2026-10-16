@@ -5,7 +5,7 @@ use super::analytic_aa::AnalyticAA;
 use super::blur::BlurEngine;
 use super::edge_perception::EdgePerception;
 use super::font::{get_glyph, FontFamily, FontWeight, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
-use super::gamma::blend_pixel_gamma;
+use super::gamma::{blend_pixel_gamma, blend_pixel_subpixel_gamma};
 use super::hinting::{FontHinter, HintingLevel};
 use super::shaping::FontShaper;
 
@@ -19,6 +19,7 @@ pub struct Framebuffer {
     pub font_family: FontFamily,
     pub font_weight: FontWeight,
     pub font_size: usize,
+    pub subpixel_antialiasing: bool,
 }
 
 impl Framebuffer {
@@ -33,6 +34,7 @@ impl Framebuffer {
             font_family: FontFamily::Standard,
             font_weight: FontWeight::Normal,
             font_size: 12,
+            subpixel_antialiasing: false,
         }
     }
 
@@ -335,6 +337,11 @@ impl Framebuffer {
         self.font_scale = scale.max(1);
     }
 
+    /// Sets whether subpixel LCD anti-aliasing (RGB ClearType) is enabled for font rendering.
+    pub fn set_subpixel_antialiasing(&mut self, enabled: bool) {
+        self.subpixel_antialiasing = enabled;
+    }
+
     /// Returns the character cell dimensions `(width, height)` in pixels based on font_size and font_scale.
     pub fn char_cell_size(&self) -> (usize, usize) {
         if self.font_size != 12 {
@@ -349,6 +356,11 @@ impl Framebuffer {
     /// Draws a single character glyph at pixel coordinates (x, y) with subpixel anti-aliasing and gamma correction.
     pub fn draw_char(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
         let (char_w, char_h) = self.char_cell_size();
+        if self.subpixel_antialiasing {
+            self.draw_char_subpixel(ch, x, y, fg, bg, char_w, char_h);
+            return;
+        }
+
         if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
             self.draw_char_sized(ch, x, y, fg, bg, char_w, char_h);
             return;
@@ -392,6 +404,11 @@ impl Framebuffer {
             return;
         }
 
+        if self.subpixel_antialiasing {
+            self.draw_char_subpixel(ch, x, y, fg, bg, target_w, target_h);
+            return;
+        }
+
         let (w, h, coverage) = FontRasterizer::rasterize_glyph_sized(ch, self.font_family, target_w, target_h, self.font_weight);
         let max_w = (x + w).min(self.width) - x;
         let max_h = (y + h).min(self.height) - y;
@@ -420,6 +437,64 @@ impl Framebuffer {
         }
     }
 
+    /// Draws a single character glyph with mathematically exact LCD RGB subpixel anti-aliasing and gamma correction.
+    pub fn draw_char_subpixel(
+        &mut self,
+        ch: char,
+        x: usize,
+        y: usize,
+        fg: u32,
+        bg: Option<u32>,
+        target_w: usize,
+        target_h: usize,
+    ) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+
+        let (w, h, subpixel_cov) = if target_w == FONT_WIDTH
+            && target_h == FONT_HEIGHT
+            && self.font_family == FontFamily::Standard
+            && self.font_weight == FontWeight::Normal
+        {
+            (FONT_WIDTH, FONT_HEIGHT, FontRasterizer::get_glyph_subpixel(ch).to_vec())
+        } else {
+            FontRasterizer::rasterize_glyph_subpixel(
+                ch,
+                self.font_family,
+                target_w,
+                target_h,
+                self.font_weight,
+            )
+        };
+
+        let max_w = (x + w).min(self.width) - x;
+        let max_h = (y + h).min(self.height) - y;
+
+        for row in 0..max_h {
+            let py = y + row;
+            let row_offset = row * w;
+            let fb_offset = py * self.width + x;
+
+            for col in 0..max_w {
+                let [ar, ag, ab] = subpixel_cov[row_offset + col];
+                if ar == 0 && ag == 0 && ab == 0 {
+                    if let Some(bg_color) = bg {
+                        self.pixels[fb_offset + col] = bg_color;
+                    }
+                } else if ar == 255 && ag == 255 && ab == 255 {
+                    self.pixels[fb_offset + col] = fg;
+                } else {
+                    let dst = match bg {
+                        Some(bg_color) => bg_color,
+                        None => self.pixels[fb_offset + col],
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_subpixel_gamma(dst, fg, ar, ag, ab);
+                }
+            }
+        }
+    }
+
     /// Draws a string of text starting at pixel coordinates (x, y) with anti-aliasing and gamma correction.
     pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
         let (char_w, char_h) = self.char_cell_size();
@@ -428,7 +503,9 @@ impl Framebuffer {
             if cur_x + char_w > self.width {
                 break;
             }
-            if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
+            if self.subpixel_antialiasing {
+                self.draw_char_subpixel(ch, cur_x, y, fg, bg, char_w, char_h);
+            } else if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
                 self.draw_char_sized(ch, cur_x, y, fg, bg, char_w, char_h);
             } else {
                 self.draw_char(ch, cur_x, y, fg, bg);
@@ -440,6 +517,12 @@ impl Framebuffer {
     /// Draws a single character glyph with integer scaling factor (1 = 1x, 2 = 2x HiDPI)
     /// using smooth continuous bilinear supersampling and gamma correction.
     pub fn draw_char_scaled(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
+        let scale = scale.max(1);
+        if self.subpixel_antialiasing {
+            self.draw_char_subpixel(ch, x, y, fg, bg, FONT_WIDTH * scale, FONT_HEIGHT * scale);
+            return;
+        }
+
         if scale <= 1 {
             self.draw_char(ch, x, y, fg, bg);
             return;
@@ -794,5 +877,26 @@ mod tests {
 
         assert!(max_x >= 20 && max_x < 32, "Max x should be within 2x bounds (got {})", max_x);
         assert!(max_y >= 16 && max_y < 32, "Max y should be within 2x bounds (got {})", max_y);
+    }
+
+    #[test]
+    fn test_framebuffer_subpixel_lcd_rendering() {
+        let mut fb = Framebuffer::new(40, 24);
+        fb.set_subpixel_antialiasing(true);
+        fb.clear(0xFF000000);
+        fb.draw_char('o', 0, 0, 0xFFFFFFFF, Some(0xFF000000));
+
+        // Subpixel rendering will produce color-differentiated edge pixels where r != g or g != b
+        let has_subpixel_diff = fb.pixels.iter().any(|&p| {
+            let r = (p >> 16) & 0xFF;
+            let g = (p >> 8) & 0xFF;
+            let b = p & 0xFF;
+            (r != g || g != b) && (r > 0 || g > 0 || b > 0)
+        });
+        assert!(has_subpixel_diff, "Subpixel rendering must produce color-differentiated LCD edge pixels");
+
+        // Verify solid core pixels are present
+        let solid_count = fb.pixels.iter().filter(|&&p| p == 0xFFFFFFFF).count();
+        assert!(solid_count > 0, "Solid core pixels must remain pure 0xFFFFFFFF");
     }
 }
