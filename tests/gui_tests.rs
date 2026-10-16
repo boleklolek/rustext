@@ -64,8 +64,8 @@ fn test_menu_bar_interactions() {
     assert_eq!(menu.is_open(), true);
     assert_eq!(menu.active_category, Some(0));
 
-    // Click on "Guardar" item (x = 20, y = 24 + 2 + 2*22 + 5 = 75)
-    let action = menu.handle_mouse_click(20, 75, 8);
+    // Click on "Guardar" item (x = 20, y = 24 + 2 + 3*22 + 5 = 97)
+    let action = menu.handle_mouse_click(20, 97, 8);
     assert_eq!(action, Some(EditorAction::Save));
     assert_eq!(menu.is_open(), false);
 }
@@ -119,8 +119,8 @@ fn test_menu_bar_boundary_and_underflow_safety() {
     assert_eq!(menu.is_open(), true);
 
     // Clicking separator should return None and keep menu open or not trigger action
-    // "Archivo" items: 0: Nueva, 1: Abrir, 2: Guardar, 3: Guardar Como, 4: Separator
-    let sep_y = 24 + 2 + 4 * 22 + 5;
+    // "Archivo" items: 0: Nueva, 1: Abrir, 2: Abrir Reciente, 3: Guardar, 4: Guardar Como, 5: Separator
+    let sep_y = 24 + 2 + 5 * 22 + 5;
     let action = menu.handle_mouse_click(20, sep_y, 8);
     assert_eq!(action, None);
     assert_eq!(menu.is_open(), true);
@@ -2036,4 +2036,146 @@ fn test_unsaved_changes_dialog_gui_rendering() {
     let box_pixel = fb.get_pixel(400, 260);
     assert_ne!(box_pixel, 0x00000000);
 }
+
+#[test]
+fn test_session_save_and_restore_full_editor_state() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::session::SessionManager;
+    use rustext::editor::{Editor, EditorAction};
+    use std::fs;
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_sess_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let _ = fs::create_dir_all(&test_dir);
+
+    let file_a = test_dir.join("file_a.rs");
+    let file_b = test_dir.join("file_b.rs");
+    fs::write(&file_a, "fn hello_a() {\n    println!(\"A\");\n}\n").unwrap();
+    fs::write(&file_b, "fn hello_b() {\n    println!(\"B\");\n}\n").unwrap();
+
+    let sess_dir = test_dir.join("sess");
+    let sess_mgr = SessionManager::with_dir(sess_dir.clone());
+
+    // 1. Setup editor with two files, split and cursors
+    let mut editor = Editor::new(TextBuffer::open(&file_a).unwrap());
+    editor.session_manager = sess_mgr.clone();
+    editor.open_file(&file_b);
+    assert_eq!(editor.documents.len(), 2);
+    assert_eq!(editor.active_doc_idx, 1);
+
+    // Toggle vertical split
+    editor.execute_action(EditorAction::ToggleSplitVertical);
+    assert!(editor.split.is_split());
+    let expected_active = editor.active_doc_idx;
+
+    // Save session
+    let res = editor.save_session();
+    assert!(res.is_ok());
+
+    // 2. New editor instance restores the session
+    let mut new_editor = Editor::new(TextBuffer::new());
+    new_editor.session_manager = sess_mgr;
+    let restored = new_editor.restore_session();
+    assert!(restored);
+
+    assert_eq!(new_editor.documents.len(), 2);
+    assert_eq!(new_editor.documents[0].buffer.file_path(), Some(file_a.as_path()));
+    assert_eq!(new_editor.documents[1].buffer.file_path(), Some(file_b.as_path()));
+    assert!(new_editor.split.is_split());
+    assert_eq!(new_editor.active_doc_idx, expected_active);
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_hot_exit_draft_recovery_on_restore() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::session::SessionManager;
+    use rustext::editor::Editor;
+    use rustext::ui::terminal::Key;
+    use std::fs;
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_hotexit_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let _ = fs::create_dir_all(&test_dir);
+
+    let file_path = test_dir.join("unsaved.rs");
+    fs::write(&file_path, "original content\n").unwrap();
+
+    let sess_dir = test_dir.join("sess");
+    let sess_mgr = SessionManager::with_dir(sess_dir.clone());
+
+    let mut editor = Editor::new(TextBuffer::open(&file_path).unwrap());
+    editor.session_manager = sess_mgr.clone();
+    editor.config.editor.hot_exit = true;
+
+    // Modify buffer without saving
+    editor.handle_key(Key::Char('X'));
+    assert!(editor.doc().buffer.is_dirty());
+
+    // Save session with hot exit enabled
+    let res = editor.save_session();
+    assert!(res.is_ok());
+
+    // Verify draft file was written
+    assert!(sess_dir.join("drafts").exists());
+
+    // New editor restores session
+    let mut new_editor = Editor::new(TextBuffer::new());
+    new_editor.session_manager = sess_mgr;
+    new_editor.config.editor.hot_exit = true;
+    let restored = new_editor.restore_session();
+    assert!(restored);
+
+    assert_eq!(new_editor.documents.len(), 1);
+    let doc = new_editor.doc();
+    assert!(doc.buffer.is_dirty(), "Restored document should preserve dirty state");
+    assert!(doc.buffer.to_string().starts_with("Xoriginal content"));
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_recent_files_modal_navigation_and_open() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+    use rustext::ui::prompt::PromptKind;
+    use rustext::ui::terminal::Key;
+    use std::fs;
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_recents_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let _ = fs::create_dir_all(&test_dir);
+
+    let file_1 = test_dir.join("first.txt");
+    let file_2 = test_dir.join("second.txt");
+    fs::write(&file_1, "file 1").unwrap();
+    fs::write(&file_2, "file 2").unwrap();
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.open_file(&file_1);
+    editor.open_file(&file_2);
+
+    assert_eq!(editor.recent_files.len(), 2);
+    assert_eq!(editor.recent_files[0], file_2.canonicalize().unwrap());
+    assert_eq!(editor.recent_files[1], file_1.canonicalize().unwrap());
+
+    // Open Recent Files Prompt (Ctrl+R)
+    editor.execute_action(EditorAction::OpenRecentFilesPrompt);
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::RecentFiles);
+            let matching = modal.matching_recent_files();
+            assert_eq!(matching.len(), 2);
+        }
+        _ => panic!("Expected RecentFiles modal"),
+    }
+
+    // Navigate down and commit to open the second file in the list (file_1)
+    editor.handle_key(Key::Down);
+    editor.handle_key(Key::Enter);
+
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.doc().buffer.file_path(), Some(file_1.as_path()));
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
 

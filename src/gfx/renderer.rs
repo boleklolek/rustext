@@ -2509,8 +2509,9 @@ impl GfxRenderer {
         }
 
         let is_palette = modal.kind == crate::ui::prompt::PromptKind::CommandPalette;
-        let box_w = fb.width.min(580).max(340);
-        let box_h = if is_palette { 340 } else { 120 };
+        let is_recent = modal.kind == crate::ui::prompt::PromptKind::RecentFiles;
+        let box_w = if is_recent { fb.width.min(680).max(400) } else { fb.width.min(580).max(340) };
+        let box_h = if is_palette || is_recent { 340 } else { 120 };
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y: usize = 28;
 
@@ -2618,6 +2619,54 @@ impl GfxRenderer {
 
             // Footer hint
             let hint = "↑/↓: Seleccionar  •  Enter: Ejecutar  •  Esc: Cerrar";
+            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
+            let hint_y = box_y + box_h - 18;
+            fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
+        } else if is_recent {
+            let matching = modal.matching_recent_files();
+            let mut item_y = input_y + input_h + 8;
+            let item_h = 26;
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No hay archivos recientes coincidentes)", input_x + 8, item_y + 6, 0x00858585, None);
+            } else {
+                for (idx, path) in matching.iter().take(max_visible).enumerate() {
+                    let is_sel = idx == modal.selected_idx;
+                    let (row_bg, row_fg, dir_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
+                    } else {
+                        (self.colors.modal_bg, 0x00FFFFFF, 0x00858585)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let parent_str = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+
+                    let row_text_y = item_y + (item_h - FONT_HEIGHT) / 2;
+                    fb.draw_text(file_name, input_x + 8, row_text_y, row_fg, None);
+
+                    let fn_w = file_name.chars().count() * FONT_WIDTH;
+                    let dir_x = input_x + 8 + fn_w + 12;
+                    let max_dir_chars = input_w.saturating_sub(fn_w + 24) / FONT_WIDTH;
+                    let display_dir = if parent_str.chars().count() > max_dir_chars && max_dir_chars > 3 {
+                        format!("...{}", parent_str.chars().skip(parent_str.chars().count() - (max_dir_chars - 3)).collect::<String>())
+                    } else {
+                        parent_str
+                    };
+                    fb.draw_text(&display_dir, dir_x, row_text_y, dir_fg, None);
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let hint = "↑/↓: Seleccionar  •  Enter: Abrir archivo  •  Esc: Cancelar";
             let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
             let hint_y = box_y + box_h - 18;
             fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);

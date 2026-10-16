@@ -134,6 +134,11 @@ impl TextBuffer {
         self.is_dirty
     }
 
+    /// Explicitly sets the dirty state of the buffer.
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.is_dirty = dirty;
+    }
+
     /// Returns the file path if one is associated with this buffer.
     pub fn file_path(&self) -> Option<&Path> {
         self.file_path.as_deref()

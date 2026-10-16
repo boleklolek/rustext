@@ -96,6 +96,16 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Búsqueda reactiva mientras se escribe, soporte para alternar mayúsculas/minúsculas (`Alt + C` o botón `[Aa]`).
   - Snippets de código con resaltado ámbar de coincidencias, insignias de archivo/línea y salto inmediato de cursor y viewport al hacer clic o presionar `Enter`.
 
+- **Restauración de Sesión de Espacio de Trabajo y Modo Hot Exit**:
+  - Persistencia automática de todo el espacio de trabajo en `~/.rustext/session.ini`: pestañas abiertas, cursores exactos, desplazamientos de scroll, paneles divididos (vertical/horizontal y proporciones) y carpeta raíz del proyecto.
+  - Soporte de *Hot Exit* seguro mediante borradores (`~/.rustext/drafts/*.draft`) para recuperar el contenido modificado ante cierres sin guardar ni perder trabajo.
+  - Totalmente configurable desde `config.ini` (`restore_session = true`, `auto_save_session = true`, `hot_exit = false`).
+
+- **Selector y Filtro de Archivos Recientes (`Ctrl + R`)**:
+  - Modal flotante interactivo de acceso rápido con filtro en tiempo real para reabrir rápidamente los archivos recientemente editados.
+  - Resaltado de nombre de archivo con ruta de directorio atenuada, navegación por teclado (`↑`/`↓`/`Enter`) y clics de ratón con efectos hover.
+  - Historial persistente deduplicado y configurable con límite máximo (`max_recent_files = 20`).
+
 - **Autocompletado Contextual Inteligente (`Ctrl + Espacio`)**:
   - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
   - Palabras clave nativas por lenguaje (Rust, Python, C, C++, Go, JS, TS) más identificadores extraídos en vivo de todos los búferes abiertos.
@@ -187,6 +197,7 @@ cargo run --release --bin memory_profile
 | :--- | :--- |
 | `Ctrl + S` | Guardar el archivo actual |
 | `Ctrl + O` | Abrir archivo mediante diálogo interactivo |
+| `Ctrl + R` | **Abrir Archivo Reciente... (Selector con filtro difuso)** |
 | `Ctrl + T` | Abrir nueva pestaña vacía |
 | `Ctrl + W` | Cerrar pestaña activa |
 | `Ctrl + Q` | Salir de Rustext |
@@ -231,6 +242,10 @@ auto_surround = true
 show_line_numbers = true
 format_on_save = false
 check_on_save = false
+restore_session = true
+auto_save_session = true
+hot_exit = false
+max_recent_files = 20
 
 [theme]
 name = tokyo-night   # tokyo-night, catppuccin-mocha, one-dark, monokai, solarized-dark, light

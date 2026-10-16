@@ -126,6 +126,8 @@ pub struct Editor {
     pub autocomplete: crate::editor::autocomplete::AutocompleteState,
     pub split: crate::editor::split::SplitState,
     pub git: crate::editor::git::GitManager,
+    pub session_manager: crate::editor::session::SessionManager,
+    pub recent_files: Vec<PathBuf>,
     pub should_quit: bool,
 }
 
@@ -164,6 +166,12 @@ impl Editor {
 
         let git = crate::editor::git::GitManager::new(&root_dir);
 
+        let session_manager = crate::editor::session::SessionManager::new();
+        let mut recent_files = session_manager.load_session().map(|s| s.recent_files).unwrap_or_default();
+        if let Some(fp) = initial_doc.buffer.file_path() {
+            crate::editor::session::SessionManager::add_recent_file(&mut recent_files, fp.to_path_buf(), config.editor.max_recent_files);
+        }
+
         Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
@@ -188,6 +196,8 @@ impl Editor {
             autocomplete: crate::editor::autocomplete::AutocompleteState::new(),
             split: crate::editor::split::SplitState::new(),
             git,
+            session_manager,
+            recent_files,
             should_quit: false,
         }
     }
@@ -221,6 +231,7 @@ impl Editor {
             self.handle_key(key);
         }
 
+        let _ = self.save_session();
         Ok(())
     }
 
@@ -370,6 +381,11 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::RecentFiles {
+                        let count = modal.matching_recent_files().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
+                        }
                     } else if modal.is_file_dialog() {
                         modal.select_next_entry(10);
                     } else if modal.kind == PromptKind::GlobalSearch {
@@ -380,6 +396,8 @@ impl Editor {
                     if modal.kind == PromptKind::Replace {
                         modal.active_field = 0;
                     } else if modal.kind == PromptKind::CommandPalette {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.is_file_dialog() {
                         modal.select_prev_entry();
@@ -392,6 +410,11 @@ impl Editor {
                         for _ in 0..8 {
                             modal.select_next_entry(10);
                         }
+                    } else if modal.kind == PromptKind::RecentFiles {
+                        let count = modal.matching_recent_files().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
+                        }
                     } else if modal.kind == PromptKind::GlobalSearch {
                         for _ in 0..8 {
                             modal.select_next_global_result(12);
@@ -403,6 +426,8 @@ impl Editor {
                         for _ in 0..8 {
                             modal.select_prev_entry();
                         }
+                    } else if modal.kind == PromptKind::RecentFiles {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(6);
                     } else if modal.kind == PromptKind::GlobalSearch {
                         for _ in 0..8 {
                             modal.select_prev_global_result();
@@ -708,6 +733,9 @@ impl Editor {
                 modal.custom_commands = self.extension_manager.get_active_commands();
                 self.mode = EditorMode::ModalPrompt(modal);
             }
+            EditorAction::OpenRecentFilesPrompt => {
+                self.mode = EditorMode::ModalPrompt(PromptModal::new_recent_files(self.recent_files.clone()));
+            }
             EditorAction::OpenExtensionsManager => {
                 self.mode = EditorMode::ExtensionsManager { selected_idx: 0, scroll_offset: 0 };
             }
@@ -755,9 +783,10 @@ impl Editor {
 
             EditorAction::Quit => {
                 let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
-                if any_dirty {
+                if any_dirty && !self.config.editor.hot_exit {
                     self.prompt_unsaved_quit();
                 } else {
+                    let _ = self.save_session();
                     self.should_quit = true;
                 }
             }
@@ -1376,6 +1405,7 @@ impl Editor {
                                 }
                             }
                             self.mode = EditorMode::Normal;
+                            let _ = self.save_session();
                             self.should_quit = true;
                         }
                     }
@@ -1390,7 +1420,9 @@ impl Editor {
                         self.set_status(format!("Cerrado sin guardar: {}", dialog.file_name));
                     }
                     UnsavedConfirmAction::Quit => {
+                        self.session_manager.clear_all_drafts();
                         self.mode = EditorMode::Normal;
+                        let _ = self.save_session();
                         self.should_quit = true;
                     }
                 }
@@ -1425,8 +1457,160 @@ impl Editor {
         }
     }
 
+    /// Adds a file path to the list of recent files.
+    pub fn add_recent_file(&mut self, path: PathBuf) {
+        crate::editor::session::SessionManager::add_recent_file(
+            &mut self.recent_files,
+            path,
+            self.config.editor.max_recent_files,
+        );
+    }
+
+    /// Persists current open tabs, cursor positions, scroll state, split layout and unsaved drafts.
+    pub fn save_session(&mut self) -> io::Result<()> {
+        if !self.config.editor.restore_session && !self.config.editor.auto_save_session {
+            return Ok(());
+        }
+
+        let mut tabs = Vec::new();
+        for (idx, doc) in self.documents.iter().enumerate() {
+            let file_path = doc.buffer.file_path().map(|p| p.to_path_buf());
+            let is_dirty = doc.buffer.is_dirty();
+            let mut draft_path = None;
+
+            if self.config.editor.hot_exit && is_dirty {
+                let d_id = format!("tab_{}", idx);
+                let content = doc.buffer.to_string();
+                if let Ok(path) = self.session_manager.save_draft(&d_id, &content) {
+                    draft_path = Some(path);
+                }
+            }
+
+            let primary = doc.cursors.primary();
+            let cursor_pos = doc.buffer.char_to_position(primary.head);
+            tabs.push(crate::editor::session::TabSession {
+                file_path,
+                cursor_line: cursor_pos.line,
+                cursor_col: cursor_pos.col,
+                scroll_row: doc.scroll_row,
+                scroll_col: doc.scroll_col,
+                is_dirty,
+                draft_path,
+            });
+        }
+
+        let split_direction_str = match self.split.direction {
+            crate::editor::split::SplitDirection::Vertical => "vertical".to_string(),
+            crate::editor::split::SplitDirection::Horizontal => "horizontal".to_string(),
+            crate::editor::split::SplitDirection::None => "none".to_string(),
+        };
+
+        let state = crate::editor::session::SessionState {
+            open_tabs: tabs,
+            active_tab_idx: self.active_doc_idx,
+            split_active: self.split.is_split(),
+            split_direction: split_direction_str,
+            split_secondary_idx: self.split.secondary_doc_idx,
+            split_active_pane: self.split.active_pane,
+            split_ratio: self.split.ratio,
+            sidebar_visible: self.sidebar.is_visible,
+            sidebar_root: Some(self.sidebar.root_dir.clone()),
+            recent_files: self.recent_files.clone(),
+            window_width: self.screen.cols.max(80),
+            window_height: self.screen.rows.max(24),
+        };
+
+        self.session_manager.save_session(&state)
+    }
+
+    /// Restores previously saved tabs, positions, split views and unsaved drafts.
+    pub fn restore_session(&mut self) -> bool {
+        if !self.config.editor.restore_session {
+            return false;
+        }
+
+        let state = match self.session_manager.load_session() {
+            Some(s) => s,
+            None => return false,
+        };
+
+        if state.open_tabs.is_empty() {
+            return false;
+        }
+
+        let mut restored_docs = Vec::new();
+        for tab in state.open_tabs {
+            let mut doc_opt = None;
+
+            // 1. If hot exit draft exists, restore directly from draft
+            if self.config.editor.hot_exit {
+                if let Some(ref d_path) = tab.draft_path {
+                    if d_path.exists() {
+                        if let Ok(content) = self.session_manager.read_draft(d_path) {
+                            let mut buf = TextBuffer::from_str(&content);
+                            if let Some(ref f_path) = tab.file_path {
+                                buf.set_file_path(f_path.clone());
+                            }
+                            buf.set_dirty(tab.is_dirty);
+                            doc_opt = Some(Document::new(buf));
+                        }
+                    }
+                }
+            }
+
+            // 2. Otherwise load existing file from disk
+            if doc_opt.is_none() {
+                if let Some(ref f_path) = tab.file_path {
+                    if f_path.exists() && f_path.is_file() {
+                        if let Ok(buf) = TextBuffer::open(f_path) {
+                            doc_opt = Some(Document::new(buf));
+                        }
+                    }
+                }
+            }
+
+            if let Some(mut doc) = doc_opt {
+                let total_lines = doc.buffer.len_lines();
+                let safe_line = tab.cursor_line.min(total_lines.saturating_sub(1));
+                let line_len = doc.buffer.line_len(safe_line);
+                let safe_col = tab.cursor_col.min(line_len);
+                let offset = doc.buffer.position_to_char(Position::new(safe_line, safe_col));
+                doc.cursors.set_single(offset);
+                doc.scroll_row = tab.scroll_row;
+                doc.scroll_col = tab.scroll_col;
+                restored_docs.push(doc);
+            }
+        }
+
+        if restored_docs.is_empty() {
+            return false;
+        }
+
+        self.documents = restored_docs;
+        self.active_doc_idx = state.active_tab_idx.min(self.documents.len().saturating_sub(1));
+        self.split.direction = match state.split_direction.as_str() {
+            "vertical" => crate::editor::split::SplitDirection::Vertical,
+            "horizontal" => crate::editor::split::SplitDirection::Horizontal,
+            _ => crate::editor::split::SplitDirection::None,
+        };
+        self.split.active_pane = state.split_active_pane;
+        self.split.ratio = state.split_ratio;
+        self.split.primary_doc_idx = state.active_tab_idx.min(self.documents.len().saturating_sub(1));
+        self.split.secondary_doc_idx = state.split_secondary_idx.min(self.documents.len().saturating_sub(1));
+        self.sidebar.is_visible = state.sidebar_visible;
+        if let Some(root) = state.sidebar_root {
+            if root.exists() && root.is_dir() {
+                self.sidebar.set_root_dir(root);
+            }
+        }
+        self.sync_split_doc_indices();
+        self.session_manager.clear_all_drafts();
+        true
+    }
+
     /// Opens a file into a tab, or switches to it if already open.
     pub fn open_file(&mut self, path: &Path) {
+        self.add_recent_file(path.to_path_buf());
         if let Some(pos) = self.documents.iter().position(|d| d.buffer.file_path() == Some(path)) {
             self.active_doc_idx = pos;
             self.sync_split_doc_indices();
@@ -1473,6 +1657,7 @@ impl Editor {
                     self.set_status(format!("Error guardando archivo: {}", e));
                 } else {
                     doc.language = Language::from_path(&target_path);
+                    self.add_recent_file(target_path.clone());
                     self.set_status(format!("Guardado en {}", target_path.display()));
                 }
             }
@@ -1483,6 +1668,18 @@ impl Editor {
                     return;
                 }
                 self.open_file(&target_path);
+            }
+            PromptKind::RecentFiles => {
+                let matching = modal.matching_recent_files();
+                if !matching.is_empty() && modal.selected_idx < matching.len() {
+                    let target_path = matching[modal.selected_idx].clone();
+                    self.open_file(&target_path);
+                } else {
+                    let direct_path = modal.resolve_full_path();
+                    if direct_path.exists() && direct_path.is_file() {
+                        self.open_file(&direct_path);
+                    }
+                }
             }
             PromptKind::CommandPalette => {
                 let input = modal.input.trim();
@@ -2646,11 +2843,12 @@ impl Editor {
                     crate::window::WindowEvent::None => break,
                     crate::window::WindowEvent::Close => {
                         let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
-                        if any_dirty {
+                        if any_dirty && !self.config.editor.hot_exit {
                             self.prompt_unsaved_quit();
                             window.cancel_close();
                             needs_redraw = true;
                         } else {
+                            let _ = self.save_session();
                             self.should_quit = true;
                             break;
                         }
@@ -2984,6 +3182,32 @@ impl Editor {
                                                     self.mode = EditorMode::Normal;
                                                     self.commit_prompt(&modal_clone);
                                                 }
+                                            }
+                                        }
+                                    }
+                                } else if modal.kind == PromptKind::RecentFiles {
+                                    let box_w = fb.width.min(680).max(400);
+                                    let box_h = 340;
+                                    let box_x = (fb.width.saturating_sub(box_w)) / 2;
+                                    let box_y = 28;
+                                    let close_w = 30;
+                                    let close_x = box_x + box_w - close_w;
+
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
+
+                                    if hit_close || hit_outside {
+                                        self.mode = EditorMode::Normal;
+                                    } else {
+                                        let item_start_y = box_y + 24 + 10 + 26 + 8;
+                                        let item_h = 26;
+                                        let matching = modal.matching_recent_files();
+                                        if x >= box_x + 12 && x < box_x + box_w - 12 && y >= item_start_y {
+                                            let row_idx = (y - item_start_y) / item_h;
+                                            if row_idx < matching.len().min(9) {
+                                                let target_path = matching[row_idx].clone();
+                                                self.mode = EditorMode::Normal;
+                                                self.open_file(&target_path);
                                             }
                                         }
                                     }
@@ -3766,8 +3990,8 @@ impl Editor {
 
             // Render Prompt Modal if active (with interactive hover state)
             if let EditorMode::ModalPrompt(modal) = &self.mode {
-                let box_w = if modal.is_file_dialog() {
-                    fb.width.min(680).max(420)
+                let box_w = if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles {
+                    fb.width.min(680).max(400)
                 } else if modal.kind == PromptKind::Replace {
                     fb.width.min(540).max(380)
                 } else {
@@ -3775,7 +3999,7 @@ impl Editor {
                 };
                 let box_h = if modal.is_file_dialog() {
                     fb.height.min(480).max(360)
-                } else if modal.kind == PromptKind::CommandPalette {
+                } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles {
                     340
                 } else if modal.kind == PromptKind::Replace {
                     168
@@ -3876,6 +4100,7 @@ impl Editor {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
+        let _ = self.save_session();
         Ok(())
     }
 }

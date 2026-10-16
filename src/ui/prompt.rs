@@ -10,6 +10,7 @@ pub enum PromptKind {
     Replace,
     SaveAs,
     OpenFile,
+    RecentFiles,
     CommandPalette,
     GlobalSearch,
 }
@@ -21,6 +22,7 @@ impl PromptKind {
             PromptKind::Replace => "Buscar: ",
             PromptKind::SaveAs => "Guardar como: ",
             PromptKind::OpenFile => "Abrir: ",
+            PromptKind::RecentFiles => "Reciente: ",
             PromptKind::CommandPalette => "Comando: ",
             PromptKind::GlobalSearch => "Buscar en Proyecto: ",
         }
@@ -32,6 +34,7 @@ impl PromptKind {
             PromptKind::Replace => "Buscar y Reemplazar",
             PromptKind::SaveAs => "Guardar Archivo Como",
             PromptKind::OpenFile => "Abrir Archivo",
+            PromptKind::RecentFiles => "Archivos Recientes (Ctrl+R)",
             PromptKind::CommandPalette => "Paleta de Comandos",
             PromptKind::GlobalSearch => "Búsqueda Global en el Proyecto (Ctrl+Shift+F)",
         }
@@ -50,6 +53,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
     vec![
         CommandItem { name: "Nueva Pestaña", shortcut: "Ctrl+T", action: EditorAction::NewTab },
         CommandItem { name: "Abrir Archivo...", shortcut: "Ctrl+O", action: EditorAction::OpenOpenFilePrompt },
+        CommandItem { name: "Abrir Archivo Reciente...", shortcut: "Ctrl+R", action: EditorAction::OpenRecentFilesPrompt },
         CommandItem { name: "Guardar", shortcut: "Ctrl+S", action: EditorAction::Save },
         CommandItem { name: "Guardar Como...", shortcut: "", action: EditorAction::OpenSaveAsPrompt },
         CommandItem { name: "Cerrar Pestaña", shortcut: "Ctrl+W", action: EditorAction::CloseTab },
@@ -228,6 +232,7 @@ pub struct PromptModal {
     pub global_truncated: bool,
     pub case_sensitive: bool,
     pub root_dir: PathBuf,
+    pub recent_files: Vec<PathBuf>,
 }
 
 impl PromptModal {
@@ -252,6 +257,7 @@ impl PromptModal {
             global_truncated: false,
             case_sensitive: false,
             root_dir: current_dir,
+            recent_files: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -294,6 +300,7 @@ impl PromptModal {
             global_truncated: false,
             case_sensitive: false,
             root_dir: dir,
+            recent_files: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -323,11 +330,35 @@ impl PromptModal {
             global_truncated: false,
             case_sensitive: false,
             root_dir,
+            recent_files: Vec::new(),
         };
         if !modal.input.trim().is_empty() {
             modal.update_global_search();
         }
         modal
+    }
+
+    /// Creates a prompt modal for selecting and filtering recent files.
+    pub fn new_recent_files(recent_files: Vec<PathBuf>) -> Self {
+        let mut modal = Self::new(PromptKind::RecentFiles);
+        modal.recent_files = recent_files;
+        modal
+    }
+
+    /// Returns matching recent files filtered by current input query.
+    pub fn matching_recent_files(&self) -> Vec<&PathBuf> {
+        let query = self.input.trim().to_lowercase();
+        if query.is_empty() {
+            return self.recent_files.iter().collect();
+        }
+
+        self.recent_files
+            .iter()
+            .filter(|p| {
+                let s = p.to_string_lossy().to_lowercase();
+                s.contains(&query)
+            })
+            .collect()
     }
 
     pub fn is_file_dialog(&self) -> bool {
@@ -644,6 +675,9 @@ impl PromptModal {
                 "Buscar: {} │ Reemplazar con: {} │ [{}] [Tab: Cambiar] [Enter: Sig] [Alt+R: Reemplazar] [Alt+A: Todo]",
                 self.input, self.replace_input, field_hint
             )
+        } else if self.kind == PromptKind::RecentFiles {
+            let count = self.matching_recent_files().len();
+            format!("Archivos Recientes: {} │ ({} archivos) [↑/↓: Seleccionar] [Enter: Abrir] [Esc: Cancelar]", self.input, count)
         } else {
             format!("{}{}", self.kind.label(), self.input)
         }

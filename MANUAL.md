@@ -12,6 +12,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 2. [Instalación y Compilación](#2-instalación-y-compilación)
 3. [Guía de la Interfaz Gráfica (Desktop GUI) y TUI](#3-guía-de-la-interfaz-gráfica-desktop-gui-y-tui)
    - [3.1 Diálogo de Protección de Cambios sin Guardar](#31-diálogo-de-protección-de-cambios-sin-guardar)
+   - [3.2 Restauración de Sesión, Modo Hot Exit y Archivos Recientes](#32-restauración-de-sesión-modo-hot-exit-y-archivos-recientes)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -147,6 +148,35 @@ Rustext incorpora un sistema integral de prevención contra pérdidas involuntar
    - **Navegación por Teclas**: Use `←` / `→` o `Tab` / `Shift + Tab` para alternar el foco entre los 3 botones, y `Enter` o `Espacio` para activarlo.
    - **Ratón en GUI**: Efectos visuales de iluminación (*hover*) al pasar sobre los botones, clic directo para confirmar y botón `×` superior derecho para cancelar.
    - **Modo Terminal TUI**: Muestra el distintivo `[CONFIRM]` en la barra de estado y los botones interactivos formateados en la línea de mensajes inferior.
+
+---
+
+### 3.2 Restauración de Sesión, Modo Hot Exit y Archivos Recientes
+
+Rustext implementa un subsistema robusto de persistencia de espacio de trabajo que garantiza que su flujo de trabajo nunca se interrumpa:
+
+1. **Persistencia Automática de Sesión (`session.ini`)**:
+   - Al cerrar Rustext o salir, si `auto_save_session = true`, el estado completo se escribe en `~/.rustext/session.ini`.
+   - **Información preservada**:
+     - Lista secuencial de todas las pestañas abiertas.
+     - Coordenadas de cursor individuales (línea y columna) por pestaña.
+     - Posición de desplazamiento vertical (`scroll_row`) y horizontal (`scroll_col`).
+     - Estado de división de pantalla (*Split Editor*): dirección (vertical/horizontal), pestaña secundaria y proporción exacta del divisor (`split_ratio`).
+     - Visibilidad y carpeta raíz del árbol del explorador lateral.
+     - Índice de pestaña y panel activo.
+   - Al volver a iniciar `rustext` sin argumentos, si `restore_session = true`, el editor recrea idénticamente el espacio de trabajo tal como lo dejó.
+
+2. **Modo Hot Exit y Borradores de Recuperación (`~/.rustext/drafts/*.draft`)**:
+   - Con `hot_exit = true`, los búferes que contengan modificaciones sin guardar se salvan atómicamente como borradores temporales en `~/.rustext/drafts/tab_{idx}.draft` al salir del editor.
+   - Al reabrir Rustext, el contenido de los borradores se recarga en memoria con el indicador de archivo modificado (`*` / `[+]`) y la ruta original asignada.
+   - Los borradores se limpian automáticamente tras guardar el archivo en disco o tras descartar los cambios.
+
+3. **Selector Flotante de Archivos Recientes (`Ctrl + R`)**:
+   - Acceda mediante el atajo de teclado `Ctrl + R` o el menú `Archivo > Abrir Archivo Reciente...`.
+   - Despliega una ventana flotante con filtro difuso en tiempo real.
+   - Los nombres de archivo se destacan en blanco brillante y las rutas completas en gris atenuado.
+   - Navegue con `↑` / `↓` y presione `Enter` para abrir de inmediato el archivo, o haga clic directo con el ratón.
+   - El historial de archivos recientes se deduplica de manera inteligente y su longitud máxima es configurable mediante `max_recent_files = 20`.
 
 ---
 
@@ -407,6 +437,7 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | :--- | :--- | :--- |
 | `Ctrl + S` | Guardar archivo actual | Archivo > Guardar |
 | `Ctrl + O` | Abrir diálogo de archivo | Archivo > Abrir Archivo... |
+| `Ctrl + R` | **Abrir Archivo Reciente...** | Archivo > Abrir Archivo Reciente... |
 | `Ctrl + T` | Abrir nueva pestaña | Archivo > Nueva Pestaña |
 | `Ctrl + W` | Cerrar pestaña actual | Archivo > Cerrar Pestaña |
 | `Ctrl + Q` | Salir de Rustext | Archivo > Salir |
@@ -460,6 +491,10 @@ auto_surround = true
 show_line_numbers = true
 format_on_save = false
 check_on_save = false
+restore_session = true       # Restaurar pestañas, cursores y split al iniciar
+auto_save_session = true     # Guardar estado de sesión automáticamente al salir
+hot_exit = false             # Preservar borradores de cambios no guardados al salir (Hot Exit)
+max_recent_files = 20        # Número máximo de archivos recientes en historial
 
 [theme]
 # Opciones: tokyo-night, catppuccin-mocha, one-dark, modern-dark, monokai, solarized-dark, light, high-contrast

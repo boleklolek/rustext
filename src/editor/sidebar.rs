@@ -98,6 +98,24 @@ impl FileExplorer {
         }
     }
 
+    /// Changes the root directory of the explorer and refreshes the tree.
+    pub fn set_root_dir(&mut self, root_dir: PathBuf) {
+        let canonical_root = root_dir.canonicalize().unwrap_or(root_dir);
+        let root_name = canonical_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("PROYECTO")
+            .to_string();
+
+        self.root_dir = canonical_root.clone();
+        self.root_name = root_name;
+        self.expanded_dirs.clear();
+        self.expanded_dirs.insert(canonical_root);
+        self.selected_idx = 0;
+        self.scroll_offset = 0;
+        self.refresh();
+    }
+
     /// Recursively scans directory contents for expanded paths.
     fn scan_directory(
         dir: &Path,

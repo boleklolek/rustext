@@ -54,6 +54,7 @@ impl MenuBar {
                 items: vec![
                     MenuItem::action("Nueva Pestaña", "Ctrl+T", EditorAction::NewTab),
                     MenuItem::action("Abrir Archivo...", "Ctrl+O", EditorAction::OpenOpenFilePrompt),
+                    MenuItem::action("Abrir Archivo Reciente...", "Ctrl+R", EditorAction::OpenRecentFilesPrompt),
                     MenuItem::action("Guardar", "Ctrl+S", EditorAction::Save),
                     MenuItem::action("Guardar Como...", "", EditorAction::OpenSaveAsPrompt),
                     MenuItem::separator(),

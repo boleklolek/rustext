@@ -28,6 +28,7 @@ pub enum EditorAction {
     OpenCommandPalette,
     OpenSaveAsPrompt,
     OpenOpenFilePrompt,
+    OpenRecentFilesPrompt,
     OpenAboutDialog,
     OpenExtensionsManager,
     ReloadExtensions,
@@ -134,7 +135,8 @@ impl Keymap {
             Key::Ctrl('s') => EditorAction::Save,
             Key::Ctrl('f') => EditorAction::OpenSearchPrompt,
             Key::CtrlShift('f') | Key::CtrlShift('F') => EditorAction::OpenGlobalSearchPrompt,
-            Key::Ctrl('h') | Key::Ctrl('r') => EditorAction::OpenReplacePrompt,
+            Key::Ctrl('h') => EditorAction::OpenReplacePrompt,
+            Key::Ctrl('r') => EditorAction::OpenRecentFilesPrompt,
             Key::Ctrl('p') => EditorAction::OpenCommandPalette,
             Key::Ctrl('q') => EditorAction::Quit,
 

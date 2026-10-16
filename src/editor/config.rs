@@ -54,6 +54,10 @@ pub struct EditorSettings {
     pub check_on_save: bool,
     pub autocomplete: bool,
     pub autocomplete_min_chars: usize,
+    pub restore_session: bool,
+    pub auto_save_session: bool,
+    pub hot_exit: bool,
+    pub max_recent_files: usize,
 }
 
 impl Default for EditorSettings {
@@ -68,6 +72,10 @@ impl Default for EditorSettings {
             check_on_save: true,
             autocomplete: true,
             autocomplete_min_chars: 2,
+            restore_session: true,
+            auto_save_session: true,
+            hot_exit: false,
+            max_recent_files: 20,
         }
     }
 }
@@ -175,6 +183,18 @@ autocomplete = true
 ; Caracteres mínimos para activar autocompletado automáticamente
 autocomplete_min_chars = 2
 
+; Restaurar sesión anterior al iniciar (pestañas abiertas, cursores, split)
+restore_session = true
+
+; Guardar sesión automáticamente al salir o cambiar de pestaña
+auto_save_session = true
+
+; Preservar borradores de archivos modificados sin guardar (Hot Exit)
+hot_exit = false
+
+; Número máximo de archivos recientes recordados
+max_recent_files = 20
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -237,6 +257,10 @@ format_on_save = {}
 check_on_save = {}
 autocomplete = {}
 autocomplete_min_chars = {}
+restore_session = {}
+auto_save_session = {}
+hot_exit = {}
+max_recent_files = {}
 
 [theme]
 name = {}
@@ -268,6 +292,10 @@ git_gutter = {}
             self.editor.check_on_save,
             self.editor.autocomplete,
             self.editor.autocomplete_min_chars,
+            self.editor.restore_session,
+            self.editor.auto_save_session,
+            self.editor.hot_exit,
+            self.editor.max_recent_files,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -371,6 +399,26 @@ git_gutter = {}
                         "autocomplete_min_chars" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 config.editor.autocomplete_min_chars = n.clamp(1, 10);
+                            }
+                        }
+                        "restore_session" => {
+                            if let Some(b) = as_bool {
+                                config.editor.restore_session = b;
+                            }
+                        }
+                        "auto_save_session" => {
+                            if let Some(b) = as_bool {
+                                config.editor.auto_save_session = b;
+                            }
+                        }
+                        "hot_exit" => {
+                            if let Some(b) = as_bool {
+                                config.editor.hot_exit = b;
+                            }
+                        }
+                        "max_recent_files" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.editor.max_recent_files = n.clamp(1, 100);
                             }
                         }
                         _ => {}

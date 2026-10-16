@@ -52,8 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let use_gui = force_gui && !force_tui;
 
-    let buffer = if let Some(file_str) = file_arg {
-        let path = PathBuf::from(&file_str);
+    let buffer = if let Some(ref file_str) = file_arg {
+        let path = PathBuf::from(file_str);
         if path.exists() {
             TextBuffer::open(&path)?
         } else {
@@ -91,6 +91,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut editor = Editor::new(buffer);
+
+    if file_arg.is_none() && editor.config.editor.restore_session {
+        editor.restore_session();
+    }
 
     if use_gui {
         match editor.run_gui() {
