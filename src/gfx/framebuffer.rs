@@ -1,7 +1,8 @@
 //! Software framebuffer with 2D rendering primitives and font rasterization.
 //! Zero third-party dependencies, purely standard library Rust.
 
-use super::font::{get_glyph, FONT_WIDTH};
+use super::font::{get_glyph, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
+use super::gamma::blend_pixel_gamma;
 
 /// Software pixel buffer in 32-bit ARGB (0xAARRGGBB) format.
 #[derive(Debug, Clone)]
@@ -124,6 +125,16 @@ impl Framebuffer {
             let b = (sb * a + db * inv_a) / 255;
 
             self.pixels[idx] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    /// Blends a color with alpha (0..=255) over the existing pixel at (x, y) with gamma-correct physical light integration.
+    #[inline]
+    pub fn blend_pixel_gamma(&mut self, x: usize, y: usize, color: u32, alpha: u8) {
+        if x < self.width && y < self.height {
+            let idx = y * self.width + x;
+            let dst = self.pixels[idx];
+            self.pixels[idx] = super::gamma::blend_pixel_gamma(dst, color, alpha);
         }
     }
 
@@ -306,8 +317,111 @@ impl Framebuffer {
         }
     }
 
-    /// Draws a single character glyph at pixel coordinates (x, y).
+    /// Draws a single character glyph at pixel coordinates (x, y) with subpixel anti-aliasing and gamma correction.
     pub fn draw_char(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+
+        let coverage = FontRasterizer::get_glyph_coverage(ch);
+        let max_w = (x + FONT_WIDTH).min(self.width) - x;
+        let max_h = (y + FONT_HEIGHT).min(self.height) - y;
+
+        for row in 0..max_h {
+            let py = y + row;
+            let row_offset = row * FONT_WIDTH;
+            let fb_offset = py * self.width + x;
+
+            for col in 0..max_w {
+                let alpha = coverage[row_offset + col];
+                if alpha == 0 {
+                    if let Some(bg_color) = bg {
+                        self.pixels[fb_offset + col] = bg_color;
+                    }
+                } else if alpha == 255 {
+                    self.pixels[fb_offset + col] = fg;
+                } else {
+                    let dst = match bg {
+                        Some(bg_color) => bg_color,
+                        None => self.pixels[fb_offset + col],
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                }
+            }
+        }
+    }
+
+    /// Draws a string of text starting at pixel coordinates (x, y) with anti-aliasing and gamma correction.
+    pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+        let mut cur_x = x;
+        for ch in text.chars() {
+            if cur_x + FONT_WIDTH > self.width {
+                break;
+            }
+            self.draw_char(ch, cur_x, y, fg, bg);
+            cur_x += FONT_WIDTH;
+        }
+    }
+
+    /// Draws a single character glyph with integer scaling factor (1 = 1x, 2 = 2x HiDPI)
+    /// using smooth continuous bilinear supersampling and gamma correction.
+    pub fn draw_char_scaled(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
+        if scale <= 1 {
+            self.draw_char(ch, x, y, fg, bg);
+            return;
+        }
+
+        if x >= self.width || y >= self.height {
+            return;
+        }
+
+        let (w, h, coverage) = FontRasterizer::rasterize_glyph_scaled(ch, scale);
+        let max_w = (x + w).min(self.width) - x;
+        let max_h = (y + h).min(self.height) - y;
+
+        for row in 0..max_h {
+            let py = y + row;
+            let row_offset = row * w;
+            let fb_offset = py * self.width + x;
+
+            for col in 0..max_w {
+                let alpha = coverage[row_offset + col];
+                if alpha == 0 {
+                    if let Some(bg_color) = bg {
+                        self.pixels[fb_offset + col] = bg_color;
+                    }
+                } else if alpha == 255 {
+                    self.pixels[fb_offset + col] = fg;
+                } else {
+                    let dst = match bg {
+                        Some(bg_color) => bg_color,
+                        None => self.pixels[fb_offset + col],
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                }
+            }
+        }
+    }
+
+    /// Draws a string of text with scaling factor using smooth anti-aliasing and gamma correction.
+    pub fn draw_text_scaled(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
+        if scale <= 1 {
+            self.draw_text(text, x, y, fg, bg);
+            return;
+        }
+        let char_w = FONT_WIDTH * scale;
+        let mut cur_x = x;
+        for ch in text.chars() {
+            if cur_x + char_w > self.width {
+                break;
+            }
+            self.draw_char_scaled(ch, cur_x, y, fg, bg, scale);
+            cur_x += char_w;
+        }
+    }
+
+    /// Draws a single character glyph using legacy 1-bit binary pixel thresholding without anti-aliasing.
+    pub fn draw_char_raw(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
         if x >= self.width || y >= self.height {
             return;
         }
@@ -336,66 +450,15 @@ impl Framebuffer {
         }
     }
 
-    /// Draws a string of text starting at pixel coordinates (x, y).
-    pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+    /// Draws a string of text without anti-aliasing.
+    pub fn draw_text_raw(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
         let mut cur_x = x;
         for ch in text.chars() {
             if cur_x + FONT_WIDTH > self.width {
                 break;
             }
-            self.draw_char(ch, cur_x, y, fg, bg);
+            self.draw_char_raw(ch, cur_x, y, fg, bg);
             cur_x += FONT_WIDTH;
-        }
-    }
-
-    /// Draws a single character glyph with integer scaling factor (1 = 1x, 2 = 2x HiDPI).
-    pub fn draw_char_scaled(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
-        if scale <= 1 {
-            self.draw_char(ch, x, y, fg, bg);
-            return;
-        }
-
-        let glyph = super::font::get_glyph(ch);
-        for (row_idx, &row_byte) in glyph.iter().enumerate() {
-            let py = y + row_idx * scale;
-            if py >= self.height {
-                break;
-            }
-
-            for col_idx in 0..FONT_WIDTH {
-                let px = x + col_idx * scale;
-                if px >= self.width {
-                    break;
-                }
-
-                let bit_set = (row_byte & (0x80 >> col_idx)) != 0;
-                let color = if bit_set {
-                    Some(fg)
-                } else {
-                    bg
-                };
-
-                if let Some(c) = color {
-                    self.fill_rect(px, py, scale, scale, c);
-                }
-            }
-        }
-    }
-
-    /// Draws a string of text with integer scaling factor.
-    pub fn draw_text_scaled(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
-        if scale <= 1 {
-            self.draw_text(text, x, y, fg, bg);
-            return;
-        }
-        let char_w = FONT_WIDTH * scale;
-        let mut cur_x = x;
-        for ch in text.chars() {
-            if cur_x + char_w > self.width {
-                break;
-            }
-            self.draw_char_scaled(ch, cur_x, y, fg, bg, scale);
-            cur_x += char_w;
         }
     }
 
@@ -438,10 +501,59 @@ mod tests {
     fn test_framebuffer_text_drawing() {
         let mut fb = Framebuffer::new(80, 24);
         fb.clear(0x00000000);
-        fb.draw_text("Hi", 0, 0, 0x00FFFFFF, None);
+        fb.draw_text("Hi", 0, 0, 0xFFFFFFFF, None);
 
-        // Check that some pixels were painted
-        let non_zero_pixels = fb.pixels.iter().filter(|&&p| p == 0x00FFFFFF).count();
-        assert!(non_zero_pixels > 0);
+        // Check that pixels were painted (both solid and anti-aliased gradations)
+        let painted_pixels = fb.pixels.iter().filter(|&&p| p != 0x00000000).count();
+        assert!(painted_pixels > 0);
+    }
+
+    #[test]
+    fn test_framebuffer_antialiased_text_gamma_blend() {
+        let mut fb = Framebuffer::new(40, 24);
+        // Pure black background
+        fb.clear(0xFF000000);
+        // Draw white letter 'o' with Some(0xFF000000) background
+        fb.draw_char('o', 0, 0, 0xFFFFFFFF, Some(0xFF000000));
+
+        let solid_count = fb.pixels.iter().filter(|&&p| p == 0xFFFFFFFF).count();
+        let background_count = fb.pixels.iter().filter(|&&p| p == 0xFF000000).count();
+        let antialiased_count = fb.pixels.iter().filter(|&&p| p != 0xFFFFFFFF && p != 0xFF000000).count();
+
+        assert!(solid_count > 0, "Must have solid core pixels");
+        assert!(background_count > 0, "Must have background pixels");
+        assert!(antialiased_count > 0, "Must have intermediate gamma-blended edge pixels");
+
+        // Verify that intermediate pixels are clean monochrome grays (R == G == B)
+        for &p in fb.pixels.iter() {
+            let r = (p >> 16) & 0xFF;
+            let g = (p >> 8) & 0xFF;
+            let b = p & 0xFF;
+            assert_eq!(r, g, "Gray channels must match");
+            assert_eq!(g, b, "Gray channels must match");
+        }
+    }
+
+    #[test]
+    fn test_framebuffer_draw_text_scaled_bilinear() {
+        let mut fb = Framebuffer::new(80, 48);
+        fb.clear(0xFF000000);
+        fb.draw_text_scaled("OK", 0, 0, 0xFFFFFFFF, Some(0xFF000000), 2);
+
+        // Scaled text width is 2 chars * (FONT_WIDTH * 2) = 32 px
+        // Scaled text height is FONT_HEIGHT * 2 = 32 px
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for y in 0..48 {
+            for x in 0..80 {
+                if fb.get_pixel(x, y) != 0xFF000000 {
+                    if x > max_x { max_x = x; }
+                    if y > max_y { max_y = y; }
+                }
+            }
+        }
+
+        assert!(max_x >= 20 && max_x < 32, "Max x should be within 2x bounds (got {})", max_x);
+        assert!(max_y >= 16 && max_y < 32, "Max y should be within 2x bounds (got {})", max_y);
     }
 }

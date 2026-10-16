@@ -1,10 +1,185 @@
-//! Embedded 8x16 bitmap font for zero-dependency pixel text rendering.
-//! Pure standard-library Rust without any external font loaders.
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 pub const FONT_WIDTH: usize = 8;
 pub const FONT_HEIGHT: usize = 16;
 
-/// Retorna el mapa de bits de 8x16 (16 bytes, 1 byte por fila) para un caracter dado.
+/// Fixed-size 8x16 anti-aliased coverage mask (128 bytes, 0..=255 per subpixel).
+pub type GlyphCoverage16 = [u8; 128];
+
+/// Advanced font rasterizer with subpixel spatial anti-aliasing,
+/// box-drawing edge preservation, and smooth bilinear high-DPI scaling.
+pub struct FontRasterizer;
+
+static ASCII_AA_CACHE: OnceLock<Box<[GlyphCoverage16; 95]>> = OnceLock::new();
+static SPECIAL_AA_CACHE: OnceLock<BTreeMap<char, GlyphCoverage16>> = OnceLock::new();
+static UNKNOWN_AA: OnceLock<GlyphCoverage16> = OnceLock::new();
+
+impl FontRasterizer {
+    /// Determines if a character is a box-drawing symbol that requires 100% sharp connected edges.
+    pub fn is_box_drawing(ch: char) -> bool {
+        matches!(ch, '│' | '─' | '█')
+    }
+
+    /// Computes spatial anti-aliased coverage mask (8x16 = 128 bytes, 0..=255) from a 1-bit bitmap.
+    pub fn compute_coverage(bitmap: &[u8; 16], is_box_drawing: bool) -> GlyphCoverage16 {
+        let mut out = [0u8; 128];
+
+        let get_bit = |x: i32, y: i32| -> bool {
+            if x < 0 || x >= 8 || y < 0 || y >= 16 {
+                return false;
+            }
+            (bitmap[y as usize] & (0x80 >> (x as usize))) != 0
+        };
+
+        for y in 0..16 {
+            for x in 0..8 {
+                let is_set = get_bit(x, y);
+
+                if is_box_drawing {
+                    out[(y as usize) * 8 + (x as usize)] = if is_set { 255 } else { 0 };
+                    continue;
+                }
+
+                let mut neighbors = 0;
+                let mut cardinal_neighbors = 0;
+                let mut diag_neighbors = 0;
+
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        if get_bit(x + dx, y + dy) {
+                            neighbors += 1;
+                            if dx == 0 || dy == 0 {
+                                cardinal_neighbors += 1;
+                            } else {
+                                diag_neighbors += 1;
+                            }
+                        }
+                    }
+                }
+
+                let coverage = if is_set {
+                    if neighbors >= 5 || cardinal_neighbors >= 3 {
+                        255 // Solid interior or core stroke
+                    } else if neighbors == 4 {
+                        240 // Substantial stroke edge
+                    } else if neighbors == 3 {
+                        215 // Diagonal or turn edge
+                    } else if neighbors == 2 {
+                        180 // Thin diagonal or junction
+                    } else {
+                        150 // Stroke tip or accent end
+                    }
+                } else {
+                    // Background pixel adjacent to edges
+                    if cardinal_neighbors >= 2 {
+                        110 // Corner notch smoothing
+                    } else if cardinal_neighbors == 1 && diag_neighbors >= 2 {
+                        75  // Diagonal smoothing transition
+                    } else if cardinal_neighbors == 1 {
+                        40  // Gentle boundary anti-alias
+                    } else if diag_neighbors >= 2 {
+                        35  // Diagonal bridge smoothing
+                    } else if diag_neighbors == 1 {
+                        15  // Very subtle corner anti-alias
+                    } else {
+                        0   // Empty background
+                    }
+                };
+
+                out[(y as usize) * 8 + (x as usize)] = coverage;
+            }
+        }
+
+        out
+    }
+
+    /// Retrieves precomputed or cached anti-aliased glyph coverage (O(1)).
+    pub fn get_glyph_coverage(ch: char) -> &'static GlyphCoverage16 {
+        let ascii = ch as usize;
+        if (32..=126).contains(&ascii) {
+            let cache = ASCII_AA_CACHE.get_or_init(|| {
+                let mut table = Vec::with_capacity(95);
+                for idx in 0..95 {
+                    let bmp = &ASCII_GLYPHS[idx];
+                    table.push(Self::compute_coverage(bmp, false));
+                }
+                table.into_boxed_slice().try_into().unwrap()
+            });
+            &cache[ascii - 32]
+        } else {
+            let special_map = SPECIAL_AA_CACHE.get_or_init(|| {
+                let mut map = BTreeMap::new();
+                let chars = [
+                    '│', '─', '█', 'á', 'é', 'í', 'ó', 'ú', 'Á', 'É', 'Í', 'Ó', 'Ú',
+                    'ñ', 'Ñ', '¡', '¿', '×', 'ü', 'Ü', '•', '©', '▼', '▶', '↺',
+                ];
+                for &c in &chars {
+                    let is_box = Self::is_box_drawing(c);
+                    let bmp = get_glyph(c);
+                    map.insert(c, Self::compute_coverage(bmp, is_box));
+                }
+                map
+            });
+
+            if let Some(cov) = special_map.get(&ch) {
+                cov
+            } else {
+                UNKNOWN_AA.get_or_init(|| {
+                    Self::compute_coverage(&GLYPH_UNKNOWN, false)
+                })
+            }
+        }
+    }
+
+    /// Rasterizes glyph scaled to `(8 * scale) x (16 * scale)` with continuous bilinear sampling.
+    pub fn rasterize_glyph_scaled(ch: char, scale: usize) -> (usize, usize, Vec<u8>) {
+        let scale = scale.max(1);
+        let base = Self::get_glyph_coverage(ch);
+
+        if scale == 1 {
+            return (FONT_WIDTH, FONT_HEIGHT, base.to_vec());
+        }
+
+        let w = FONT_WIDTH * scale;
+        let h = FONT_HEIGHT * scale;
+        let mut out = vec![0u8; w * h];
+
+        for y in 0..h {
+            let v = (y as f64 + 0.5) / (scale as f64) - 0.5;
+            let v_clamped = v.clamp(0.0, 15.0);
+            let v0 = v_clamped.floor() as usize;
+            let v1 = (v0 + 1).min(15);
+            let fv = v_clamped - (v0 as f64);
+
+            for x in 0..w {
+                let u = (x as f64 + 0.5) / (scale as f64) - 0.5;
+                let u_clamped = u.clamp(0.0, 7.0);
+                let u0 = u_clamped.floor() as usize;
+                let u1 = (u0 + 1).min(7);
+                let fu = u_clamped - (u0 as f64);
+
+                let c00 = base[v0 * 8 + u0] as f64;
+                let c10 = base[v0 * 8 + u1] as f64;
+                let c01 = base[v1 * 8 + u0] as f64;
+                let c11 = base[v1 * 8 + u1] as f64;
+
+                let top = c00 * (1.0 - fu) + c10 * fu;
+                let bot = c01 * (1.0 - fu) + c11 * fu;
+                let val = (top * (1.0 - fv) + bot * fv).round().clamp(0.0, 255.0) as u8;
+
+                out[y * w + x] = val;
+            }
+        }
+
+        (w, h, out)
+    }
+}
+
+/// Retorna el mapa de bits crudo de 8x16 (16 bytes, 1 byte por fila) para un caracter dado.
 pub fn get_glyph(ch: char) -> &'static [u8; 16] {
     let ascii = ch as usize;
     if (32..=126).contains(&ascii) {
@@ -383,5 +558,57 @@ mod tests {
 
         let glyph_inv_q = get_glyph('¿');
         assert_ne!(glyph_inv_q, &GLYPH_UNKNOWN);
+    }
+
+    #[test]
+    fn test_font_rasterizer_antialiasing_curves_and_diagonals() {
+        let cov_o = FontRasterizer::get_glyph_coverage('o');
+        assert_eq!(cov_o.len(), 128);
+
+        // Verify that letter 'o' has intermediate coverage values (anti-aliasing)
+        let has_intermediate = cov_o.iter().any(|&val| val > 0 && val < 255);
+        assert!(has_intermediate, "Letter 'o' must have anti-aliased intermediate pixel values");
+
+        // Verify letter 'A' with diagonals has intermediate coverage
+        let cov_a = FontRasterizer::get_glyph_coverage('A');
+        let has_intermediate_a = cov_a.iter().any(|&val| val > 0 && val < 255);
+        assert!(has_intermediate_a, "Letter 'A' must have anti-aliased intermediate pixel values");
+
+        // Verify solid core exists
+        let has_solid = cov_o.iter().any(|&val| val == 255);
+        assert!(has_solid, "Letter 'o' must have solid core pixels");
+    }
+
+    #[test]
+    fn test_font_rasterizer_box_drawing_edges_preserved() {
+        // Vertical line character '│' must preserve 100% full opacity on connected edges
+        let cov_vline = FontRasterizer::get_glyph_coverage('│');
+        assert!(FontRasterizer::is_box_drawing('│'));
+
+        // All non-zero pixels in box-drawing character must be fully opaque 255
+        for &val in cov_vline.iter() {
+            assert!(val == 0 || val == 255, "Box drawing characters must preserve sharp 255 connected lines");
+        }
+    }
+
+    #[test]
+    fn test_font_rasterizer_scaled_bilinear() {
+        let (w, h, data) = FontRasterizer::rasterize_glyph_scaled('o', 2);
+        assert_eq!(w, 16);
+        assert_eq!(h, 32);
+        assert_eq!(data.len(), 16 * 32);
+
+        // Bilinear scaling should produce smooth transitions
+        let intermediate_count = data.iter().filter(|&&val| val > 0 && val < 255).count();
+        assert!(intermediate_count >= 10, "Scaled 2x glyph must have smooth bilinear gradations");
+    }
+
+    #[test]
+    fn test_font_rasterizer_unicode_spanish_antialiasing() {
+        let cov_accent = FontRasterizer::get_glyph_coverage('á');
+        assert!(cov_accent.iter().any(|&val| val > 0 && val < 255));
+
+        let cov_tilde = FontRasterizer::get_glyph_coverage('ñ');
+        assert!(cov_tilde.iter().any(|&val| val > 0 && val < 255));
     }
 }

@@ -103,6 +103,8 @@ pub struct GuiSettings {
     pub status_bar: bool,
     pub scrollbar: bool,
     pub font_scale: usize,
+    pub font_antialiasing: bool,
+    pub gamma_correction: bool,
     pub line_spacing: usize,
     pub rounded_corners: bool,
     pub shadows: bool,
@@ -126,6 +128,8 @@ impl Default for GuiSettings {
             status_bar: true,
             scrollbar: true,
             font_scale: 1,
+            font_antialiasing: true,
+            gamma_correction: true,
             line_spacing: 3,
             rounded_corners: true,
             shadows: true,
@@ -217,6 +221,12 @@ scrollbar = true
 ; Escala de fuente para pantallas HiDPI / 2K / 4K (1 = normal, 2 = 2x)
 font_scale = 1
 
+; Anti-aliasing subpixel en fuentes tipográficas (true = texto suave, false = bitmap directo)
+font_antialiasing = true
+
+; Corrección gamma en composición de texto (true = luz lineal sRGB física exacta, false = blending ingenuo)
+gamma_correction = true
+
 ; Espaciado vertical entre líneas (píxeles extra para que el código respire)
 line_spacing = 3
 
@@ -282,6 +292,8 @@ menu_bar = {}
 status_bar = {}
 scrollbar = {}
 font_scale = {}
+font_antialiasing = {}
+gamma_correction = {}
 line_spacing = {}
 rounded_corners = {}
 shadows = {}
@@ -315,6 +327,8 @@ terminal_shell = {}
             self.gui.status_bar,
             self.gui.scrollbar,
             self.gui.font_scale,
+            self.gui.font_antialiasing,
+            self.gui.gamma_correction,
             self.gui.line_spacing,
             self.gui.rounded_corners,
             self.gui.shadows,
@@ -474,6 +488,16 @@ terminal_shell = {}
                         "font_scale" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 config.gui.font_scale = n.clamp(1, 3);
+                            }
+                        }
+                        "font_antialiasing" => {
+                            if let Some(b) = as_bool {
+                                config.gui.font_antialiasing = b;
+                            }
+                        }
+                        "gamma_correction" => {
+                            if let Some(b) = as_bool {
+                                config.gui.gamma_correction = b;
                             }
                         }
                         "line_spacing" => {

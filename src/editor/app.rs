@@ -2814,6 +2814,8 @@ impl Editor {
         renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
         renderer.show_line_numbers = self.config.editor.show_line_numbers;
         renderer.font_scale = self.config.gui.font_scale;
+        renderer.font_antialiasing = self.config.gui.font_antialiasing;
+        renderer.gamma_correction = self.config.gui.gamma_correction;
         renderer.line_spacing = self.config.gui.line_spacing;
         renderer.rounded_corners = self.config.gui.rounded_corners;
         renderer.shadows = self.config.gui.shadows;
@@ -2853,6 +2855,8 @@ impl Editor {
             }
             if self.config.gui != active_gui_settings {
                 renderer.font_scale = self.config.gui.font_scale;
+                renderer.font_antialiasing = self.config.gui.font_antialiasing;
+                renderer.gamma_correction = self.config.gui.gamma_correction;
                 renderer.line_spacing = self.config.gui.line_spacing;
                 renderer.rounded_corners = self.config.gui.rounded_corners;
                 renderer.shadows = self.config.gui.shadows;
