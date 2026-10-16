@@ -128,11 +128,19 @@ impl FontHinter {
                 for y in 0..height {
                     let idx_target = y * width + target_col;
                     let idx_other = y * width + other_col;
-                    let combined = buf[idx_target] as u16 + buf[idx_other] as u16;
+                    let v_target = buf[idx_target];
+                    let v_other = buf[idx_other];
+
+                    // If both pixels are already solid stroke pixels, preserve intentional multi-pixel stroke!
+                    if v_target >= 200 && v_other >= 200 {
+                        continue;
+                    }
+
+                    let combined = v_target as u16 + v_other as u16;
 
                     // Boost target column, attenuate split bleeding
                     buf[idx_target] = combined.min(255) as u8;
-                    buf[idx_other] = (buf[idx_other] / 4).min(40);
+                    buf[idx_other] = (v_other / 4).min(40);
                 }
                 x += 2;
             } else {
@@ -169,10 +177,18 @@ impl FontHinter {
                 for x in 0..width {
                     let idx_target = target_row * width + x;
                     let idx_other = other_row * width + x;
-                    let combined = buf[idx_target] as u16 + buf[idx_other] as u16;
+                    let v_target = buf[idx_target];
+                    let v_other = buf[idx_other];
+
+                    // If both pixels are already solid stroke pixels, preserve intentional multi-pixel stroke!
+                    if v_target >= 200 && v_other >= 200 {
+                        continue;
+                    }
+
+                    let combined = v_target as u16 + v_other as u16;
 
                     buf[idx_target] = combined.min(255) as u8;
-                    buf[idx_other] = (buf[idx_other] / 4).min(40);
+                    buf[idx_other] = (v_other / 4).min(40);
                 }
                 y += 2;
             } else {
