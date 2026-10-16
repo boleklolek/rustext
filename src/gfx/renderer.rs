@@ -538,6 +538,7 @@ impl PaneGeometry {
 
 pub struct GfxRenderer {
     pub colors: ThemeColors,
+    pub scale_factor: f64,
     pub menu_bar_height: usize,
     pub tab_bar_height: usize,
     pub status_bar_height: usize,
@@ -563,27 +564,36 @@ pub struct GfxRenderer {
     pub terminal_inset: usize,
 }
 
+pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
+pub const LOGICAL_TAB_BAR_HEIGHT: usize = 26;
+pub const LOGICAL_STATUS_BAR_HEIGHT: usize = 22;
+pub const LOGICAL_SCROLLBAR_WIDTH: usize = 14;
+pub const LOGICAL_SIDEBAR_WIDTH: usize = 220;
+pub const LOGICAL_MINIMAP_WIDTH: usize = 100;
+pub const LOGICAL_LINE_SPACING: usize = 3;
+
 impl GfxRenderer {
     pub fn new() -> Self {
         Self {
             colors: ThemeColors::modern_dark(),
-            menu_bar_height: 24,
-            tab_bar_height: 26,
-            status_bar_height: 22,
-            scrollbar_width: 14,
+            scale_factor: 1.0,
+            menu_bar_height: LOGICAL_MENU_BAR_HEIGHT,
+            tab_bar_height: LOGICAL_TAB_BAR_HEIGHT,
+            status_bar_height: LOGICAL_STATUS_BAR_HEIGHT,
+            scrollbar_width: LOGICAL_SCROLLBAR_WIDTH,
             show_line_numbers: true,
             diagnostics: None,
             font_scale: 1,
             font_antialiasing: true,
             gamma_correction: true,
-            line_spacing: 3,
+            line_spacing: LOGICAL_LINE_SPACING,
             rounded_corners: true,
             shadows: true,
             cursor_style: "bar".to_string(),
             cursor_blink: true,
-            sidebar_width: 220,
+            sidebar_width: LOGICAL_SIDEBAR_WIDTH,
             minimap_enabled: true,
-            minimap_width: 100,
+            minimap_width: LOGICAL_MINIMAP_WIDTH,
             git_diff: None,
             secondary_git_diff: None,
             git_branch: None,
@@ -591,6 +601,60 @@ impl GfxRenderer {
             git_gutter_enabled: true,
             terminal_inset: 0,
         }
+    }
+
+    /// Sets the monitor HiDPI scale factor and scales all logical layout coordinates.
+    pub fn set_scale_factor(&mut self, factor: f64) {
+        let factor = if factor > 0.1 { factor } else { 1.0 };
+        self.scale_factor = factor;
+        self.font_scale = (factor.round() as usize).max(1);
+        self.menu_bar_height = self.scale_coord(LOGICAL_MENU_BAR_HEIGHT);
+        self.tab_bar_height = self.scale_coord(LOGICAL_TAB_BAR_HEIGHT);
+        self.status_bar_height = self.scale_coord(LOGICAL_STATUS_BAR_HEIGHT);
+        self.scrollbar_width = self.scale_coord(LOGICAL_SCROLLBAR_WIDTH);
+        self.sidebar_width = self.scale_coord(LOGICAL_SIDEBAR_WIDTH);
+        self.minimap_width = self.scale_coord(LOGICAL_MINIMAP_WIDTH);
+        self.line_spacing = self.scale_coord(LOGICAL_LINE_SPACING);
+    }
+
+    /// Multiplies a logical coordinate by the monitor scale factor to obtain physical pixels.
+    #[inline]
+    pub fn scale_coord(&self, logical: usize) -> usize {
+        ((logical as f64) * self.scale_factor).round() as usize
+    }
+
+    /// Multiplies a logical float coordinate by the monitor scale factor.
+    #[inline]
+    pub fn scale_coord_f64(&self, logical: f64) -> f64 {
+        logical * self.scale_factor
+    }
+
+    /// Converts physical pixels back into logical coordinate space.
+    #[inline]
+    pub fn to_logical_coord(&self, physical: usize) -> usize {
+        if self.scale_factor > 0.0 {
+            ((physical as f64) / self.scale_factor).round() as usize
+        } else {
+            physical
+        }
+    }
+
+    /// Character width in physical pixels based on font_scale.
+    #[inline]
+    pub fn char_width(&self) -> usize {
+        FONT_WIDTH * self.font_scale
+    }
+
+    /// Character height in physical pixels based on font_scale.
+    #[inline]
+    pub fn char_height(&self) -> usize {
+        FONT_HEIGHT * self.font_scale
+    }
+
+    /// Line height in physical pixels including line_spacing.
+    #[inline]
+    pub fn line_height(&self) -> usize {
+        (self.char_height() + self.line_spacing).max(1)
     }
 
     /// Computes scrollbar dimensions and thumb position for a specific bounding rectangle.
@@ -602,7 +666,7 @@ impl GfxRenderer {
         track_height: usize,
         doc: &Document,
     ) -> ScrollbarGeometry {
-        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let line_height = self.line_height();
         let visible_lines = if line_height > 0 {
             track_height / line_height
         } else {
@@ -616,7 +680,7 @@ impl GfxRenderer {
         } else {
             let ratio = (visible_lines as f32 / total_lines as f32).min(1.0);
             let th = (ratio * track_height as f32).round() as usize;
-            th.clamp(20, track_height)
+            th.clamp(self.scale_coord(20), track_height)
         };
 
         let scrollable_h = track_height.saturating_sub(thumb_height);
@@ -685,7 +749,7 @@ impl GfxRenderer {
         height: usize,
         doc: &Document,
     ) -> MinimapGeometry {
-        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let line_height = self.line_height();
         let visible_lines = if line_height > 0 { height / line_height } else { 1 };
         let total_lines = doc.buffer.len_lines().max(1);
 
@@ -694,7 +758,7 @@ impl GfxRenderer {
         } else {
             let ratio = (visible_lines as f32 / total_lines as f32).min(1.0);
             let sh = (ratio * height as f32).round() as usize;
-            sh.clamp(16, height)
+            sh.clamp(self.scale_coord(16), height)
         };
 
         let scrollable_h = height.saturating_sub(slider_h);
@@ -959,16 +1023,16 @@ impl GfxRenderer {
         let total_lines = doc.buffer.len_lines();
         let gutter_cols = total_lines.to_string().len().max(3);
         let gutter_width = if self.show_line_numbers {
-            (gutter_cols + 2) * FONT_WIDTH
+            (gutter_cols + 2) * self.char_width()
         } else {
-            8
+            self.scale_coord(8)
         };
-        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
-        let text_start_x = sidebar_w + gutter_width + FONT_WIDTH;
+        let line_height = self.line_height();
+        let text_start_x = sidebar_w + gutter_width + self.char_width();
 
         let primary_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
         let cx = if primary_pos.col >= doc.scroll_col {
-            text_start_x + (primary_pos.col - doc.scroll_col) * FONT_WIDTH
+            text_start_x + (primary_pos.col - doc.scroll_col) * self.char_width()
         } else {
             text_start_x
         };
@@ -978,11 +1042,11 @@ impl GfxRenderer {
             content_y_start
         };
 
-        let item_h = 22;
-        let pad_y = 4;
+        let item_h = self.scale_coord(22);
+        let pad_y = self.scale_coord(4);
         let max_vis = 7;
         let visible_items = item_count.min(max_vis);
-        let popup_w = 280.min(fb_w.saturating_sub(20));
+        let popup_w = self.scale_coord(280).min(fb_w.saturating_sub(self.scale_coord(20)));
         let popup_h = visible_items * item_h + pad_y * 2;
 
         let mut pop_x = cx;
@@ -1066,13 +1130,13 @@ impl GfxRenderer {
                 }
             }
 
-            let text_y = iy + (item_h - FONT_HEIGHT) / 2;
+            let text_y = iy + (item_h.saturating_sub(self.char_height())) / 2;
 
             // Category Badge Chip
             let badge = item.kind.badge();
-            let badge_w = badge.chars().count() * FONT_WIDTH + 6;
-            let chip_h = 16;
-            let chip_y = iy + (item_h - chip_h) / 2;
+            let badge_w = badge.chars().count() * self.char_width() + self.scale_coord(6);
+            let chip_h = self.scale_coord(16);
+            let chip_y = iy + (item_h.saturating_sub(chip_h)) / 2;
             let badge_bg = if is_selected { 0x0024283B } else { self.colors.chip_bg };
             let badge_fg = if is_selected { 0x00FFFFFF } else { item.kind.badge_color() };
 
@@ -1107,9 +1171,9 @@ impl GfxRenderer {
                 } else {
                     item.detail.clone()
                 };
-                let det_w = det_display.chars().count() * FONT_WIDTH;
+                let det_w = det_display.chars().count() * self.char_width();
                 let det_x = pop_x + pop_w - det_w - 10;
-                if det_x > label_x + label_display.chars().count() * FONT_WIDTH + 6 {
+                if det_x > label_x + label_display.chars().count() * self.char_width() + 6 {
                     fb.draw_text(&det_display, det_x, text_y, detail_fg, None);
                 }
             }
@@ -1231,12 +1295,12 @@ impl GfxRenderer {
         }
 
         let title_fg = if is_active { self.colors.tab_active_fg } else { self.colors.tab_inactive_fg };
-        let title_y = pane_y + (header_h.saturating_sub(FONT_HEIGHT)) / 2;
-        fb.draw_text(pane_title, pane_x + 10, title_y, title_fg, None);
+        let title_y = pane_y + (header_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(pane_title, pane_x + self.scale_coord(10), title_y, title_fg, None);
 
         if is_active {
-            let badge_x = pane_x + 10 + (pane_title.chars().count() + 1) * FONT_WIDTH;
-            if badge_x + 60 <= pane_x + pane_w {
+            let badge_x = pane_x + self.scale_coord(10) + (pane_title.chars().count() + 1) * self.char_width();
+            if badge_x + self.scale_coord(60) <= pane_x + pane_w {
                 fb.draw_text("[ACTIVO]", badge_x, title_y, self.colors.accent, None);
             }
         }
@@ -1247,7 +1311,7 @@ impl GfxRenderer {
         // 4. Gutter
         let total_lines = doc.buffer.len_lines();
         let gutter_cols = total_lines.to_string().len().max(3);
-        let gutter_w = if self.show_line_numbers { (gutter_cols + 2) * FONT_WIDTH } else { 8 };
+        let gutter_w = if self.show_line_numbers { (gutter_cols + 2) * self.char_width() } else { self.scale_coord(8) };
 
         if self.show_line_numbers {
             fb.fill_rect(pane_x, content_y, gutter_w, content_h, self.colors.gutter_bg);
@@ -1255,9 +1319,9 @@ impl GfxRenderer {
         }
 
         // 5. Code Lines & Highlights
-        let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+        let line_height = self.line_height();
         let visible_lines = content_h / line_height;
-        let text_start_x = if self.show_line_numbers { pane_x + gutter_w + FONT_WIDTH } else { pane_x + 8 };
+        let text_start_x = if self.show_line_numbers { pane_x + gutter_w + self.char_width() } else { pane_x + self.scale_coord(8) };
 
         let mut selections = Vec::new();
         let mut cursor_positions = Vec::new();
@@ -1290,7 +1354,7 @@ impl GfxRenderer {
                     };
 
                     let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, pane_x + FONT_WIDTH, text_y, fg_col, None);
+                    fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
 
                     if let Some(b) = badge {
                         fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
@@ -1331,9 +1395,9 @@ impl GfxRenderer {
                         let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
 
                         if sel_col_end > sel_col_start {
-                            let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
+                            let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
                             if sx < max_code_x {
-                                let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
+                                let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
                                 fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
                             }
                         }
@@ -1349,8 +1413,8 @@ impl GfxRenderer {
                         let col = col_accum;
                         col_accum += 1;
                         if col >= doc.scroll_col {
-                            let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
-                            if px + FONT_WIDTH <= max_code_x {
+                            let px = text_start_x + (col - doc.scroll_col) * self.char_width();
+                            if px + self.char_width() <= max_code_x {
                                 fb.draw_char(ch, px, text_y, token_color, None);
                             }
                         }
@@ -1361,19 +1425,19 @@ impl GfxRenderer {
                 if is_active {
                     for pos in &cursor_positions {
                         if pos.line == line_idx && pos.col >= doc.scroll_col {
-                            let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
+                            let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
                             if cx + 2 <= max_code_x {
                                 match self.cursor_style.as_str() {
                                     "block" => {
-                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
+                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
                                     }
                                     "underline" => {
-                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
+                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
                                     }
                                     _ => {
-                                        fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                                        fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
                                     }
                                 }
                             }
@@ -1381,7 +1445,7 @@ impl GfxRenderer {
                     }
                 }
             } else if self.show_line_numbers {
-                fb.draw_char('~', pane_x + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
+                fb.draw_char('~', pane_x + self.char_width(), text_y, self.colors.gutter_fg, None);
             }
         }
 
@@ -1456,16 +1520,16 @@ impl GfxRenderer {
             let total_lines = doc.buffer.len_lines();
             let gutter_cols = total_lines.to_string().len().max(3);
             let gutter_width = if self.show_line_numbers {
-                (gutter_cols + 2) * FONT_WIDTH
+                (gutter_cols + 2) * self.char_width()
             } else {
-                8
+                self.scale_coord(8)
             };
 
-            let line_height = (FONT_HEIGHT + self.line_spacing).max(1);
+            let line_height = self.line_height();
             let visible_lines = content_height / line_height;
 
             let canvas_w = fb.width.saturating_sub(sidebar_w);
-            let minimap_w = if self.minimap_enabled && canvas_w >= 320 {
+            let minimap_w = if self.minimap_enabled && canvas_w >= self.scale_coord(320) {
                 self.minimap_width.min(canvas_w / 4)
             } else {
                 0
@@ -1511,7 +1575,7 @@ impl GfxRenderer {
                         };
 
                         let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                        fb.draw_text(&num_str, canvas_x_start + FONT_WIDTH, text_y, fg_col, None);
+                        fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
 
                         if let Some(b) = badge {
                             fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
@@ -1539,9 +1603,9 @@ impl GfxRenderer {
 
                     let line_text = doc.buffer.line(line_idx).unwrap_or_default();
                     let text_start_x = if self.show_line_numbers {
-                        canvas_x_start + gutter_width + FONT_WIDTH
+                        canvas_x_start + gutter_width + self.char_width()
                     } else {
-                        canvas_x_start + 8
+                        canvas_x_start + self.scale_coord(8)
                     };
 
                     for &(start, end) in &selections {
@@ -1554,9 +1618,9 @@ impl GfxRenderer {
                             };
 
                             if sel_col_end > sel_col_start {
-                                let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * FONT_WIDTH;
+                                let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
                                 if sx < max_code_x {
-                                    let sw = ((sel_col_end - sel_col_start) * FONT_WIDTH).min(max_code_x - sx);
+                                    let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
                                     fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
                                 }
                             }
@@ -1573,8 +1637,8 @@ impl GfxRenderer {
                             col_accum += 1;
 
                             if col >= doc.scroll_col {
-                                let px = text_start_x + (col - doc.scroll_col) * FONT_WIDTH;
-                                if px + FONT_WIDTH <= max_code_x {
+                                let px = text_start_x + (col - doc.scroll_col) * self.char_width();
+                                if px + self.char_width() <= max_code_x {
                                     fb.draw_char(ch, px, text_y, token_color, None);
                                 }
                             }
@@ -1583,26 +1647,26 @@ impl GfxRenderer {
 
                     for pos in &cursor_positions {
                         if pos.line == line_idx && pos.col >= doc.scroll_col {
-                            let cx = text_start_x + (pos.col - doc.scroll_col) * FONT_WIDTH;
+                            let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
                             if cx + 2 <= max_code_x {
                                 match self.cursor_style.as_str() {
                                     "block" => {
-                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect_alpha(cx, text_y, cw, FONT_HEIGHT, self.colors.cursor, 140);
+                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
                                     }
                                     "underline" => {
-                                        let cw = FONT_WIDTH.min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect(cx, text_y + FONT_HEIGHT.saturating_sub(2), cw, 2, self.colors.cursor);
+                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                        fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
                                     }
                                     _ => {
-                                        fb.fill_rect(cx, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+                                        fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
                                     }
                                 }
                             }
                         }
                     }
                 } else if self.show_line_numbers {
-                    fb.draw_char('~', canvas_x_start + FONT_WIDTH, text_y, self.colors.gutter_fg, None);
+                    fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
                 }
             }
 
@@ -1766,33 +1830,33 @@ impl GfxRenderer {
         fb.fill_rect(0, offset_y + header_h - 1, sidebar_w - 1, 1, self.colors.gutter_border);
 
         // Header Title: EXPLORER / Folder Name
-        let title_max_chars = sidebar_w.saturating_sub(70) / FONT_WIDTH;
+        let title_max_chars = sidebar_w.saturating_sub(self.scale_coord(70)) / self.char_width();
         let raw_name = if sidebar.root_name.is_empty() { "EXPLORER" } else { &sidebar.root_name };
         let display_title = if raw_name.len() > title_max_chars && title_max_chars > 3 {
             format!("{}...", &raw_name[..title_max_chars - 3])
         } else {
             raw_name.to_string()
         };
-        let text_y = offset_y + (header_h.saturating_sub(FONT_HEIGHT)) / 2;
+        let text_y = offset_y + (header_h.saturating_sub(self.char_height())) / 2;
         fb.draw_text(&display_title.to_uppercase(), 8, text_y, self.colors.status_bar_fg, None);
 
         // Header Action Buttons: [+] [↺] [×]
-        let btn_w = 16;
-        let close_x = sidebar_w.saturating_sub(btn_w + 6);
-        let refresh_x = close_x.saturating_sub(btn_w + 4);
-        let new_file_x = refresh_x.saturating_sub(btn_w + 4);
+        let btn_w = self.scale_coord(16);
+        let close_x = sidebar_w.saturating_sub(btn_w + self.scale_coord(6));
+        let refresh_x = close_x.saturating_sub(btn_w + self.scale_coord(4));
+        let new_file_x = refresh_x.saturating_sub(btn_w + self.scale_coord(4));
 
         // [+] New File
-        fb.draw_char('+', new_file_x + 4, text_y, self.colors.tab_inactive_fg, None);
+        fb.draw_char('+', new_file_x + self.scale_coord(4), text_y, self.colors.tab_inactive_fg, None);
 
         // [↺] Refresh
-        fb.draw_char('↺', refresh_x + 4, text_y, self.colors.tab_inactive_fg, None);
+        fb.draw_char('↺', refresh_x + self.scale_coord(4), text_y, self.colors.tab_inactive_fg, None);
 
         // [×] Close Sidebar
-        fb.draw_char('×', close_x + 4, text_y, self.colors.tab_inactive_fg, None);
+        fb.draw_char('×', close_x + self.scale_coord(4), text_y, self.colors.tab_inactive_fg, None);
 
         // 4. File Tree Rows
-        let row_h = (FONT_HEIGHT + 4).max(18);
+        let row_h = (self.char_height() + self.scale_coord(4)).max(self.scale_coord(18));
         let visible_rows = body_h / row_h;
 
         if sidebar.visible_items.is_empty() {
@@ -1806,7 +1870,7 @@ impl GfxRenderer {
             }
             let item = &sidebar.visible_items[item_idx];
             let row_y = body_y + screen_row * row_h;
-            let item_text_y = row_y + (row_h.saturating_sub(FONT_HEIGHT)) / 2;
+            let item_text_y = row_y + (row_h.saturating_sub(self.char_height())) / 2;
             let is_selected = item_idx == sidebar.selected_idx;
             let is_active_file = !item.is_dir && active_file_path.map_or(false, |p| p == item.path);
 
@@ -1831,15 +1895,15 @@ impl GfxRenderer {
             }
 
             // Indentation
-            let indent_x = 8 + item.depth * 14;
+            let indent_x = self.scale_coord(8) + item.depth * self.scale_coord(14);
 
             if item.is_dir {
                 // Arrow
                 let arrow_char = if item.is_expanded { '▼' } else { '▶' };
                 fb.draw_char(arrow_char, indent_x, item_text_y, self.colors.status_bar_fg, None);
 
-                let label_x = indent_x + FONT_WIDTH + 4;
-                let max_chars = (sidebar_w.saturating_sub(label_x + 8)) / FONT_WIDTH;
+                let label_x = indent_x + self.char_width() + self.scale_coord(4);
+                let max_chars = (sidebar_w.saturating_sub(label_x + self.scale_coord(8))) / self.char_width();
                 let text = if item.name.chars().count() > max_chars && max_chars > 2 {
                     let mut s: String = item.name.chars().take(max_chars.saturating_sub(2)).collect();
                     s.push_str("..");
@@ -1850,8 +1914,8 @@ impl GfxRenderer {
                 fb.draw_text(&text, label_x, item_text_y, self.colors.tab_active_fg, None);
             } else {
                 let color = item.color_hint(&self.colors);
-                let label_x = indent_x + FONT_WIDTH + 4;
-                let max_chars = (sidebar_w.saturating_sub(label_x + 20)) / FONT_WIDTH;
+                let label_x = indent_x + self.char_width() + self.scale_coord(4);
+                let max_chars = (sidebar_w.saturating_sub(label_x + self.scale_coord(20))) / self.char_width();
                 let text = if item.name.chars().count() > max_chars && max_chars > 2 {
                     let mut s: String = item.name.chars().take(max_chars.saturating_sub(2)).collect();
                     s.push_str("..");
@@ -1877,12 +1941,13 @@ impl GfxRenderer {
     fn render_menu_bar(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
         fb.fill_rect(0, 0, fb.width, self.menu_bar_height, self.colors.modal_header_bg);
 
-        let mut cur_x = 8;
-        let text_y = (self.menu_bar_height - FONT_HEIGHT) / 2;
+        let pad = (16.0 * self.scale_factor).round() as usize;
+        let mut cur_x = (8.0 * self.scale_factor).round() as usize;
+        let text_y = (self.menu_bar_height.saturating_sub(self.char_height())) / 2;
 
         for (idx, cat) in menu_bar.categories.iter().enumerate() {
             let is_active = menu_bar.active_category == Some(idx);
-            let item_w = cat.name.chars().count() * FONT_WIDTH + 16;
+            let item_w = cat.name.chars().count() * self.char_width() + pad;
 
             let (bg, fg) = if is_active {
                 (self.colors.accent, 0x00FFFFFF)
@@ -1899,7 +1964,7 @@ impl GfxRenderer {
             } else {
                 fb.fill_rect(cur_x, 0, item_w, self.menu_bar_height, bg);
             }
-            fb.draw_text(cat.name, cur_x + 8, text_y, fg, None);
+            fb.draw_text(cat.name, cur_x + (8.0 * self.scale_factor).round() as usize, text_y, fg, None);
 
             cur_x += item_w;
         }
@@ -1911,9 +1976,9 @@ impl GfxRenderer {
     fn render_menu_dropdown(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
         if let Some(cat_idx) = menu_bar.active_category {
             let cat = &menu_bar.categories[cat_idx];
-            let (drop_x, _) = menu_bar.category_bounds(cat_idx, FONT_WIDTH);
-            let drop_w = 260;
-            let item_h = 22;
+            let (drop_x, _) = menu_bar.category_bounds(cat_idx, self.char_width());
+            let drop_w = self.scale_coord(260);
+            let item_h = self.scale_coord(22);
             let drop_h = cat.items.len() * item_h + 4;
             let drop_y = self.menu_bar_height;
 
@@ -1955,13 +2020,13 @@ impl GfxRenderer {
                         (0x00D4D4D4, 0x00858585)
                     };
 
-                    let text_y = iy + (item_h - FONT_HEIGHT) / 2;
+                    let text_y = iy + (item_h.saturating_sub(self.char_height())) / 2;
                     // Draw Label
                     fb.draw_text(item.label, drop_x + 12, text_y, text_color, None);
 
                     // Draw Shortcut right-aligned
                     if !item.shortcut.is_empty() {
-                        let sc_w = item.shortcut.chars().count() * FONT_WIDTH;
+                        let sc_w = item.shortcut.chars().count() * self.char_width();
                         let sc_x = drop_x + drop_w - sc_w - 12;
                         fb.draw_text(item.shortcut, sc_x, text_y, shortcut_color, None);
                     }
@@ -1981,13 +2046,13 @@ impl GfxRenderer {
         let bar_w = fb.width.saturating_sub(offset_x);
         fb.fill_rect(offset_x, offset_y, bar_w, self.tab_bar_height, self.colors.tab_bar_bg);
 
-        let mut cur_x = offset_x + 8;
-        let text_y = offset_y + (self.tab_bar_height - FONT_HEIGHT) / 2;
+        let mut cur_x = offset_x + self.scale_coord(8);
+        let text_y = offset_y + (self.tab_bar_height.saturating_sub(self.char_height())) / 2;
 
         for (idx, title) in tab_titles.iter().enumerate() {
             let is_active = idx == active_tab_idx;
             let tab_text = format!(" {} {} × ", idx + 1, title);
-            let tab_w = tab_text.chars().count() * FONT_WIDTH + 8;
+            let tab_w = tab_text.chars().count() * self.char_width() + self.scale_coord(8);
 
             let (bg, fg) = if is_active {
                 (self.colors.tab_active_bg, self.colors.tab_active_fg)
@@ -2011,11 +2076,11 @@ impl GfxRenderer {
                 }
             }
 
-            cur_x += tab_w + 3;
+            cur_x += tab_w + self.scale_coord(3);
         }
 
         // New Tab [+] Button
-        let plus_w = 22;
+        let plus_w = self.scale_coord(22);
         let plus_y = offset_y + 3;
         let plus_h = self.tab_bar_height.saturating_sub(6);
         if self.rounded_corners {
@@ -2023,33 +2088,33 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(cur_x, offset_y + 2, plus_w, self.tab_bar_height - 2, self.colors.tab_inactive_bg);
         }
-        fb.draw_text("+", cur_x + 7, text_y, self.colors.tab_inactive_fg, None);
+        fb.draw_text("+", cur_x + self.scale_coord(7), text_y, self.colors.tab_inactive_fg, None);
     }
 
     fn render_status_bar(&self, fb: &mut Framebuffer, doc: &Document, status_msg: Option<&str>) {
         let bar_y = fb.height.saturating_sub(self.status_bar_height);
         fb.fill_rect(0, bar_y, fb.width, self.status_bar_height, self.colors.status_bar_bg);
 
-        let chip_h = self.status_bar_height.saturating_sub(4).max(14);
+        let chip_h = self.status_bar_height.saturating_sub(self.scale_coord(4)).max(self.scale_coord(14));
         let chip_y = bar_y + 2;
-        let text_y = bar_y + (self.status_bar_height - FONT_HEIGHT) / 2;
+        let text_y = bar_y + (self.status_bar_height.saturating_sub(self.char_height())) / 2;
 
-        let mut left_x = 6;
+        let mut left_x = self.scale_coord(6);
 
         // 1. Mode Chip: [ EDIT ]
         let mode_label = " EDIT ";
-        let mode_w = mode_label.chars().count() * FONT_WIDTH + 6;
+        let mode_w = mode_label.chars().count() * self.char_width() + self.scale_coord(6);
         if self.rounded_corners {
             fb.fill_rounded_rect(left_x, chip_y, mode_w, chip_h, 3, self.colors.chip_bg);
         } else {
             fb.fill_rect(left_x, chip_y, mode_w, chip_h, self.colors.chip_bg);
         }
         fb.draw_text(mode_label, left_x + 3, text_y, self.colors.chip_fg, None);
-        left_x += mode_w + 6;
+        left_x += mode_w + self.scale_coord(6);
 
         // 2. Status message or File & Diagnostics
         if let Some(msg) = status_msg {
-            let msg_w = msg.chars().count() * FONT_WIDTH + 8;
+            let msg_w = msg.chars().count() * self.char_width() + self.scale_coord(8);
             if self.rounded_corners {
                 fb.fill_rounded_rect(left_x, chip_y, msg_w, chip_h, 3, self.colors.chip_bg);
             } else {
@@ -2066,14 +2131,14 @@ impl GfxRenderer {
                 .unwrap_or("[Sin Título]");
             let dirty = if doc.buffer.is_dirty() { " •" } else { "" };
             let file_text = format!(" {}{} ", file_name, dirty);
-            let file_w = file_text.chars().count() * FONT_WIDTH + 4;
+            let file_w = file_text.chars().count() * self.char_width() + self.scale_coord(4);
             if self.rounded_corners {
                 fb.fill_rounded_rect(left_x, chip_y, file_w, chip_h, 3, self.colors.chip_bg);
             } else {
                 fb.fill_rect(left_x, chip_y, file_w, chip_h, self.colors.chip_bg);
             }
             fb.draw_text(&file_text, left_x + 2, text_y, self.colors.status_bar_fg, None);
-            left_x += file_w + 6;
+            left_x += file_w + self.scale_coord(6);
 
             // Diagnostics summary badge
             if let Some(dc) = &self.diagnostics {
@@ -2084,14 +2149,14 @@ impl GfxRenderer {
                 } else {
                     (" ✓ 0 errores ".to_string(), 0x007EE787)
                 };
-                let diag_w = diag_text.chars().count() * FONT_WIDTH + 4;
+                let diag_w = diag_text.chars().count() * self.char_width() + self.scale_coord(4);
                 if self.rounded_corners {
                     fb.fill_rounded_rect(left_x, chip_y, diag_w, chip_h, 3, self.colors.chip_bg);
                 } else {
                     fb.fill_rect(left_x, chip_y, diag_w, chip_h, self.colors.chip_bg);
                 }
                 fb.draw_text(&diag_text, left_x + 2, text_y, diag_fg, None);
-                left_x += diag_w + 6;
+                left_x += diag_w + self.scale_coord(6);
             }
 
             // Git Branch & Stats Chip
@@ -2115,7 +2180,7 @@ impl GfxRenderer {
                 } else {
                     format!(" git: {} ", branch)
                 };
-                let git_w = git_text.chars().count() * FONT_WIDTH + 4;
+                let git_w = git_text.chars().count() * self.char_width() + self.scale_coord(4);
                 if self.rounded_corners {
                     fb.fill_rounded_rect(left_x, chip_y, git_w, chip_h, 3, self.colors.chip_bg);
                 } else {
@@ -2135,12 +2200,12 @@ impl GfxRenderer {
         };
 
         let lang_text = format!(" {} ", doc.language.name());
-        let lang_w = lang_text.chars().count() * FONT_WIDTH + 4;
+        let lang_w = lang_text.chars().count() * self.char_width() + self.scale_coord(4);
 
         let utf8_text = " UTF-8 ";
-        let utf8_w = utf8_text.chars().count() * FONT_WIDTH + 4;
+        let utf8_w = utf8_text.chars().count() * self.char_width() + self.scale_coord(4);
 
-        let mut right_x = fb.width.saturating_sub(6);
+        let mut right_x = fb.width.saturating_sub(self.scale_coord(6));
 
         // Language Chip
         right_x = right_x.saturating_sub(lang_w);
@@ -2150,7 +2215,7 @@ impl GfxRenderer {
             fb.fill_rect(right_x, chip_y, lang_w, chip_h, self.colors.chip_bg);
         }
         fb.draw_text(&lang_text, right_x + 2, text_y, self.colors.chip_fg, None);
-        right_x = right_x.saturating_sub(6);
+        right_x = right_x.saturating_sub(self.scale_coord(6));
 
         // UTF-8 Chip
         right_x = right_x.saturating_sub(utf8_w);
@@ -2160,11 +2225,11 @@ impl GfxRenderer {
             fb.fill_rect(right_x, chip_y, utf8_w, chip_h, self.colors.chip_bg);
         }
         fb.draw_text(utf8_text, right_x + 2, text_y, self.colors.status_bar_fg, None);
-        right_x = right_x.saturating_sub(6);
+        right_x = right_x.saturating_sub(self.scale_coord(6));
 
         // Position & Lines Chip
         let pos_full = format!(" Ln {}, Col {} ({} lin){} ", primary_pos.line + 1, primary_pos.col + 1, doc.buffer.len_lines(), cursors_tag);
-        let pos_full_w = pos_full.chars().count() * FONT_WIDTH + 4;
+        let pos_full_w = pos_full.chars().count() * self.char_width() + self.scale_coord(4);
         right_x = right_x.saturating_sub(pos_full_w);
         if self.rounded_corners {
             fb.fill_rounded_rect(right_x, chip_y, pos_full_w, chip_h, 3, self.colors.chip_bg);
@@ -2186,10 +2251,10 @@ impl GfxRenderer {
         modal: &crate::ui::prompt::PromptModal,
         close_hovered: bool,
     ) {
-        let box_w = fb.width.min(740).max(460);
-        let box_h = fb.height.min(500).max(360);
+        let box_w = fb.width.min(self.scale_coord(740)).max(self.scale_coord(460));
+        let box_h = fb.height.min(self.scale_coord(500)).max(self.scale_coord(360));
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
-        let box_y: usize = 28;
+        let box_y: usize = self.scale_coord(28);
 
         // 1. Semi-transparent backdrop scrim
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
@@ -2202,7 +2267,7 @@ impl GfxRenderer {
         }
 
         // 3. Title bar & window outer border
-        let header_h = 24;
+        let header_h = self.scale_coord(24);
         fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
         fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
         fb.fill_rect(box_x, box_y + header_h, box_w, box_h.saturating_sub(header_h), self.colors.modal_bg);
@@ -2210,10 +2275,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text("Búsqueda Global en el Proyecto (Ctrl+Shift+F)", box_x + 10, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("Búsqueda Global en el Proyecto (Ctrl+Shift+F)", box_x + self.scale_coord(10), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header close button [×]
-        let close_w = 30;
+        let close_w = self.scale_coord(30);
         let close_x = box_x + box_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -2221,18 +2286,18 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
         }
-        fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(11), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header bottom divider
         fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 4. Input Box
         let body_y = box_y + header_h + 1;
-        let input_margin = 12;
+        let input_margin = self.scale_coord(12);
         let input_x = box_x + input_margin;
-        let input_y = body_y + 8;
+        let input_y = body_y + self.scale_coord(8);
         let input_w = box_w.saturating_sub(input_margin * 2);
-        let input_h = 24;
+        let input_h = self.scale_coord(24);
 
         if self.rounded_corners {
             fb.fill_rounded_rect(input_x, input_y, input_w, input_h, 4, self.colors.input_bg);
@@ -2243,20 +2308,20 @@ impl GfxRenderer {
         }
 
         let label = "Buscar en Proyecto: ";
-        let text_y = input_y + (input_h - FONT_HEIGHT) / 2;
-        fb.draw_text(label, input_x + 6, text_y, self.colors.accent, None);
+        let text_y = input_y + (input_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(label, input_x + self.scale_coord(6), text_y, self.colors.accent, None);
 
-        let input_text_x = input_x + 6 + label.chars().count() * FONT_WIDTH;
+        let input_text_x = input_x + self.scale_coord(6) + label.chars().count() * self.char_width();
         fb.draw_text(&modal.input, input_text_x, text_y, 0x00FFFFFF, None);
 
-        let cursor_x = input_text_x + modal.cursor_col * FONT_WIDTH;
-        if cursor_x < input_x + input_w - 4 {
-            fb.fill_rect(cursor_x, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+        let cursor_x = input_text_x + modal.cursor_col * self.char_width();
+        if cursor_x < input_x + input_w - self.scale_coord(4) {
+            fb.fill_rect(cursor_x, text_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
         }
 
         // 5. Status & Options bar
-        let subbar_y = input_y + input_h + 8;
-        let subbar_h = 22;
+        let subbar_y = input_y + input_h + self.scale_coord(8);
+        let subbar_h = self.scale_coord(22);
 
         let stats_text = if modal.input.trim().is_empty() {
             "Escriba para buscar en todos los archivos del proyecto...".to_string()
@@ -2279,11 +2344,11 @@ impl GfxRenderer {
         } else {
             self.colors.syntax_string
         };
-        fb.draw_text(&stats_text, input_x, subbar_y + 3, stats_color, None);
+        fb.draw_text(&stats_text, input_x, subbar_y + self.scale_coord(3), stats_color, None);
 
         // Case-sensitive toggle button on the right of subbar
         let case_btn_text = if modal.case_sensitive { "[Aa Mayús: Sí]" } else { "[Aa Mayús: No]" };
-        let case_w = case_btn_text.chars().count() * FONT_WIDTH + 8;
+        let case_w = case_btn_text.chars().count() * self.char_width() + self.scale_coord(8);
         let case_x = input_x + input_w - case_w;
         let case_bg = if modal.case_sensitive { self.colors.button_bg } else { self.colors.chip_bg };
         let case_border = if modal.case_sensitive { self.colors.accent } else { self.colors.scrollbar_border };
@@ -2293,17 +2358,17 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(case_x, subbar_y, case_w, subbar_h, case_bg);
         }
-        let case_tx = case_x + 4;
-        let case_ty = subbar_y + (subbar_h - FONT_HEIGHT) / 2;
+        let case_tx = case_x + self.scale_coord(4);
+        let case_ty = subbar_y + (subbar_h.saturating_sub(self.char_height())) / 2;
         let case_fg = if modal.case_sensitive { 0x00FFFFFF } else { 0x00AAAAAA };
         fb.draw_text(case_btn_text, case_tx, case_ty, case_fg, None);
 
         // 6. Results List
-        let list_y = subbar_y + subbar_h + 8;
-        let footer_h = 24;
-        let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + 4);
+        let list_y = subbar_y + subbar_h + self.scale_coord(8);
+        let footer_h = self.scale_coord(24);
+        let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + self.scale_coord(4));
         let list_w = input_w;
-        let row_h = 22;
+        let row_h = (self.char_height() + self.scale_coord(6)).max(self.scale_coord(22));
         let max_visible = list_h / row_h;
 
         // Background of results panel
@@ -2318,7 +2383,7 @@ impl GfxRenderer {
         let results_len = modal.global_results.len();
         let scroll_offset = modal.scroll_offset.min(results_len.saturating_sub(1));
 
-        let path_col_w = (list_w / 3).min(240).max(140);
+        let path_col_w = (list_w / 3).min(self.scale_coord(240)).max(self.scale_coord(140));
 
         for row_idx in 0..max_visible {
             let item_idx = scroll_offset + row_idx;
@@ -2328,22 +2393,22 @@ impl GfxRenderer {
 
             let item = &modal.global_results[item_idx];
             let is_sel = item_idx == modal.selected_idx;
-            let item_y = list_y + 2 + row_idx * row_h;
+            let item_y = list_y + self.scale_coord(2) + row_idx * row_h;
 
             if is_sel {
                 let sel_bg = self.colors.accent;
                 if self.rounded_corners {
-                    fb.fill_rounded_rect(input_x + 2, item_y, list_w - 4, row_h - 2, 3, sel_bg);
+                    fb.fill_rounded_rect(input_x + 2, item_y, list_w.saturating_sub(4), row_h.saturating_sub(2), 3, sel_bg);
                 } else {
-                    fb.fill_rect(input_x + 2, item_y, list_w - 4, row_h - 2, sel_bg);
+                    fb.fill_rect(input_x + 2, item_y, list_w.saturating_sub(4), row_h.saturating_sub(2), sel_bg);
                 }
             }
 
-            let item_text_y = item_y + (row_h - 2 - FONT_HEIGHT) / 2;
+            let item_text_y = item_y + (row_h.saturating_sub(self.char_height())) / 2;
 
             // 1. Path and line badge (e.g. "src/main.rs:42")
             let badge = format!("{}:{}", item.relative_path, item.line_number);
-            let badge_max_chars = path_col_w / FONT_WIDTH;
+            let badge_max_chars = path_col_w / self.char_width().max(1);
             let badge_display = if badge.chars().count() > badge_max_chars {
                 let take = badge_max_chars.saturating_sub(3);
                 let tail: String = badge.chars().rev().take(take).collect::<Vec<char>>().into_iter().rev().collect();
@@ -2353,15 +2418,15 @@ impl GfxRenderer {
             };
 
             let badge_color = if is_sel { 0x00FFFFFF } else { self.colors.syntax_type };
-            fb.draw_text(&badge_display, input_x + 6, item_text_y, badge_color, None);
+            fb.draw_text(&badge_display, input_x + self.scale_coord(6), item_text_y, badge_color, None);
 
             // Divider line between file badge and code snippet
             let div_x = input_x + path_col_w;
-            fb.fill_rect(div_x, item_y + 2, 1, row_h - 6, if is_sel { 0x00FFFFFF } else { self.colors.scrollbar_border });
+            fb.fill_rect(div_x, item_y + 2, 1, row_h.saturating_sub(6), if is_sel { 0x00FFFFFF } else { self.colors.scrollbar_border });
 
             // 2. Code snippet preview with match highlight
-            let code_x = div_x + 8;
-            let max_code_chars = (input_x + list_w).saturating_sub(code_x + 16) / FONT_WIDTH;
+            let code_x = div_x + self.scale_coord(8);
+            let max_code_chars = (input_x + list_w).saturating_sub(code_x + self.scale_coord(16)) / self.char_width().max(1);
             let snippet_chars: Vec<char> = item.line_text.chars().take(max_code_chars).collect();
             let snippet_str: String = snippet_chars.iter().collect();
 
@@ -2373,33 +2438,33 @@ impl GfxRenderer {
             if item.match_char_offset < snippet_chars.len() {
                 let hl_start = item.match_char_offset;
                 let hl_len = item.match_char_len.min(snippet_chars.len() - hl_start);
-                let hl_x = code_x + hl_start * FONT_WIDTH;
-                let hl_w = hl_len * FONT_WIDTH;
+                let hl_x = code_x + hl_start * self.char_width();
+                let hl_w = hl_len * self.char_width();
                 let hl_str: String = snippet_chars[hl_start..hl_start + hl_len].iter().collect();
                 let hl_bg = if is_sel { 0x00D35400 } else { 0x00F39C12 };
-                fb.fill_rect(hl_x, item_text_y, hl_w, FONT_HEIGHT, hl_bg);
+                fb.fill_rect(hl_x, item_text_y, hl_w, self.char_height(), hl_bg);
                 fb.draw_text(&hl_str, hl_x, item_text_y, 0x00FFFFFF, None);
             }
         }
 
         // 7. Right Scrollbar in Results List if items > max_visible
         if results_len > max_visible {
-            let sb_w = 6;
+            let sb_w = self.scale_coord(6).max(4);
             let sb_x = input_x + list_w - sb_w - 2;
-            let sb_y = list_y + 4;
-            let sb_h = list_h.saturating_sub(8);
+            let sb_y = list_y + self.scale_coord(4);
+            let sb_h = list_h.saturating_sub(self.scale_coord(8));
 
             fb.fill_rect(sb_x, sb_y, sb_w, sb_h, self.colors.scrollbar_bg);
-            let thumb_h = ((max_visible as f32 / results_len as f32) * sb_h as f32).max(12.0) as usize;
+            let thumb_h = (((max_visible as f32 / results_len as f32) * sb_h as f32).max(12.0) as usize).min(sb_h);
             let max_scroll = results_len - max_visible;
             let thumb_y = sb_y + ((scroll_offset as f32 / max_scroll as f32) * (sb_h - thumb_h) as f32) as usize;
             fb.fill_rect(sb_x, thumb_y, sb_w, thumb_h, self.colors.scrollbar_thumb);
         }
 
         // 8. Footer hint
-        let footer_y = list_y + list_h + 6;
+        let footer_y = list_y + list_h + self.scale_coord(6);
         let hint = "↑/↓: Seleccionar  •  Enter: Abrir en línea  •  Alt+C: Mayús/Minús  •  Esc: Cerrar";
-        let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
+        let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
         fb.draw_text(hint, hint_x, footer_y, 0x00858585, None);
     }
 
@@ -2409,10 +2474,10 @@ impl GfxRenderer {
         modal: &crate::ui::prompt::PromptModal,
         close_hovered: bool,
     ) {
-        let box_w = fb.width.min(540).max(380);
-        let box_h = 168;
+        let box_w = fb.width.min(self.scale_coord(540)).max(self.scale_coord(380));
+        let box_h = self.scale_coord(168);
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
-        let box_y: usize = 28;
+        let box_y: usize = self.scale_coord(28);
 
         // 1. Semi-transparent backdrop scrim
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 100);
@@ -2425,7 +2490,7 @@ impl GfxRenderer {
         }
 
         // 3. Title bar & window outer border
-        let header_h = 24;
+        let header_h = self.scale_coord(24);
         fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
         fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
         fb.fill_rect(box_x, box_y + header_h, box_w, box_h.saturating_sub(header_h), self.colors.modal_bg);
@@ -2433,10 +2498,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text("Buscar y Reemplazar", box_x + 10, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("Buscar y Reemplazar", box_x + self.scale_coord(10), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Close button [×]
-        let close_w = 30;
+        let close_w = self.scale_coord(30);
         let close_x = box_x + box_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -2444,55 +2509,57 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
         }
-        fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(11), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header bottom divider
         fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 4. Window body
         let body_y = box_y + header_h + 1;
-        let input_margin = 12;
-        let label_w = 100;
+        let input_margin = self.scale_coord(12);
+        let label_w = self.scale_coord(100);
         let input_w = box_w.saturating_sub(input_margin * 2 + label_w);
-        let input_h = 24;
+        let input_h = self.scale_coord(24);
 
         // Row 1: Buscar
-        let row1_y = body_y + 12;
-        fb.draw_text("Buscar:", box_x + input_margin, row1_y + 4, 0x00CCCCCC, None);
+        let row1_y = body_y + self.scale_coord(12);
+        fb.draw_text("Buscar:", box_x + input_margin, row1_y + (input_h.saturating_sub(self.char_height())) / 2, 0x00CCCCCC, None);
 
         let input1_x = box_x + input_margin + label_w;
         let border1 = if modal.active_field == 0 { self.colors.input_border } else { self.colors.scrollbar_border };
         fb.fill_rect(input1_x.saturating_sub(1), row1_y.saturating_sub(1), input_w + 2, input_h + 2, border1);
         fb.fill_rect(input1_x, row1_y, input_w, input_h, self.colors.input_bg);
-        fb.draw_text(&modal.input, input1_x + 6, row1_y + 4, 0x00FFFFFF, None);
+        let text1_y = row1_y + (input_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(&modal.input, input1_x + self.scale_coord(6), text1_y, 0x00FFFFFF, None);
 
         if modal.active_field == 0 {
-            let cursor_x = input1_x + 6 + modal.cursor_col * FONT_WIDTH;
-            if cursor_x < input1_x + input_w - 4 {
-                fb.fill_rect(cursor_x, row1_y + 4, 2, FONT_HEIGHT, self.colors.cursor);
+            let cursor_x = input1_x + self.scale_coord(6) + modal.cursor_col * self.char_width();
+            if cursor_x < input1_x + input_w - self.scale_coord(4) {
+                fb.fill_rect(cursor_x, text1_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
             }
         }
 
         // Row 2: Reemplazar
-        let row2_y = row1_y + input_h + 10;
-        fb.draw_text("Reemplazar:", box_x + input_margin, row2_y + 4, 0x00CCCCCC, None);
+        let row2_y = row1_y + input_h + self.scale_coord(10);
+        fb.draw_text("Reemplazar:", box_x + input_margin, row2_y + (input_h.saturating_sub(self.char_height())) / 2, 0x00CCCCCC, None);
 
         let input2_x = box_x + input_margin + label_w;
         let border2 = if modal.active_field == 1 { self.colors.input_border } else { self.colors.scrollbar_border };
         fb.fill_rect(input2_x.saturating_sub(1), row2_y.saturating_sub(1), input_w + 2, input_h + 2, border2);
         fb.fill_rect(input2_x, row2_y, input_w, input_h, self.colors.input_bg);
-        fb.draw_text(&modal.replace_input, input2_x + 6, row2_y + 4, 0x00FFFFFF, None);
+        let text2_y = row2_y + (input_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(&modal.replace_input, input2_x + self.scale_coord(6), text2_y, 0x00FFFFFF, None);
 
         if modal.active_field == 1 {
-            let cursor_x = input2_x + 6 + modal.replace_cursor_col * FONT_WIDTH;
-            if cursor_x < input2_x + input_w - 4 {
-                fb.fill_rect(cursor_x, row2_y + 4, 2, FONT_HEIGHT, self.colors.cursor);
+            let cursor_x = input2_x + self.scale_coord(6) + modal.replace_cursor_col * self.char_width();
+            if cursor_x < input2_x + input_w - self.scale_coord(4) {
+                fb.fill_rect(cursor_x, text2_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
             }
         }
 
         // Row 3: Action Buttons
-        let btn_y = row2_y + input_h + 16;
-        let btn_h = 24;
+        let btn_y = row2_y + input_h + self.scale_coord(16);
+        let btn_h = self.scale_coord(24);
 
         let render_dialog_btn = |fb: &mut Framebuffer, bx: usize, by: usize, bw: usize, bh: usize, text: &str, is_primary: bool| {
             let (bg, border) = if is_primary {
@@ -2507,30 +2574,30 @@ impl GfxRenderer {
                 fb.fill_rect(bx.saturating_sub(1), by.saturating_sub(1), bw + 2, bh + 2, border);
                 fb.fill_rect(bx, by, bw, bh, bg);
             }
-            let tw = text.chars().count() * FONT_WIDTH;
+            let tw = text.chars().count() * self.char_width();
             let tx = bx + (bw.saturating_sub(tw)) / 2;
-            let ty = by + (bh - FONT_HEIGHT) / 2;
+            let ty = by + (bh.saturating_sub(self.char_height())) / 2;
             fb.draw_text(text, tx, ty, 0x00FFFFFF, None);
         };
 
         // Button 1: [< Ant]
         let b1_x = box_x + input_margin;
-        let b1_w = 68;
+        let b1_w = self.scale_coord(68);
         render_dialog_btn(fb, b1_x, btn_y, b1_w, btn_h, "< Ant", false);
 
         // Button 2: [Sig >]
-        let b2_x = b1_x + b1_w + 8;
-        let b2_w = 68;
+        let b2_x = b1_x + b1_w + self.scale_coord(8);
+        let b2_w = self.scale_coord(68);
         render_dialog_btn(fb, b2_x, btn_y, b2_w, btn_h, "Sig >", false);
 
         // Button 3: [Reemplazar]
-        let b3_x = b2_x + b2_w + 14;
-        let b3_w = 98;
+        let b3_x = b2_x + b2_w + self.scale_coord(14);
+        let b3_w = self.scale_coord(98);
         render_dialog_btn(fb, b3_x, btn_y, b3_w, btn_h, "Reemplazar", false);
 
         // Button 4: [Reemplazar Todo]
-        let b4_x = b3_x + b3_w + 8;
-        let b4_w = 126;
+        let b4_x = b3_x + b3_w + self.scale_coord(8);
+        let b4_w = self.scale_coord(126);
         render_dialog_btn(fb, b4_x, btn_y, b4_w, btn_h, "Reemplazar Todo", true);
     }
 
@@ -2558,10 +2625,10 @@ impl GfxRenderer {
 
         let is_palette = modal.kind == crate::ui::prompt::PromptKind::CommandPalette;
         let is_recent = modal.kind == crate::ui::prompt::PromptKind::RecentFiles;
-        let box_w = if is_recent { fb.width.min(680).max(400) } else { fb.width.min(580).max(340) };
-        let box_h = if is_palette || is_recent { 340 } else { 120 };
+        let box_w = if is_recent { fb.width.min(self.scale_coord(680)).max(self.scale_coord(400)) } else { fb.width.min(self.scale_coord(580)).max(self.scale_coord(340)) };
+        let box_h = if is_palette || is_recent { self.scale_coord(340) } else { self.scale_coord(120) };
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
-        let box_y: usize = 28;
+        let box_y: usize = self.scale_coord(28);
 
         // 1. Semi-transparent backdrop scrim
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
@@ -2574,7 +2641,7 @@ impl GfxRenderer {
         }
 
         // 3. Outer border & Window Header (Title Bar)
-        let header_h = 24;
+        let header_h = self.scale_coord(24);
         fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
         fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
 
@@ -2587,10 +2654,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text(modal.kind.window_title(), box_x + 10, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text(modal.kind.window_title(), box_x + self.scale_coord(10), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header close button [×]
-        let close_w = 30;
+        let close_w = self.scale_coord(30);
         let close_x = box_x + box_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -2598,17 +2665,17 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
         }
-        fb.draw_text("×", close_x + 11, box_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(11), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header bottom divider
         fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 5. Input Field Box inside Window
-        let input_margin = 12;
+        let input_margin = self.scale_coord(12);
         let input_x = box_x + input_margin;
-        let input_y = body_y + 8;
+        let input_y = body_y + self.scale_coord(8);
         let input_w = box_w.saturating_sub(input_margin * 2);
-        let input_h = 24;
+        let input_h = self.scale_coord(24);
 
         if self.rounded_corners {
             fb.fill_rounded_rect(input_x, input_y, input_w, input_h, 4, self.colors.input_bg);
@@ -2620,23 +2687,23 @@ impl GfxRenderer {
 
         // Prompt label & input text
         let label = modal.kind.label();
-        let text_y = input_y + (input_h - FONT_HEIGHT) / 2;
-        fb.draw_text(label, input_x + 6, text_y, self.colors.accent, None);
+        let text_y = input_y + (input_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(label, input_x + self.scale_coord(6), text_y, self.colors.accent, None);
 
-        let input_text_x = input_x + 6 + label.chars().count() * FONT_WIDTH;
+        let input_text_x = input_x + self.scale_coord(6) + label.chars().count() * self.char_width();
         fb.draw_text(&modal.input, input_text_x, text_y, 0x00FFFFFF, None);
 
         // Caret bar
-        let cursor_x = input_text_x + modal.cursor_col * FONT_WIDTH;
-        if cursor_x < input_x + input_w - 4 {
-            fb.fill_rect(cursor_x, text_y, 2, FONT_HEIGHT, self.colors.cursor);
+        let cursor_x = input_text_x + modal.cursor_col * self.char_width();
+        if cursor_x < input_x + input_w - self.scale_coord(4) {
+            fb.fill_rect(cursor_x, text_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
         }
 
         // 6. Content below input
         if is_palette {
             let matching = modal.matching_commands();
-            let mut item_y = input_y + input_h + 8;
-            let item_h = 24;
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(8)).max(self.scale_coord(24));
             let max_visible = 9;
 
             for (idx, cmd) in matching.iter().take(max_visible).enumerate() {
@@ -2653,12 +2720,12 @@ impl GfxRenderer {
                     fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
                 }
 
-                let row_text_y = item_y + (item_h - FONT_HEIGHT) / 2;
-                fb.draw_text(cmd.name, input_x + 8, row_text_y, row_fg, None);
+                let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+                fb.draw_text(cmd.name, input_x + self.scale_coord(8), row_text_y, row_fg, None);
 
                 if !cmd.shortcut.is_empty() {
-                    let sc_w = cmd.shortcut.chars().count() * FONT_WIDTH;
-                    let sc_x = input_x + input_w - sc_w - 8;
+                    let sc_w = cmd.shortcut.chars().count() * self.char_width();
+                    let sc_x = input_x + input_w - sc_w - self.scale_coord(8);
                     fb.draw_text(cmd.shortcut, sc_x, row_text_y, sc_fg, None);
                 }
 
@@ -2667,17 +2734,17 @@ impl GfxRenderer {
 
             // Footer hint
             let hint = "↑/↓: Seleccionar  •  Enter: Ejecutar  •  Esc: Cerrar";
-            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
-            let hint_y = box_y + box_h - 18;
+            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
             fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
         } else if is_recent {
             let matching = modal.matching_recent_files();
-            let mut item_y = input_y + input_h + 8;
-            let item_h = 26;
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
             let max_visible = 9;
 
             if matching.is_empty() {
-                fb.draw_text("(No hay archivos recientes coincidentes)", input_x + 8, item_y + 6, 0x00858585, None);
+                fb.draw_text("(No hay archivos recientes coincidentes)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
             } else {
                 for (idx, path) in matching.iter().take(max_visible).enumerate() {
                     let is_sel = idx == modal.selected_idx;
@@ -2696,12 +2763,12 @@ impl GfxRenderer {
                     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     let parent_str = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
 
-                    let row_text_y = item_y + (item_h - FONT_HEIGHT) / 2;
-                    fb.draw_text(file_name, input_x + 8, row_text_y, row_fg, None);
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+                    fb.draw_text(file_name, input_x + self.scale_coord(8), row_text_y, row_fg, None);
 
-                    let fn_w = file_name.chars().count() * FONT_WIDTH;
-                    let dir_x = input_x + 8 + fn_w + 12;
-                    let max_dir_chars = input_w.saturating_sub(fn_w + 24) / FONT_WIDTH;
+                    let fn_w = file_name.chars().count() * self.char_width();
+                    let dir_x = input_x + self.scale_coord(8) + fn_w + self.scale_coord(12);
+                    let max_dir_chars = input_w.saturating_sub(fn_w + self.scale_coord(24)) / self.char_width().max(1);
                     let display_dir = if parent_str.chars().count() > max_dir_chars && max_dir_chars > 3 {
                         format!("...{}", parent_str.chars().skip(parent_str.chars().count() - (max_dir_chars - 3)).collect::<String>())
                     } else {
@@ -2715,14 +2782,14 @@ impl GfxRenderer {
 
             // Footer hint
             let hint = "↑/↓: Seleccionar  •  Enter: Abrir archivo  •  Esc: Cancelar";
-            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
-            let hint_y = box_y + box_h - 18;
+            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
             fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
         } else {
             // Footer hint for Find
             let hint = "Enter: Confirmar  •  Esc: Cancelar";
-            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * FONT_WIDTH)) / 2;
-            let hint_y = box_y + box_h - 22;
+            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(22);
             fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
         }
     }
@@ -2737,8 +2804,8 @@ impl GfxRenderer {
         // Semi-transparent backdrop scrim
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
 
-        let box_w = fb.width.min(680).max(420);
-        let box_h = fb.height.min(480).max(360);
+        let box_w = fb.width.min(self.scale_coord(680)).max(self.scale_coord(420));
+        let box_h = fb.height.min(self.scale_coord(480)).max(self.scale_coord(360));
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y = (fb.height.saturating_sub(box_h)) / 2;
 
@@ -2750,7 +2817,7 @@ impl GfxRenderer {
         }
 
         // 2. Outer border & Window Header (Title Bar)
-        let header_h = 26;
+        let header_h = self.scale_coord(26);
         fb.fill_rect(box_x.saturating_sub(1), box_y.saturating_sub(1), box_w + 2, box_h + 2, self.colors.modal_border);
         fb.fill_rect(box_x, box_y, box_w, header_h, self.colors.modal_header_bg);
 
@@ -2763,10 +2830,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text(modal.kind.window_title(), box_x + 10, box_y + 5, 0x00FFFFFF, None);
+        fb.draw_text(modal.kind.window_title(), box_x + self.scale_coord(10), box_y + self.scale_coord(5), 0x00FFFFFF, None);
 
         // Header close button [×]
-        let close_w = 32;
+        let close_w = self.scale_coord(32);
         let close_x = box_x + box_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -2774,69 +2841,69 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, box_y, close_w, header_h, close_bg);
         }
-        fb.draw_text("×", close_x + 12, box_y + 5, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(12), box_y + self.scale_coord(5), 0x00FFFFFF, None);
 
         // Header bottom divider
         fb.fill_rect(box_x, box_y + header_h, box_w, 1, self.colors.scrollbar_border);
 
         // 5. Current Directory Bar
-        let dir_bar_y = body_y + 6;
-        let dir_bar_h = 24;
-        let dir_bar_w = box_w.saturating_sub(16);
+        let dir_bar_y = body_y + self.scale_coord(6);
+        let dir_bar_h = self.scale_coord(24);
+        let dir_bar_w = box_w.saturating_sub(self.scale_coord(16));
         if self.rounded_corners {
-            fb.fill_rounded_rect(box_x + 8, dir_bar_y, dir_bar_w, dir_bar_h, 4, self.colors.input_bg);
+            fb.fill_rounded_rect(box_x + self.scale_coord(8), dir_bar_y, dir_bar_w, dir_bar_h, 4, self.colors.input_bg);
         } else {
-            fb.fill_rect(box_x + 8, dir_bar_y, dir_bar_w, dir_bar_h, self.colors.input_bg);
+            fb.fill_rect(box_x + self.scale_coord(8), dir_bar_y, dir_bar_w, dir_bar_h, self.colors.input_bg);
         }
-        fb.draw_text("Carpeta:", box_x + 14, dir_bar_y + 4, self.colors.accent, None);
+        fb.draw_text("Carpeta:", box_x + self.scale_coord(14), dir_bar_y + self.scale_coord(4), self.colors.accent, None);
 
         let path_str = modal.current_dir.display().to_string();
-        let max_path_chars = (box_w.saturating_sub(190)) / FONT_WIDTH;
+        let max_path_chars = (box_w.saturating_sub(self.scale_coord(190))) / self.char_width().max(1);
         let display_path = if path_str.chars().count() > max_path_chars && max_path_chars > 3 {
             let skip = path_str.chars().count().saturating_sub(max_path_chars - 3);
             format!("...{}", path_str.chars().skip(skip).collect::<String>())
         } else {
             path_str
         };
-        fb.draw_text(&display_path, box_x + 14 + 9 * FONT_WIDTH, dir_bar_y + 4, 0x00FFFFFF, None);
+        fb.draw_text(&display_path, box_x + self.scale_coord(14) + 9 * self.char_width(), dir_bar_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // [Subir] button
-        let up_btn_w = 64;
-        let up_btn_x = box_x + box_w - up_btn_w - 12;
+        let up_btn_w = self.scale_coord(64);
+        let up_btn_x = box_x + box_w - up_btn_w - self.scale_coord(12);
         if self.rounded_corners {
-            fb.fill_rounded_rect(up_btn_x, dir_bar_y + 2, up_btn_w, 20, 3, self.colors.chip_bg);
-            fb.draw_rounded_outline(up_btn_x, dir_bar_y + 2, up_btn_w, 20, 3, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(up_btn_x, dir_bar_y + self.scale_coord(2), up_btn_w, self.scale_coord(20), 3, self.colors.chip_bg);
+            fb.draw_rounded_outline(up_btn_x, dir_bar_y + self.scale_coord(2), up_btn_w, self.scale_coord(20), 3, self.colors.scrollbar_border);
         } else {
-            fb.fill_rect(up_btn_x, dir_bar_y + 2, up_btn_w, 20, self.colors.chip_bg);
+            fb.fill_rect(up_btn_x, dir_bar_y + self.scale_coord(2), up_btn_w, self.scale_coord(20), self.colors.chip_bg);
         }
-        fb.draw_text("[Subir]", up_btn_x + 6, dir_bar_y + 4, 0x00FFFFFF, None);
+        fb.draw_text("[Subir]", up_btn_x + self.scale_coord(6), dir_bar_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // 6. Bookmarks Bar
-        let bm_bar_y = dir_bar_y + dir_bar_h + 4;
+        let bm_bar_y = dir_bar_y + dir_bar_h + self.scale_coord(4);
         let bookmarks = crate::ui::prompt::get_quick_bookmarks();
-        let mut cur_bm_x = box_x + 8;
+        let mut cur_bm_x = box_x + self.scale_coord(8);
         for bm in &bookmarks {
             let is_active = modal.current_dir == bm.path;
             let bm_text = format!("[{}]", bm.label);
-            let bm_w = bm_text.chars().count() * FONT_WIDTH + 8;
-            if cur_bm_x + bm_w < box_x + box_w - 8 {
+            let bm_w = bm_text.chars().count() * self.char_width() + self.scale_coord(8);
+            if cur_bm_x + bm_w < box_x + box_w - self.scale_coord(8) {
                 let bg = if is_active { self.colors.accent } else { self.colors.chip_bg };
                 let fg = if is_active { 0x00FFFFFF } else { 0x00CCCCCC };
                 if self.rounded_corners {
-                    fb.fill_rounded_rect(cur_bm_x, bm_bar_y, bm_w, 20, 3, bg);
+                    fb.fill_rounded_rect(cur_bm_x, bm_bar_y, bm_w, self.scale_coord(20), 3, bg);
                 } else {
-                    fb.fill_rect(cur_bm_x, bm_bar_y, bm_w, 20, bg);
+                    fb.fill_rect(cur_bm_x, bm_bar_y, bm_w, self.scale_coord(20), bg);
                 }
-                fb.draw_text(&bm_text, cur_bm_x + 4, bm_bar_y + 2, fg, None);
-                cur_bm_x += bm_w + 6;
+                fb.draw_text(&bm_text, cur_bm_x + self.scale_coord(4), bm_bar_y + self.scale_coord(2), fg, None);
+                cur_bm_x += bm_w + self.scale_coord(6);
             }
         }
 
         // 7. Directory Entries List
-        let list_y = bm_bar_y + 26;
-        let list_h = box_h.saturating_sub(190);
-        let list_w = box_w.saturating_sub(16);
-        let list_x = box_x + 8;
+        let list_y = bm_bar_y + self.scale_coord(26);
+        let list_h = box_h.saturating_sub(self.scale_coord(190));
+        let list_w = box_w.saturating_sub(self.scale_coord(16));
+        let list_x = box_x + self.scale_coord(8);
 
         if self.rounded_corners {
             fb.fill_rounded_rect(list_x, list_y, list_w, list_h, 4, self.colors.input_bg);
@@ -2846,11 +2913,11 @@ impl GfxRenderer {
             fb.fill_rect(list_x, list_y, list_w, list_h, self.colors.input_bg);
         }
 
-        let row_h = 22;
+        let row_h = (self.char_height() + self.scale_coord(6)).max(self.scale_coord(22));
         let max_visible = list_h / row_h;
 
         if modal.dir_entries.is_empty() {
-            fb.draw_text("(Carpeta vacía o sin permisos de lectura)", list_x + 12, list_y + 10, 0x00858585, None);
+            fb.draw_text("(Carpeta vacía o sin permisos de lectura)", list_x + self.scale_coord(12), list_y + self.scale_coord(10), 0x00858585, None);
         } else {
             for (idx, entry) in modal.dir_entries.iter().skip(modal.scroll_offset).take(max_visible).enumerate() {
                 let actual_idx = modal.scroll_offset + idx;
@@ -2859,7 +2926,7 @@ impl GfxRenderer {
 
                 let row_bg = if is_selected { self.colors.accent } else { self.colors.input_bg };
                 if is_selected && self.rounded_corners {
-                    fb.fill_rounded_rect(list_x + 2, ry, list_w - 4, row_h, 3, row_bg);
+                    fb.fill_rounded_rect(list_x + 2, ry, list_w.saturating_sub(4), row_h, 3, row_bg);
                 } else {
                     fb.fill_rect(list_x, ry, list_w, row_h, row_bg);
                 }
@@ -2868,17 +2935,17 @@ impl GfxRenderer {
                 let tag_fg = if is_selected { 0x00FFFFFF } else { self.colors.syntax_type };
                 let name_fg = if is_selected { 0x00FFFFFF } else if entry.is_dir { 0x00FFFFFF } else { 0x00D4D4D4 };
 
-                fb.draw_text(tag, list_x + 8, ry + 3, tag_fg, None);
-                fb.draw_text(&entry.name, list_x + 8 + 6 * FONT_WIDTH, ry + 3, name_fg, None);
+                fb.draw_text(tag, list_x + self.scale_coord(8), ry + (row_h.saturating_sub(self.char_height())) / 2, tag_fg, None);
+                fb.draw_text(&entry.name, list_x + self.scale_coord(8) + 6 * self.char_width(), ry + (row_h.saturating_sub(self.char_height())) / 2, name_fg, None);
             }
         }
 
         // 8. Filename Input Field
-        let input_y = box_y + box_h - 76;
+        let input_y = box_y + box_h - self.scale_coord(76);
         fb.draw_text("Nombre de archivo:", list_x, input_y, 0x00D4D4D4, None);
 
-        let input_box_y = input_y + 18;
-        let input_box_h = 24;
+        let input_box_y = input_y + self.scale_coord(18);
+        let input_box_h = self.scale_coord(24);
         if self.rounded_corners {
             fb.fill_rounded_rect(list_x, input_box_y, list_w, input_box_h, 4, self.colors.input_bg);
             fb.draw_rounded_outline(list_x, input_box_y, list_w, input_box_h, 4, self.colors.input_border);
@@ -2887,48 +2954,49 @@ impl GfxRenderer {
             fb.fill_rect(list_x, input_box_y, list_w, input_box_h, self.colors.input_bg);
         }
 
-        let input_text_y = input_box_y + (input_box_h - FONT_HEIGHT) / 2;
-        fb.draw_text(&modal.input, list_x + 8, input_text_y, 0x00FFFFFF, None);
+        let input_text_y = input_box_y + (input_box_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(&modal.input, list_x + self.scale_coord(8), input_text_y, 0x00FFFFFF, None);
 
         // Caret
-        let cursor_x = list_x + 8 + modal.cursor_col * FONT_WIDTH;
-        if cursor_x < list_x + list_w - 4 {
-            fb.fill_rect(cursor_x, input_text_y, 2, FONT_HEIGHT, self.colors.cursor);
+        let cursor_x = list_x + self.scale_coord(8) + modal.cursor_col * self.char_width();
+        if cursor_x < list_x + list_w - self.scale_coord(4) {
+            fb.fill_rect(cursor_x, input_text_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
         }
 
         // 9. Bottom Buttons
-        let btn_bar_y = box_y + box_h - 30;
+        let btn_bar_y = box_y + box_h - self.scale_coord(30);
         let action_btn_text = if modal.kind == crate::ui::prompt::PromptKind::SaveAs { "Guardar" } else { "Abrir" };
-        let action_btn_w = 88;
-        let cancel_btn_w = 80;
+        let action_btn_w = self.scale_coord(88);
+        let cancel_btn_w = self.scale_coord(80);
 
-        let cancel_btn_x = box_x + box_w - cancel_btn_w - 12;
-        let action_btn_x = cancel_btn_x - action_btn_w - 8;
+        let cancel_btn_x = box_x + box_w - cancel_btn_w - self.scale_coord(12);
+        let action_btn_x = cancel_btn_x - action_btn_w - self.scale_coord(8);
+        let btn_h = self.scale_coord(24);
 
         // Action button [Guardar] / [Abrir]
         if self.rounded_corners {
-            fb.fill_rounded_rect(action_btn_x, btn_bar_y, action_btn_w, 24, 4, self.colors.button_bg);
-            fb.draw_rounded_outline(action_btn_x, btn_bar_y, action_btn_w, 24, 4, self.colors.accent);
+            fb.fill_rounded_rect(action_btn_x, btn_bar_y, action_btn_w, btn_h, 4, self.colors.button_bg);
+            fb.draw_rounded_outline(action_btn_x, btn_bar_y, action_btn_w, btn_h, 4, self.colors.accent);
         } else {
-            fb.fill_rect(action_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), action_btn_w + 2, 24, self.colors.accent);
-            fb.fill_rect(action_btn_x, btn_bar_y, action_btn_w, 22, self.colors.button_bg);
+            fb.fill_rect(action_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), action_btn_w + 2, btn_h, self.colors.accent);
+            fb.fill_rect(action_btn_x, btn_bar_y, action_btn_w, btn_h.saturating_sub(2), self.colors.button_bg);
         }
-        let at_x = action_btn_x + (action_btn_w - action_btn_text.chars().count() * FONT_WIDTH) / 2;
-        fb.draw_text(action_btn_text, at_x, btn_bar_y + 3, self.colors.button_fg, None);
+        let at_x = action_btn_x + (action_btn_w.saturating_sub(action_btn_text.chars().count() * self.char_width())) / 2;
+        fb.draw_text(action_btn_text, at_x, btn_bar_y + (btn_h.saturating_sub(self.char_height())) / 2, self.colors.button_fg, None);
 
         // Cancel button [Cancelar]
         if self.rounded_corners {
-            fb.fill_rounded_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, 24, 4, self.colors.chip_bg);
-            fb.draw_rounded_outline(cancel_btn_x, btn_bar_y, cancel_btn_w, 24, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, btn_h, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(cancel_btn_x, btn_bar_y, cancel_btn_w, btn_h, 4, self.colors.scrollbar_border);
         } else {
-            fb.fill_rect(cancel_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), cancel_btn_w + 2, 24, self.colors.scrollbar_border);
-            fb.fill_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, 22, self.colors.chip_bg);
+            fb.fill_rect(cancel_btn_x.saturating_sub(1), btn_bar_y.saturating_sub(1), cancel_btn_w + 2, btn_h, self.colors.scrollbar_border);
+            fb.fill_rect(cancel_btn_x, btn_bar_y, cancel_btn_w, btn_h.saturating_sub(2), self.colors.chip_bg);
         }
-        let ct_x = cancel_btn_x + (cancel_btn_w - 8 * FONT_WIDTH) / 2;
-        fb.draw_text("Cancelar", ct_x, btn_bar_y + 3, 0x00CCCCCC, None);
+        let ct_x = cancel_btn_x + (cancel_btn_w.saturating_sub(8 * self.char_width())) / 2;
+        fb.draw_text("Cancelar", ct_x, btn_bar_y + (btn_h.saturating_sub(self.char_height())) / 2, 0x00CCCCCC, None);
 
         // Footer hint
-        fb.draw_text("Doble clic o Enter para abrir carpeta", list_x, btn_bar_y + 4, 0x00858585, None);
+        fb.draw_text("Doble clic o Enter para abrir carpeta", list_x, btn_bar_y + self.scale_coord(4), 0x00858585, None);
     }
 
     /// Renders a native-styled About Dialog Window with title bar, close button, author details, and logo.
@@ -2942,8 +3010,8 @@ impl GfxRenderer {
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 120);
 
         // Dialog box dimensions
-        let win_w = 640.min(fb.width.saturating_sub(20));
-        let win_h = 450.min(fb.height.saturating_sub(20));
+        let win_w = self.scale_coord(640).min(fb.width.saturating_sub(self.scale_coord(20)));
+        let win_h = self.scale_coord(450).min(fb.height.saturating_sub(self.scale_coord(20)));
         let win_x = (fb.width.saturating_sub(win_w)) / 2;
         let win_y = (fb.height.saturating_sub(win_h)) / 2;
 
@@ -2955,7 +3023,7 @@ impl GfxRenderer {
         }
 
         // Outer border & Header
-        let title_h = 28;
+        let title_h = self.scale_coord(28);
         fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
         fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
 
@@ -2968,10 +3036,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text("Rustext - Acerca de", win_x + 12, win_y + 6, 0x00FFFFFF, None);
+        fb.draw_text("Rustext - Acerca de", win_x + self.scale_coord(12), win_y + self.scale_coord(6), 0x00FFFFFF, None);
 
         // Close button [×] on the right
-        let close_w = 36;
+        let close_w = self.scale_coord(36);
         let close_x = win_x + win_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -2979,7 +3047,7 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
         }
-        fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(14), win_y + self.scale_coord(6), 0x00FFFFFF, None);
 
         // Title bar separator
         fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
@@ -2992,30 +3060,30 @@ impl GfxRenderer {
             " |  _ <| |_| \\__ \\ ||  __/>  <| |_ ",
             " |_| \\_\\\\__,_|___/\\__\\___/_/\\_\\\\__|",
         ];
-        let mut cur_y = body_y + 12;
+        let mut cur_y = body_y + self.scale_coord(12);
         let banner_color = self.colors.accent;
         for line in &banner_lines {
-            let line_w = line.chars().count() * FONT_WIDTH;
+            let line_w = line.chars().count() * self.char_width();
             let line_x = win_x + (win_w.saturating_sub(line_w)) / 2;
             fb.draw_text(line, line_x, cur_y, banner_color, None);
-            cur_y += 16;
+            cur_y += self.char_height() + 2;
         }
 
         // Subtitle & Version
-        cur_y += 4;
+        cur_y += self.scale_coord(4);
         let title_str = "Rustext Editor v0.1.0";
-        let title_x = win_x + (win_w.saturating_sub(title_str.chars().count() * FONT_WIDTH)) / 2;
+        let title_x = win_x + (win_w.saturating_sub(title_str.chars().count() * self.char_width())) / 2;
         fb.draw_text(title_str, title_x, cur_y, 0x00FFFFFF, None);
-        cur_y += 18;
+        cur_y += self.char_height() + self.scale_coord(4);
 
         let tag_str = "100% Pure Rust • Zero Dependencias Externas";
-        let tag_x = win_x + (win_w.saturating_sub(tag_str.chars().count() * FONT_WIDTH)) / 2;
+        let tag_x = win_x + (win_w.saturating_sub(tag_str.chars().count() * self.char_width())) / 2;
         fb.draw_text(tag_str, tag_x, cur_y, 0x004EC9B0, None);
-        cur_y += 20;
+        cur_y += self.char_height() + self.scale_coord(6);
 
         // Separator line
-        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, self.colors.scrollbar_border);
-        cur_y += 10;
+        fb.fill_rect(win_x + self.scale_coord(20), cur_y, win_w.saturating_sub(self.scale_coord(40)), 1, self.colors.scrollbar_border);
+        cur_y += self.scale_coord(10);
 
         // Project and Author Details
         let details = [
@@ -3028,30 +3096,30 @@ impl GfxRenderer {
             ("• Repositorio:   ", "https://github.com/boleklolek/rustext"),
         ];
 
-        let left_margin = win_x + 24;
+        let left_margin = win_x + self.scale_coord(24);
         for (lbl, val) in &details {
             fb.draw_text(lbl, left_margin, cur_y, 0x00858585, None);
-            let val_x = left_margin + lbl.chars().count() * FONT_WIDTH;
+            let val_x = left_margin + lbl.chars().count() * self.char_width();
             let val_color = if lbl.contains("Repositorio") { self.colors.accent } else { 0x00D4D4D4 };
             fb.draw_text(val, val_x, cur_y, val_color, None);
-            cur_y += 17;
+            cur_y += self.char_height() + self.scale_coord(3);
         }
 
-        cur_y += 4;
+        cur_y += self.scale_coord(4);
         // Separator line
-        fb.fill_rect(win_x + 20, cur_y, win_w.saturating_sub(40), 1, self.colors.scrollbar_border);
-        cur_y += 8;
+        fb.fill_rect(win_x + self.scale_coord(20), cur_y, win_w.saturating_sub(self.scale_coord(40)), 1, self.colors.scrollbar_border);
+        cur_y += self.scale_coord(8);
 
         // Essential shortcuts reference
         let sc_str = "Ctrl+T: Pestaña  •  Ctrl+S: Guardar  •  Ctrl+F: Buscar  •  Ctrl+P: Comandos";
-        let sc_x = win_x + (win_w.saturating_sub(sc_str.chars().count() * FONT_WIDTH)) / 2;
+        let sc_x = win_x + (win_w.saturating_sub(sc_str.chars().count() * self.char_width())) / 2;
         fb.draw_text(sc_str, sc_x, cur_y, 0x00858585, None);
 
         // 8. Bottom Button: [ Aceptar ]
-        let btn_w = 130;
-        let btn_h = 28;
+        let btn_w = self.scale_coord(130);
+        let btn_h = self.scale_coord(28);
         let btn_x = win_x + (win_w - btn_w) / 2;
-        let btn_y = win_y + win_h - 38;
+        let btn_y = win_y + win_h - self.scale_coord(38);
 
         let (btn_bg, btn_border) = if ok_hovered {
             (self.colors.button_hover_bg, self.colors.accent)
@@ -3067,8 +3135,8 @@ impl GfxRenderer {
         }
 
         let btn_text = "Aceptar";
-        let text_x = btn_x + (btn_w - btn_text.chars().count() * FONT_WIDTH) / 2;
-        let text_y = btn_y + (btn_h - FONT_HEIGHT) / 2;
+        let text_x = btn_x + (btn_w.saturating_sub(btn_text.chars().count() * self.char_width())) / 2;
+        let text_y = btn_y + (btn_h.saturating_sub(self.char_height())) / 2;
         fb.draw_text(btn_text, text_x, text_y, self.colors.button_fg, None);
     }
 
@@ -3084,8 +3152,8 @@ impl GfxRenderer {
         // Semi-transparent backdrop scrim
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 110);
 
-        let win_w = 680.min(fb.width.saturating_sub(20));
-        let win_h = 480.min(fb.height.saturating_sub(20));
+        let win_w = self.scale_coord(680).min(fb.width.saturating_sub(self.scale_coord(20)));
+        let win_h = self.scale_coord(480).min(fb.height.saturating_sub(self.scale_coord(20)));
         let win_x = (fb.width.saturating_sub(win_w)) / 2;
         let win_y = (fb.height.saturating_sub(win_h)) / 2;
 
@@ -3097,7 +3165,7 @@ impl GfxRenderer {
         }
 
         // Header Title Bar & Window Border
-        let title_h = 28;
+        let title_h = self.scale_coord(28);
         fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
         fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
 
@@ -3110,10 +3178,10 @@ impl GfxRenderer {
             fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text("Administrador de Extensiones", win_x + 12, win_y + 6, 0x00FFFFFF, None);
+        fb.draw_text("Administrador de Extensiones", win_x + self.scale_coord(12), win_y + self.scale_coord(6), 0x00FFFFFF, None);
 
         // Close button [×]
-        let close_w = 36;
+        let close_w = self.scale_coord(36);
         let close_x = win_x + win_w - close_w;
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
         if self.rounded_corners {
@@ -3121,42 +3189,43 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
         }
-        fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(14), win_y + self.scale_coord(6), 0x00FFFFFF, None);
 
         // Header bottom divider
         fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
 
         // Toolbar: Directory path & action buttons
-        let bar_y = body_y + 8;
+        let bar_y = body_y + self.scale_coord(8);
         let count = ext_mgr.extensions.len();
         let dir_str = format!("Carpeta: ~/.rustext/extensions  •  {} extensiones", count);
-        fb.draw_text(&dir_str, win_x + 12, bar_y + 4, self.colors.accent, None);
+        fb.draw_text(&dir_str, win_x + self.scale_coord(12), bar_y + self.scale_coord(4), self.colors.accent, None);
 
         // Action buttons: [ + Crear Ejemplo ] & [ ↺ Recargar ]
-        let reload_btn_w = 90;
-        let create_btn_w = 120;
-        let reload_btn_x = win_x + win_w - reload_btn_w - 12;
-        let create_btn_x = reload_btn_x - create_btn_w - 8;
+        let reload_btn_w = self.scale_coord(90);
+        let create_btn_w = self.scale_coord(120);
+        let reload_btn_x = win_x + win_w - reload_btn_w - self.scale_coord(12);
+        let create_btn_x = reload_btn_x - create_btn_w - self.scale_coord(8);
+        let btn_bar_h = self.scale_coord(24);
 
         if self.rounded_corners {
-            fb.fill_rounded_rect(create_btn_x, bar_y, create_btn_w, 24, 4, self.colors.chip_bg);
-            fb.draw_rounded_outline(create_btn_x, bar_y, create_btn_w, 24, 4, self.colors.scrollbar_border);
-            fb.fill_rounded_rect(reload_btn_x, bar_y, reload_btn_w, 24, 4, self.colors.chip_bg);
-            fb.draw_rounded_outline(reload_btn_x, bar_y, reload_btn_w, 24, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(create_btn_x, bar_y, create_btn_w, btn_bar_h, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(create_btn_x, bar_y, create_btn_w, btn_bar_h, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(reload_btn_x, bar_y, reload_btn_w, btn_bar_h, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(reload_btn_x, bar_y, reload_btn_w, btn_bar_h, 4, self.colors.scrollbar_border);
         } else {
-            fb.fill_rect(create_btn_x.saturating_sub(1), bar_y.saturating_sub(1), create_btn_w + 2, 24, self.colors.scrollbar_border);
-            fb.fill_rect(create_btn_x, bar_y, create_btn_w, 22, self.colors.chip_bg);
-            fb.fill_rect(reload_btn_x.saturating_sub(1), bar_y.saturating_sub(1), reload_btn_w + 2, 24, self.colors.scrollbar_border);
-            fb.fill_rect(reload_btn_x, bar_y, reload_btn_w, 22, self.colors.chip_bg);
+            fb.fill_rect(create_btn_x.saturating_sub(1), bar_y.saturating_sub(1), create_btn_w + 2, btn_bar_h, self.colors.scrollbar_border);
+            fb.fill_rect(create_btn_x, bar_y, create_btn_w, btn_bar_h.saturating_sub(2), self.colors.chip_bg);
+            fb.fill_rect(reload_btn_x.saturating_sub(1), bar_y.saturating_sub(1), reload_btn_w + 2, btn_bar_h, self.colors.scrollbar_border);
+            fb.fill_rect(reload_btn_x, bar_y, reload_btn_w, btn_bar_h.saturating_sub(2), self.colors.chip_bg);
         }
-        fb.draw_text("+ Crear Ejemplo", create_btn_x + 6, bar_y + 3, 0x00FFFFFF, None);
-        fb.draw_text("↺ Recargar", reload_btn_x + 10, bar_y + 3, 0x00FFFFFF, None);
+        fb.draw_text("+ Crear Ejemplo", create_btn_x + self.scale_coord(6), bar_y + (btn_bar_h.saturating_sub(self.char_height())) / 2, 0x00FFFFFF, None);
+        fb.draw_text("↺ Recargar", reload_btn_x + self.scale_coord(10), bar_y + (btn_bar_h.saturating_sub(self.char_height())) / 2, 0x00FFFFFF, None);
 
         // List Area
-        let list_x = win_x + 12;
-        let list_y = bar_y + 30;
-        let list_w = win_w.saturating_sub(24);
-        let list_h = win_h.saturating_sub(115);
+        let list_x = win_x + self.scale_coord(12);
+        let list_y = bar_y + self.scale_coord(30);
+        let list_w = win_w.saturating_sub(self.scale_coord(24));
+        let list_h = win_h.saturating_sub(self.scale_coord(115));
 
         if self.rounded_corners {
             fb.fill_rounded_rect(list_x, list_y, list_w, list_h, 4, self.colors.input_bg);
@@ -3167,11 +3236,11 @@ impl GfxRenderer {
         }
 
         if ext_mgr.extensions.is_empty() {
-            fb.draw_text("No hay extensiones instaladas. Haz clic en '+ Crear Ejemplo'.", list_x + 16, list_y + 20, 0x00858585, None);
+            fb.draw_text("No hay extensiones instaladas. Haz clic en '+ Crear Ejemplo'.", list_x + self.scale_coord(16), list_y + self.scale_coord(20), 0x00858585, None);
         } else {
-            let card_h = 58;
+            let card_h = (self.char_height() * 3 + self.scale_coord(10)).max(self.scale_coord(58));
             let max_visible = list_h / card_h;
-            let mut cur_card_y = list_y + 2;
+            let mut cur_card_y = list_y + self.scale_coord(2);
 
             for (idx, ext) in ext_mgr.extensions.iter().skip(scroll_offset).take(max_visible).enumerate() {
                 let actual_idx = scroll_offset + idx;
@@ -3181,16 +3250,16 @@ impl GfxRenderer {
                 let border_color = if is_selected { self.colors.accent } else { self.colors.scrollbar_border };
 
                 if self.rounded_corners {
-                    fb.fill_rounded_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h - 4, 4, card_bg);
-                    fb.fill_rounded_rect(list_x + 2, cur_card_y, 4, card_h - 4, 2, border_color);
+                    fb.fill_rounded_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h.saturating_sub(4), 4, card_bg);
+                    fb.fill_rounded_rect(list_x + 2, cur_card_y, 4, card_h.saturating_sub(4), 2, border_color);
                 } else {
-                    fb.fill_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h - 4, card_bg);
-                    fb.fill_rect(list_x + 2, cur_card_y, 3, card_h - 4, border_color);
+                    fb.fill_rect(list_x + 2, cur_card_y, list_w.saturating_sub(4), card_h.saturating_sub(4), card_bg);
+                    fb.fill_rect(list_x + 2, cur_card_y, 3, card_h.saturating_sub(4), border_color);
                 }
 
                 // Extension Name & Version
                 let title_text = format!("{}  v{}", ext.name, ext.version);
-                fb.draw_text(&title_text, list_x + 12, cur_card_y + 4, 0x00FFFFFF, None);
+                fb.draw_text(&title_text, list_x + self.scale_coord(12), cur_card_y + self.scale_coord(4), 0x00FFFFFF, None);
 
                 // Status Badge: [ACTIVA] or [DESACTIVADA]
                 let (badge_text, badge_bg, badge_fg) = if ext.enabled {
@@ -3198,17 +3267,19 @@ impl GfxRenderer {
                 } else {
                     ("[DESACTIVADA]", self.colors.chip_bg, 0x00858585)
                 };
-                let badge_x = list_x + list_w - 180;
+                let badge_w = self.scale_coord(100);
+                let badge_h = self.scale_coord(18);
+                let badge_x = list_x + list_w - self.scale_coord(180);
                 if self.rounded_corners {
-                    fb.fill_rounded_rect(badge_x, cur_card_y + 4, 100, 18, 3, badge_bg);
+                    fb.fill_rounded_rect(badge_x, cur_card_y + self.scale_coord(4), badge_w, badge_h, 3, badge_bg);
                 } else {
-                    fb.fill_rect(badge_x, cur_card_y + 4, 100, 18, badge_bg);
+                    fb.fill_rect(badge_x, cur_card_y + self.scale_coord(4), badge_w, badge_h, badge_bg);
                 }
-                fb.draw_text(badge_text, badge_x + 6, cur_card_y + 5, badge_fg, None);
+                fb.draw_text(badge_text, badge_x + self.scale_coord(6), cur_card_y + self.scale_coord(5), badge_fg, None);
 
                 // Description
                 let desc = if ext.description.is_empty() { "Sin descripción" } else { &ext.description };
-                fb.draw_text(desc, list_x + 12, cur_card_y + 22, 0x00CCCCCC, None);
+                fb.draw_text(desc, list_x + self.scale_coord(12), cur_card_y + self.char_height() + self.scale_coord(8), 0x00CCCCCC, None);
 
                 // Commands tag
                 let cmds_summary = if ext.commands.is_empty() {
@@ -3217,40 +3288,44 @@ impl GfxRenderer {
                     let names: Vec<&str> = ext.commands.iter().map(|c| c.label.as_str()).collect();
                     format!("Comandos: {}", names.join(", "))
                 };
-                fb.draw_text(&cmds_summary, list_x + 12, cur_card_y + 38, 0x00858585, None);
+                fb.draw_text(&cmds_summary, list_x + self.scale_coord(12), cur_card_y + self.char_height() * 2 + self.scale_coord(10), 0x00858585, None);
 
                 // Toggle Action Button on row
                 let toggle_text = if ext.enabled { "Desactivar" } else { "Activar" };
-                let toggle_w = 64;
-                let toggle_x = list_x + list_w - toggle_w - 8;
-                let toggle_y = cur_card_y + 4;
+                let toggle_w = self.scale_coord(64);
+                let toggle_h = self.scale_coord(20);
+                let toggle_x = list_x + list_w - toggle_w - self.scale_coord(8);
+                let toggle_y = cur_card_y + self.scale_coord(4);
                 if self.rounded_corners {
-                    fb.fill_rounded_rect(toggle_x, toggle_y, toggle_w, 20, 3, self.colors.chip_bg);
-                    fb.draw_rounded_outline(toggle_x, toggle_y, toggle_w, 20, 3, self.colors.scrollbar_border);
+                    fb.fill_rounded_rect(toggle_x, toggle_y, toggle_w, toggle_h, 3, self.colors.chip_bg);
+                    fb.draw_rounded_outline(toggle_x, toggle_y, toggle_w, toggle_h, 3, self.colors.scrollbar_border);
                 } else {
-                    fb.fill_rect(toggle_x, toggle_y, toggle_w, 20, self.colors.chip_bg);
+                    fb.fill_rect(toggle_x, toggle_y, toggle_w, toggle_h, self.colors.chip_bg);
                 }
-                fb.draw_text(toggle_text, toggle_x + 4, toggle_y + 2, 0x00FFFFFF, None);
+                let ttx = toggle_x + (toggle_w.saturating_sub(toggle_text.chars().count() * self.char_width())) / 2;
+                fb.draw_text(toggle_text, ttx, toggle_y + (toggle_h.saturating_sub(self.char_height())) / 2, 0x00FFFFFF, None);
 
                 cur_card_y += card_h;
             }
         }
 
         // Footer hints & Close button
-        let footer_y = win_y + win_h - 34;
+        let footer_y = win_y + win_h - self.scale_coord(34);
         let hint_text = "Enter / Espacio: Alternar  •  'n': Nueva  •  'r': Recargar  •  Esc: Salir";
-        fb.draw_text(hint_text, list_x, footer_y + 6, 0x00858585, None);
+        fb.draw_text(hint_text, list_x, footer_y + self.scale_coord(6), 0x00858585, None);
 
-        let close_btn_w = 80;
-        let close_btn_x = win_x + win_w - close_btn_w - 12;
+        let close_btn_w = self.scale_coord(80);
+        let close_btn_h = self.scale_coord(24);
+        let close_btn_x = win_x + win_w - close_btn_w - self.scale_coord(12);
         if self.rounded_corners {
-            fb.fill_rounded_rect(close_btn_x, footer_y, close_btn_w, 24, 4, self.colors.chip_bg);
-            fb.draw_rounded_outline(close_btn_x, footer_y, close_btn_w, 24, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(close_btn_x, footer_y, close_btn_w, close_btn_h, 4, self.colors.chip_bg);
+            fb.draw_rounded_outline(close_btn_x, footer_y, close_btn_w, close_btn_h, 4, self.colors.scrollbar_border);
         } else {
-            fb.fill_rect(close_btn_x.saturating_sub(1), footer_y.saturating_sub(1), close_btn_w + 2, 26, self.colors.scrollbar_border);
-            fb.fill_rect(close_btn_x, footer_y, close_btn_w, 24, self.colors.chip_bg);
+            fb.fill_rect(close_btn_x.saturating_sub(1), footer_y.saturating_sub(1), close_btn_w + 2, close_btn_h + 2, self.colors.scrollbar_border);
+            fb.fill_rect(close_btn_x, footer_y, close_btn_w, close_btn_h, self.colors.chip_bg);
         }
-        fb.draw_text("Cerrar", close_btn_x + 16, footer_y + 4, 0x00FFFFFF, None);
+        let ctx = close_btn_x + (close_btn_w.saturating_sub(6 * self.char_width())) / 2;
+        fb.draw_text("Cerrar", ctx, footer_y + (close_btn_h.saturating_sub(self.char_height())) / 2, 0x00FFFFFF, None);
     }
 
     /// Renders a native-styled Unsaved Changes Confirmation Dialog Window.
@@ -3263,8 +3338,8 @@ impl GfxRenderer {
         // 1. Semi-transparent backdrop scrim (dimming the background)
         fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 120);
 
-        let win_w = 520.min(fb.width.saturating_sub(20));
-        let win_h = 190.min(fb.height.saturating_sub(20));
+        let win_w = self.scale_coord(520).min(fb.width.saturating_sub(self.scale_coord(20)));
+        let win_h = self.scale_coord(190).min(fb.height.saturating_sub(self.scale_coord(20)));
         let win_x = (fb.width.saturating_sub(win_w)) / 2;
         let win_y = (fb.height.saturating_sub(win_h)) / 2;
 
@@ -3276,7 +3351,7 @@ impl GfxRenderer {
         }
 
         // 3. Header Title Bar & Window Border
-        let title_h = 28;
+        let title_h = self.scale_coord(28);
         fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
         fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
 
@@ -3291,10 +3366,10 @@ impl GfxRenderer {
 
         // Title text: "⚠ Guardar Cambios"
         let title_str = format!("⚠ {}", dialog.title());
-        fb.draw_text(&title_str, win_x + 12, win_y + 6, 0x00E5C07B, None); // Amber / warning gold
+        fb.draw_text(&title_str, win_x + self.scale_coord(12), win_y + self.scale_coord(6), 0x00E5C07B, None); // Amber / warning gold
 
         // Close button [×] in top right
-        let close_w = 36;
+        let close_w = self.scale_coord(36);
         let close_x = win_x + win_w - close_w;
         let close_hovered = hovered_button == Some(3);
         let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
@@ -3303,50 +3378,50 @@ impl GfxRenderer {
         } else {
             fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
         }
-        fb.draw_text("×", close_x + 14, win_y + 6, 0x00FFFFFF, None);
+        fb.draw_text("×", close_x + self.scale_coord(14), win_y + self.scale_coord(6), 0x00FFFFFF, None);
 
         // Header divider
         fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
 
         // Warning Icon Badge in Body
-        let icon_box_x = win_x + 20;
-        let icon_box_y = body_y + 20;
-        let icon_box_size = 40;
+        let icon_box_x = win_x + self.scale_coord(20);
+        let icon_box_y = body_y + self.scale_coord(20);
+        let icon_box_size = self.scale_coord(40);
         if self.rounded_corners {
             fb.fill_rounded_rect(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 8, 0x003A3020);
             fb.draw_rounded_outline(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 8, 0x00E5C07B);
         } else {
             fb.fill_rect(icon_box_x, icon_box_y, icon_box_size, icon_box_size, 0x003A3020);
         }
-        fb.draw_text("!", icon_box_x + 16, icon_box_y + 12, 0x00E5C07B, None);
+        fb.draw_text("!", icon_box_x + (icon_box_size.saturating_sub(self.char_width())) / 2, icon_box_y + (icon_box_size.saturating_sub(self.char_height())) / 2, 0x00E5C07B, None);
 
         // Message text
         let (line1, line2) = dialog.message_lines();
-        let text_start_x = icon_box_x + icon_box_size + 16;
-        let text_max_chars = (win_x + win_w - text_start_x - 16) / FONT_WIDTH;
+        let text_start_x = icon_box_x + icon_box_size + self.scale_coord(16);
+        let text_max_chars = (win_x + win_w - text_start_x - self.scale_coord(16)) / self.char_width().max(1);
         let trunc_line1 = if line1.chars().count() > text_max_chars && text_max_chars > 3 {
             format!("{}...", line1.chars().take(text_max_chars - 3).collect::<String>())
         } else {
             line1
         };
-        fb.draw_text(&trunc_line1, text_start_x, icon_box_y + 4, 0x00FFFFFF, None);
-        fb.draw_text(&line2, text_start_x, icon_box_y + 22, 0x00CCCCCC, None);
+        fb.draw_text(&trunc_line1, text_start_x, icon_box_y + self.scale_coord(4), 0x00FFFFFF, None);
+        fb.draw_text(&line2, text_start_x, icon_box_y + self.char_height() + self.scale_coord(6), 0x00CCCCCC, None);
 
         // Buttons Bar at bottom
-        let btn_bar_y = win_y + win_h - 42;
-        let btn_h = 28;
+        let btn_bar_y = win_y + win_h - self.scale_coord(42);
+        let btn_h = self.scale_coord(28);
         let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
 
-        let btn_save_w = (lbl_save.chars().count() * FONT_WIDTH + 24).max(100);
-        let btn_discard_w = (lbl_discard.chars().count() * FONT_WIDTH + 24).max(110);
-        let btn_cancel_w = (lbl_cancel.chars().count() * FONT_WIDTH + 24).max(90);
+        let btn_save_w = (lbl_save.chars().count() * self.char_width() + self.scale_coord(24)).max(self.scale_coord(100));
+        let btn_discard_w = (lbl_discard.chars().count() * self.char_width() + self.scale_coord(24)).max(self.scale_coord(110));
+        let btn_cancel_w = (lbl_cancel.chars().count() * self.char_width() + self.scale_coord(24)).max(self.scale_coord(90));
 
-        let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
-        let btn_start_x = win_x + win_w - total_btns_w - 16;
+        let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + self.scale_coord(16);
+        let btn_start_x = win_x + win_w - total_btns_w - self.scale_coord(16);
 
         let b0_x = btn_start_x;
-        let b1_x = b0_x + btn_save_w + 8;
-        let b2_x = b1_x + btn_discard_w + 8;
+        let b1_x = b0_x + btn_save_w + self.scale_coord(8);
+        let b2_x = b1_x + btn_discard_w + self.scale_coord(8);
 
         let render_btn = |fb: &mut Framebuffer, bx: usize, bw: usize, label: &str, is_selected: bool, is_hovered: bool, btn_type: usize| {
             let (bg, border, fg) = if is_hovered || is_selected {
@@ -3374,9 +3449,9 @@ impl GfxRenderer {
                 fb.fill_rect(bx, btn_bar_y, bw, btn_h, bg);
             }
 
-            let tw = label.chars().count() * FONT_WIDTH;
+            let tw = label.chars().count() * self.char_width();
             let tx = bx + (bw.saturating_sub(tw)) / 2;
-            let ty = btn_bar_y + (btn_h - FONT_HEIGHT) / 2;
+            let ty = btn_bar_y + (btn_h.saturating_sub(self.char_height())) / 2;
             fb.draw_text(label, tx, ty, fg, None);
         };
 
@@ -3389,23 +3464,23 @@ impl GfxRenderer {
     pub fn terminal_geometry(&self, fb_w: usize, fb_h: usize, sidebar_w: usize, term_h: usize) -> TerminalGeometry {
         let x = sidebar_w;
         let width = fb_w.saturating_sub(sidebar_w);
-        let height = term_h.min(fb_h.saturating_sub(self.menu_bar_height + self.tab_bar_height + self.status_bar_height + 40));
+        let height = term_h.min(fb_h.saturating_sub(self.menu_bar_height + self.tab_bar_height + self.status_bar_height + self.scale_coord(40)));
         let y = fb_h.saturating_sub(self.status_bar_height + height);
 
         let splitter_y = y;
-        let splitter_h = 4;
+        let splitter_h = self.scale_coord(4).max(2);
 
         let header_y = y + splitter_h;
-        let header_h = 24;
+        let header_h = (self.char_height() + self.scale_coord(8)).max(self.scale_coord(24));
 
         let content_y = header_y + header_h;
         let content_h = height.saturating_sub(splitter_h + header_h);
 
-        let btn_close_w = 26;
-        let btn_close_x = x + width.saturating_sub(btn_close_w + 6);
+        let btn_close_w = self.scale_coord(26);
+        let btn_close_x = x + width.saturating_sub(btn_close_w + self.scale_coord(6));
 
-        let btn_clear_w = 68;
-        let btn_clear_x = btn_close_x.saturating_sub(btn_clear_w + 6);
+        let btn_clear_w = self.scale_coord(68);
+        let btn_clear_x = btn_close_x.saturating_sub(btn_clear_w + self.scale_coord(6));
 
         TerminalGeometry {
             x,
@@ -3450,14 +3525,14 @@ impl GfxRenderer {
         // Header Title: [>_ TERMINAL (bash)]
         let title_icon = ">_ ";
         let title_text = format!("TERMINAL ({})", terminal.shell_name);
-        let title_x = geom.x + 8;
-        let title_y = geom.header_y + (geom.header_h - FONT_HEIGHT) / 2;
+        let title_x = geom.x + self.scale_coord(8);
+        let title_y = geom.header_y + (geom.header_h.saturating_sub(self.char_height())) / 2;
         fb.draw_text(title_icon, title_x, title_y, self.colors.accent, None);
-        fb.draw_text(&title_text, title_x + title_icon.len() * FONT_WIDTH, title_y, 0x00FFFFFF, None);
+        fb.draw_text(&title_text, title_x + title_icon.len() * self.char_width(), title_y, 0x00FFFFFF, None);
 
         // Working dir hint
         let dir_str = terminal.working_dir.display().to_string();
-        let max_dir_chars = geom.btn_clear_x.saturating_sub(title_x + 180) / FONT_WIDTH;
+        let max_dir_chars = geom.btn_clear_x.saturating_sub(title_x + self.scale_coord(180)) / self.char_width().max(1);
         if max_dir_chars > 8 {
             let truncated_dir = if dir_str.chars().count() > max_dir_chars {
                 let tail_len = max_dir_chars.saturating_sub(3);
@@ -3466,22 +3541,22 @@ impl GfxRenderer {
             } else {
                 dir_str
             };
-            fb.draw_text(&truncated_dir, title_x + 180, title_y, 0x00858585, None);
+            fb.draw_text(&truncated_dir, title_x + self.scale_coord(180), title_y, 0x00858585, None);
         }
 
         // [Limpiar] Button
         let btn_clear_bg = if hovered_clear { self.colors.button_hover_bg } else { self.colors.chip_bg };
         let btn_clear_fg = if hovered_clear { 0x00FFFFFF } else { 0x00CCCCCC };
-        let btn_y = geom.header_y + 2;
-        let btn_h = geom.header_h.saturating_sub(4);
+        let btn_y = geom.header_y + self.scale_coord(2);
+        let btn_h = geom.header_h.saturating_sub(self.scale_coord(4));
         if self.rounded_corners {
             fb.fill_rounded_rect(geom.btn_clear_x, btn_y, geom.btn_clear_w, btn_h, 3, btn_clear_bg);
         } else {
             fb.fill_rect(geom.btn_clear_x, btn_y, geom.btn_clear_w, btn_h, btn_clear_bg);
         }
         let clear_label = "Limpiar";
-        let clear_lbl_x = geom.btn_clear_x + (geom.btn_clear_w.saturating_sub(clear_label.len() * FONT_WIDTH)) / 2;
-        fb.draw_text(clear_label, clear_lbl_x, btn_y + (btn_h - FONT_HEIGHT) / 2, btn_clear_fg, None);
+        let clear_lbl_x = geom.btn_clear_x + (geom.btn_clear_w.saturating_sub(clear_label.len() * self.char_width())) / 2;
+        fb.draw_text(clear_label, clear_lbl_x, btn_y + (btn_h.saturating_sub(self.char_height())) / 2, btn_clear_fg, None);
 
         // [x] Close Button
         let btn_close_bg = if hovered_close { 0x00C72C41 } else { self.colors.chip_bg };
@@ -3492,16 +3567,16 @@ impl GfxRenderer {
             fb.fill_rect(geom.btn_close_x, btn_y, geom.btn_close_w, btn_h, btn_close_bg);
         }
         let x_label = "x";
-        let x_lbl_x = geom.btn_close_x + (geom.btn_close_w.saturating_sub(x_label.len() * FONT_WIDTH)) / 2;
-        fb.draw_text(x_label, x_lbl_x, btn_y + (btn_h - FONT_HEIGHT) / 2, btn_close_fg, None);
+        let x_lbl_x = geom.btn_close_x + (geom.btn_close_w.saturating_sub(x_label.len() * self.char_width())) / 2;
+        fb.draw_text(x_label, x_lbl_x, btn_y + (btn_h.saturating_sub(self.char_height())) / 2, btn_close_fg, None);
 
         // 3. Terminal Content Area (Background)
         let term_bg = 0x00121212;
         fb.fill_rect(geom.x, geom.content_y, geom.width, geom.content_h, term_bg);
 
         // Output lines & input line
-        let line_height = FONT_HEIGHT + 2;
-        let visible_lines = geom.content_h / line_height;
+        let line_height = self.line_height();
+        let visible_lines = geom.content_h / line_height.max(1);
         if visible_lines == 0 {
             return;
         }
@@ -3511,8 +3586,8 @@ impl GfxRenderer {
         let scroll_end = terminal.scroll_offset.min(total_lines);
         let start_line = scroll_end.saturating_sub(output_visible_lines);
 
-        let pad_x = geom.x + 8;
-        let mut cur_y = geom.content_y + 4;
+        let pad_x = geom.x + self.scale_coord(8);
+        let mut cur_y = geom.content_y + self.scale_coord(4);
 
         for line_idx in start_line..scroll_end {
             if cur_y + line_height > geom.content_y + geom.content_h - line_height {
@@ -3521,7 +3596,7 @@ impl GfxRenderer {
             let line = &terminal.lines[line_idx];
             if line.starts_with("❯ ") {
                 fb.draw_text("❯ ", pad_x, cur_y, self.colors.accent, None);
-                fb.draw_text(&line[2..], pad_x + 2 * FONT_WIDTH, cur_y, 0x00FFFFFF, None);
+                fb.draw_text(&line[2..], pad_x + 2 * self.char_width(), cur_y, 0x00FFFFFF, None);
             } else if line.starts_with("[Error") {
                 fb.draw_text(line, pad_x, cur_y, 0x00F44747, None);
             } else {
@@ -3531,25 +3606,25 @@ impl GfxRenderer {
         }
 
         // 4. Active Command Input Line (at the bottom of content)
-        let input_y = geom.content_y + geom.content_h.saturating_sub(line_height + 2);
+        let input_y = geom.content_y + geom.content_h.saturating_sub(line_height + self.scale_coord(2));
         fb.draw_text("❯ ", pad_x, input_y, self.colors.accent, None);
 
-        let prompt_prefix_w = 2 * FONT_WIDTH;
+        let prompt_prefix_w = 2 * self.char_width();
         let input_text_x = pad_x + prompt_prefix_w;
         fb.draw_text(&terminal.current_input, input_text_x, input_y, 0x00FFFFFF, None);
 
         // Draw cursor if focused
         if terminal.is_focused {
-            let cursor_x = input_text_x + terminal.cursor_pos * FONT_WIDTH;
-            let cursor_w = 8;
-            let cursor_h = FONT_HEIGHT;
+            let cursor_x = input_text_x + terminal.cursor_pos * self.char_width();
+            let cursor_w = self.char_width();
+            let cursor_h = self.char_height();
             fb.fill_rect(cursor_x, input_y, cursor_w, cursor_h, self.colors.cursor);
             if terminal.cursor_pos < terminal.current_input.chars().count() {
                 let under_char: String = terminal.current_input.chars().skip(terminal.cursor_pos).take(1).collect();
                 fb.draw_text(&under_char, cursor_x, input_y, 0x00000000, None);
             }
         } else if terminal.current_input.is_empty() {
-            fb.draw_text("(Terminal inactivo - Haga clic para enfocar)", input_text_x + 8, input_y, 0x00555555, None);
+            fb.draw_text("(Terminal inactivo - Haga clic para enfocar)", input_text_x + self.scale_coord(8), input_y, 0x00555555, None);
         }
     }
 }

@@ -24,18 +24,32 @@ pub struct CocoaWindow {
     window: Id,
     pub width: usize,
     pub height: usize,
+    pub scale_factor: f64,
     should_close: bool,
 }
 
 impl CocoaWindow {
-    pub fn new(title: &str, width: usize, height: usize) -> Result<Self, String> {
+    pub fn new(_title: &str, logical_width: usize, logical_height: usize) -> Result<Self, String> {
+        let scale_factor = if let Ok(val) = std::env::var("RUSTEXT_SCALE_FACTOR") {
+            val.trim().parse::<f64>().unwrap_or(2.0)
+        } else {
+            2.0 // Default to 2.0 Retina on macOS
+        };
+        let physical_w = ((logical_width as f64) * scale_factor).round() as usize;
+        let physical_h = ((logical_height as f64) * scale_factor).round() as usize;
+
         // En macOS, la inicialización de NSApplication y NSWindow usa objc_msgSend
         Ok(Self {
             window: ptr::null_mut(),
-            width,
-            height,
+            width: physical_w,
+            height: physical_h,
+            scale_factor,
             should_close: false,
         })
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     pub fn set_title(&mut self, _title: &str) {}

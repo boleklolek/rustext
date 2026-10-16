@@ -235,6 +235,85 @@ unsafe extern "C" {
         keysym_return: *mut KeySym,
         status_in_out: *mut c_void,
     ) -> c_int;
+    fn XDisplayWidth(display: *mut Display, screen_number: c_int) -> c_int;
+    fn XDisplayHeight(display: *mut Display, screen_number: c_int) -> c_int;
+    fn XDisplayWidthMM(display: *mut Display, screen_number: c_int) -> c_int;
+    fn XDisplayHeightMM(display: *mut Display, screen_number: c_int) -> c_int;
+    fn XGetDefault(display: *mut Display, program: *const c_char, option: *const c_char) -> *const c_char;
+}
+
+/// Queries display DPI, Xft resources and system environment to determine the monitor HiDPI scale factor.
+pub unsafe fn detect_scale_factor(display: *mut Display) -> f64 {
+    // 1. Explicit override via environment variables
+    if let Ok(val) = std::env::var("RUSTEXT_SCALE_FACTOR") {
+        if let Ok(scale) = val.trim().parse::<f64>() {
+            if scale >= 0.5 && scale <= 5.0 {
+                return scale;
+            }
+        }
+    }
+    if let Ok(val) = std::env::var("GDK_SCALE") {
+        if let Ok(scale) = val.trim().parse::<f64>() {
+            if scale >= 1.0 && scale <= 4.0 {
+                return scale;
+            }
+        }
+    }
+    if let Ok(val) = std::env::var("QT_SCALE_FACTOR") {
+        if let Ok(scale) = val.trim().parse::<f64>() {
+            if scale >= 0.5 && scale <= 4.0 {
+                return scale;
+            }
+        }
+    }
+    if let Ok(val) = std::env::var("XCURSOR_SIZE") {
+        if let Ok(size) = val.trim().parse::<f64>() {
+            if size >= 32.0 {
+                let scale = size / 24.0;
+                return (scale * 2.0).round() / 2.0;
+            }
+        }
+    }
+
+    if !display.is_null() {
+        // 2. Query Xft.dpi from X resource database via XGetDefault
+        let program = CString::new("Xft").unwrap();
+        let option = CString::new("dpi").unwrap();
+        let val_ptr = unsafe { XGetDefault(display, program.as_ptr(), option.as_ptr()) };
+        if !val_ptr.is_null() {
+            let c_str = unsafe { std::ffi::CStr::from_ptr(val_ptr) };
+            if let Ok(s) = c_str.to_str() {
+                if let Ok(dpi) = s.trim().parse::<f64>() {
+                    if dpi >= 48.0 && dpi <= 480.0 {
+                        let scale = dpi / 96.0;
+                        return (scale * 4.0).round() / 4.0;
+                    }
+                }
+            }
+        }
+
+        // 3. Query physical screen dimensions (pixels vs millimeters)
+        let (screen, width_px, width_mm, height_px, height_mm) = unsafe {
+            let screen = XDefaultScreen(display);
+            let width_px = XDisplayWidth(display, screen);
+            let width_mm = XDisplayWidthMM(display, screen);
+            let height_px = XDisplayHeight(display, screen);
+            let height_mm = XDisplayHeightMM(display, screen);
+            (screen, width_px, width_mm, height_px, height_mm)
+        };
+        let _ = screen;
+        if width_px > 0 && width_mm > 0 && height_px > 0 && height_mm > 0 {
+            let dpi_x = (width_px as f64 * 25.4) / (width_mm as f64);
+            let dpi_y = (height_px as f64 * 25.4) / (height_mm as f64);
+            let dpi = (dpi_x + dpi_y) / 2.0;
+            if dpi >= 130.0 {
+                let scale = dpi / 96.0;
+                return (scale * 2.0).round() / 2.0;
+            }
+        }
+    }
+
+    1.0
 }
 
 pub struct X11Window {
@@ -246,17 +325,23 @@ pub struct X11Window {
     wm_delete_window: Atom,
     pub width: usize,
     pub height: usize,
+    pub scale_factor: f64,
     should_close: bool,
 }
 
 impl X11Window {
     /// Opens connection to X display and creates a native window.
-    pub fn new(title: &str, width: usize, height: usize) -> Result<Self, String> {
+    /// Multiplies logical width and height by the monitor scale factor to determine physical window size.
+    pub fn new(title: &str, logical_width: usize, logical_height: usize) -> Result<Self, String> {
         unsafe {
             let display = XOpenDisplay(ptr::null());
             if display.is_null() {
                 return Err("Failed to open X11 Display. Is DISPLAY set?".to_string());
             }
+
+            let scale_factor = detect_scale_factor(display);
+            let physical_w = ((logical_width as f64) * scale_factor).round() as usize;
+            let physical_h = ((logical_height as f64) * scale_factor).round() as usize;
 
             let screen = XDefaultScreen(display);
             let root = XDefaultRootWindow(display);
@@ -268,8 +353,8 @@ impl X11Window {
                 root,
                 100,
                 100,
-                width as c_uint,
-                height as c_uint,
+                physical_w as c_uint,
+                physical_h as c_uint,
                 1,
                 0x000000,
                 0x1E1E1E,
@@ -308,11 +393,17 @@ impl X11Window {
                 visual,
                 depth,
                 wm_delete_window: atom_delete,
-                width,
-                height,
+                width: physical_w,
+                height: physical_h,
+                scale_factor,
                 should_close: false,
             })
         }
+    }
+
+    /// Returns the monitor HiDPI scale factor reported by the display.
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     /// Dynamically sets the native window title.

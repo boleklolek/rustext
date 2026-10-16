@@ -2262,5 +2262,156 @@ fn test_integrated_terminal_geometry_and_rendering() {
     assert_eq!(term_bg_pixel, 0x00121212);
 }
 
+#[test]
+fn test_hidpi_scaling_coordinates_and_layout() {
+    let mut renderer = GfxRenderer::new();
+
+    // 1. Unscaled baseline (1.0x)
+    assert_eq!(renderer.scale_factor, 1.0);
+    assert_eq!(renderer.font_scale, 1);
+    assert_eq!(renderer.char_width(), 8);
+    assert_eq!(renderer.char_height(), 16);
+    assert_eq!(renderer.line_height(), 19); // 16 + 3
+    assert_eq!(renderer.scale_coord(10), 10);
+    assert_eq!(renderer.scale_coord(100), 100);
+    assert_eq!(renderer.to_logical_coord(100), 100);
+    assert_eq!(renderer.menu_bar_height, 24);
+    assert_eq!(renderer.tab_bar_height, 26);
+    assert_eq!(renderer.status_bar_height, 22);
+    assert_eq!(renderer.scrollbar_width, 14);
+    assert_eq!(renderer.sidebar_width, 220);
+    assert_eq!(renderer.minimap_width, 100);
+
+    // 2. Double scaling (2.0x, e.g. Retina / 4K display)
+    renderer.set_scale_factor(2.0);
+    assert_eq!(renderer.scale_factor, 2.0);
+    assert_eq!(renderer.font_scale, 2);
+    assert_eq!(renderer.char_width(), 16);
+    assert_eq!(renderer.char_height(), 32);
+    assert_eq!(renderer.line_height(), 38); // 32 + 6
+    assert_eq!(renderer.scale_coord(10), 20);
+    assert_eq!(renderer.scale_coord(100), 200);
+    assert_eq!(renderer.scale_coord_f64(12.5), 25.0);
+    assert_eq!(renderer.to_logical_coord(200), 100);
+    assert_eq!(renderer.menu_bar_height, 48);
+    assert_eq!(renderer.tab_bar_height, 52);
+    assert_eq!(renderer.status_bar_height, 44);
+    assert_eq!(renderer.scrollbar_width, 28);
+    assert_eq!(renderer.sidebar_width, 440);
+    assert_eq!(renderer.minimap_width, 200);
+    assert_eq!(renderer.line_spacing, 6);
+
+    // 3. Fractional scaling (1.5x, e.g. 150% in GNOME/KDE/Windows)
+    renderer.set_scale_factor(1.5);
+    assert_eq!(renderer.scale_factor, 1.5);
+    assert_eq!(renderer.font_scale, 2); // 1.5 rounds to 2 for crisp bitmap rasterization
+    assert_eq!(renderer.scale_coord(10), 15);
+    assert_eq!(renderer.scale_coord(20), 30);
+    assert_eq!(renderer.scale_coord(100), 150);
+    assert_eq!(renderer.to_logical_coord(150), 100);
+    assert_eq!(renderer.menu_bar_height, 36);
+    assert_eq!(renderer.tab_bar_height, 39);
+    assert_eq!(renderer.status_bar_height, 33);
+    assert_eq!(renderer.scrollbar_width, 21);
+    assert_eq!(renderer.sidebar_width, 330);
+    assert_eq!(renderer.minimap_width, 150);
+}
+
+#[test]
+fn test_hidpi_menu_bar_and_dropdown_hit_testing() {
+    use rustext::editor::MenuBar;
+
+    let mut menu = MenuBar::new();
+    assert_eq!(menu.height, 24);
+
+    // Unscaled bounds for category 0 ("Archivo")
+    let (start_x, end_x) = menu.category_bounds(0, 8);
+    assert_eq!(start_x, 8);
+    // "Archivo" has 7 characters: 7 * 8 + 16 pad = 72
+    assert_eq!(end_x, 8 + 72);
+
+    // Click on "Archivo" header
+    let action = menu.handle_mouse_click(start_x + 10, 12, 8);
+    assert_eq!(action, None);
+    assert_eq!(menu.active_category, Some(0));
+
+    // Scale menu to 2.0x (HiDPI)
+    menu.set_scale_factor(2.0);
+    assert_eq!(menu.height, 48);
+
+    // Font width at 2.0x is 16
+    let (start_x_2x, end_x_2x) = menu.category_bounds(0, 16);
+    assert_eq!(start_x_2x, 16); // 8 * 2.0
+    // "Archivo" 7 chars * 16 + 32 pad = 112 + 32 = 144
+    assert_eq!(end_x_2x, 16 + 144);
+
+    // Click inside scaled header toggles category
+    let _ = menu.handle_mouse_click(start_x_2x + 20, 24, 16);
+    assert_eq!(menu.active_category, None); // Toggled off
+    let _ = menu.handle_mouse_click(start_x_2x + 20, 24, 16);
+    assert_eq!(menu.active_category, Some(0)); // Toggled back on
+
+    // Dropdown item click at 2.0x
+    // First item is "Nueva Pestaña", item_h = 44, dropdown starts at y = 48
+    let click_y = 48 + 10;
+    let click_x = start_x_2x + 30;
+    let item_action = menu.handle_mouse_click(click_x, click_y, 16);
+    assert_eq!(item_action, Some(rustext::editor::keymap::EditorAction::NewTab));
+    assert_eq!(menu.active_category, None); // Menu closed on action selection
+}
+
+#[test]
+fn test_hidpi_framebuffer_and_editor_full_frame() {
+    use rustext::editor::config::EditorConfig;
+    use rustext::editor::MenuBar;
+
+    // Test INI serialization and parsing with scale_factor
+    let ini_content = "[gui]\nscale_factor = 2.0\nwindow_width = 1920\nwindow_height = 1080\n";
+    let config = EditorConfig::parse(ini_content);
+    assert_eq!(config.gui.scale_factor, 2.0);
+    assert_eq!(config.gui.window_width, 1920);
+    assert_eq!(config.gui.window_height, 1080);
+
+    let serialized = config.to_ini_string();
+    assert!(serialized.contains("scale_factor = 2.0"));
+
+    // Render full editor frame in 2.0x HiDPI
+    let mut fb = Framebuffer::new(1920, 1080);
+    fb.font_scale = 2;
+
+    let mut renderer = GfxRenderer::new();
+    renderer.set_scale_factor(2.0);
+
+    let doc = Document::new(TextBuffer::from_str("fn main() {\n    println!(\"HiDPI Native!\");\n}\n"));
+    let tabs = vec!["main.rs".to_string(), "lib.rs".to_string()];
+    let mut menu = MenuBar::new();
+    menu.set_scale_factor(2.0);
+
+    renderer.render(&mut fb, &doc, &tabs, 0, Some("NORMAL"), None, Some(&menu));
+
+    // Verify Menu Bar area (top 48 pixels) contains non-background pixels
+    let mut menu_pixels = 0;
+    for y in 0..renderer.menu_bar_height {
+        for x in 0..100 {
+            if fb.get_pixel(x, y) != 0 {
+                menu_pixels += 1;
+            }
+        }
+    }
+    assert!(menu_pixels > 0, "Menu bar should be rendered in top 48 pixels");
+
+    // Verify Status Bar area (bottom 44 pixels) is populated
+    let status_bar_y = fb.height - renderer.status_bar_height;
+    let mut status_pixels = 0;
+    for y in status_bar_y..fb.height {
+        for x in 0..100 {
+            if fb.get_pixel(x, y) != 0 {
+                status_pixels += 1;
+            }
+        }
+    }
+    assert!(status_pixels > 0, "Status bar should be rendered in bottom 44 pixels");
+}
+
 
 

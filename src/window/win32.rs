@@ -148,16 +148,38 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
+pub fn detect_scale_factor() -> f64 {
+    if let Ok(val) = std::env::var("RUSTEXT_SCALE_FACTOR") {
+        if let Ok(scale) = val.trim().parse::<f64>() {
+            if scale >= 0.5 && scale <= 5.0 {
+                return scale;
+            }
+        }
+    }
+    if let Ok(val) = std::env::var("QT_SCALE_FACTOR") {
+        if let Ok(scale) = val.trim().parse::<f64>() {
+            if scale >= 0.5 && scale <= 4.0 {
+                return scale;
+            }
+        }
+    }
+    1.0
+}
+
 pub struct Win32Window {
     hwnd: HWND,
     hdc: HDC,
     pub width: usize,
     pub height: usize,
+    pub scale_factor: f64,
     should_close: bool,
 }
 
 impl Win32Window {
-    pub fn new(title: &str, width: usize, height: usize) -> Result<Self, String> {
+    pub fn new(title: &str, logical_width: usize, logical_height: usize) -> Result<Self, String> {
+        let scale_factor = detect_scale_factor();
+        let physical_w = ((logical_width as f64) * scale_factor).round() as usize;
+        let physical_h = ((logical_height as f64) * scale_factor).round() as usize;
         unsafe {
             let class_name: Vec<u16> = "RustextWindowClass\0".encode_utf16().collect();
             let window_title: Vec<u16> = format!("{}\0", title).encode_utf16().collect();
@@ -186,8 +208,8 @@ impl Win32Window {
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 100,
                 100,
-                width as i32,
-                height as i32,
+                physical_w as i32,
+                physical_h as i32,
                 ptr::null_mut(),
                 ptr::null_mut(),
                 ptr::null_mut(),
@@ -203,11 +225,16 @@ impl Win32Window {
             Ok(Self {
                 hwnd,
                 hdc,
-                width,
-                height,
+                width: physical_w,
+                height: physical_h,
+                scale_factor,
                 should_close: false,
             })
         }
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     /// Dynamically updates the native window title bar.

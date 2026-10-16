@@ -15,6 +15,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
    - [3.2 Restauración de Sesión, Modo Hot Exit y Archivos Recientes](#32-restauración-de-sesión-modo-hot-exit-y-archivos-recientes)
    - [3.3 Terminal Integrado Nativo Acoplado](#33-terminal-integrado-nativo-acoplado-ctrl---ctrl-)
    - [3.4 Rasterizador de Fuentes Tipográficas y Corrección Gamma (sRGB IEC 61966-2-1)](#34-rasterizador-de-fuentes-tipográficas-y-corrección-gamma-srgb-iec-61966-2-1)
+   - [3.5 Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor](#35-soporte-hidpi-nativo-y-escalado-de-coordenadas-del-monitor)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -250,6 +251,48 @@ El rasterizador tipográfico en [`src/gfx/font.rs`](src/gfx/font.rs) aporta:
 - **Preservación Geométrica de Caracteres de Caja (Box-Drawing)**: Los caracteres de marcos, bordes y barras (`│`, `─`, `┌`, `└`, `█`, etc.) son detectados automáticamente (`is_box_drawing`) y se renderizan con opacidad total y bordes rectos nítidos, evitando emborronamientos en la interfaz.
 - **Escalador Bilineal Continuo**: Para factores de ampliación (`font_scale >= 2`), `rasterize_glyph_scaled` muestrea bilinealmente las matrices de cobertura a resolución continua, eliminando por completo los escalones dentados (*staircase effect*).
 - **Caché Estática Zero-Allocation**: Los glifos ASCII y caracteres especiales frecuentes se almacenan pre-rasterizados en `ASCII_AA_CACHE` mediante `OnceLock`, logrando más de **550 FPS** de rendimiento continuo en CPU pura.
+
+---
+
+### 3.5 Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor
+
+Rustext implementa una arquitectura nativa de escalado de coordenadas para pantallas de alta densidad de píxeles (HiDPI / 4K / Apple Retina).
+
+#### 1. Detección Multiplataforma del Factor de Escala
+El subsistema de ventanas detecta de forma automática y precisa el factor de escala que reporta el monitor mediante llamadas al sistema operativo y variables de entorno estándar:
+- **Linux (X11 / Wayland)**:
+  1. Detección física por DPI del servidor X11: calcula el DPI promediado horizontal y verticalmente a partir de la resolución en píxeles y dimensiones físicas en milímetros reportadas por la pantalla:
+     $$\text{DPI} = \frac{1}{2} \left( \frac{\text{width\_px} \times 25.4}{\text{width\_mm}} + \frac{\text{height\_px} \times 25.4}{\text{height\_mm}} \right), \quad \text{scale} = \frac{\text{DPI}}{96.0}$$
+  2. Inspección de recursos `Xft.dpi` mediante `XGetDefault(display, "Xft", "dpi")`.
+  3. Variables de entorno estándar del escritorio: `RUSTEXT_SCALE_FACTOR`, `GDK_SCALE`, `QT_SCALE_FACTOR` y `XCURSOR_SIZE` (ej. cursor de 48px mapea a factor 2.0x).
+- **Windows (Win32)**:
+  - Invoca dinámicamente `GetDpiForWindow` o `GetDpiForSystem` desde `user32.dll` comparado contra `USER_DEFAULT_SCREEN_DPI (96)`, o variable `RUSTEXT_SCALE_FACTOR`.
+- **macOS (AppKit / Cocoa)**:
+  - Consulta `backingScaleFactor` de la ventana activa (2.0x para pantallas Retina nativas) o variable de entorno `RUSTEXT_SCALE_FACTOR`.
+
+#### 2. Multiplicación Rigurosa de Coordenadas Lógicas
+Para garantizar nitidez visual y proporciones perfectas en pantallas 4K y pantallas Retina sin alterar el código de diseño lógico:
+- Las dimensiones de referencia lógicas se multiplican por el factor de escala:
+  $$\text{coord}_{\text{física}} = \text{round}(\text{coord}_{\text{lógica}} \times \text{scale\_factor})$$
+- Componentes escalados matemáticamente:
+  - **Ventana**: Dimensiones iniciales multiplicadas por el factor de escala.
+  - **Menú y Pestañas**: Altura de cabeceras, márgenes, padding y anchos de columna.
+  - **Barra de Estado y Terminal**: Altura del panel, tamaño del splitter de redimensionamiento y botones `[Limpiar]` / `[x]`.
+  - **Scrollbars y Minimapas**: Ancho de banda de desplazamiento (`scrollbar_width`), ancho del minimapa (`minimap_width`) y pulgares deslizantes.
+  - **Márgenes y Diálogos Flotantes**: Búsqueda Global (`Ctrl+Shift+F`), Buscar y Reemplazar (`Ctrl+H`), Paleta de Comandos (`Ctrl+P`), Selector de Archivos Recientes (`Ctrl+R`), Diálogo de confirmación de cambios no guardados y Ventanas de Extensiones y Acerca de.
+  - **Tipografía y Cursores**: Tamaño del glifo tipográfico (`char_width = 8 * font_scale`, `char_height = 16 * font_scale`), separación interlineal (`line_spacing`) y grosor del cursor.
+
+#### 3. Mapeo Bidireccional de Coordenadas de Entrada (Hit-Testing)
+Los clics del ratón, desplazamientos y detecciones de hover se calculan con exactitud de píxel físico:
+- Cada widget y modal utiliza las mismas fórmulas escaladas tanto en la fase de renderizado en el `Framebuffer` como en la fase de hit-testing de eventos (`app.rs`).
+- La función `renderer.to_logical_coord(physical_px)` permite traducir posiciones de subpíxel/píxel de vuelta al espacio de coordenadas lógicas cuando se requiere.
+
+#### 4. Opciones de Configuración (`config.ini`)
+```ini
+[gui]
+# Factor de escala HiDPI: 0.0 para autodetección por monitor/OS; o fijar valores como 1.0, 1.5, 2.0
+scale_factor = 0.0
+```
 
 ---
 
@@ -636,6 +679,7 @@ name = tokyo-night
 [gui]
 window_width = 1100
 window_height = 720
+scale_factor = 0.0        # Factor de escala HiDPI (0.0 = autodetección por monitor/OS, 1.0, 1.5, 2.0)
 font_scale = 1
 line_spacing = 2
 cursor_style = bar       # Opciones: bar, block, underline

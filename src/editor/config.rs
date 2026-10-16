@@ -95,7 +95,7 @@ impl Default for ThemeSettings {
 }
 
 /// Native GUI desktop window options.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GuiSettings {
     pub window_width: usize,
     pub window_height: usize,
@@ -103,6 +103,7 @@ pub struct GuiSettings {
     pub status_bar: bool,
     pub scrollbar: bool,
     pub font_scale: usize,
+    pub scale_factor: f64,
     pub font_antialiasing: bool,
     pub gamma_correction: bool,
     pub line_spacing: usize,
@@ -128,6 +129,7 @@ impl Default for GuiSettings {
             status_bar: true,
             scrollbar: true,
             font_scale: 1,
+            scale_factor: 0.0,
             font_antialiasing: true,
             gamma_correction: true,
             line_spacing: 3,
@@ -147,7 +149,7 @@ impl Default for GuiSettings {
 }
 
 /// Master configuration model for Rustext.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct EditorConfig {
     pub editor: EditorSettings,
     pub theme: ThemeSettings,
@@ -217,6 +219,9 @@ window_height = 640
 menu_bar = true
 status_bar = true
 scrollbar = true
+
+; Factor de escala HiDPI (0.0 = detección automática según monitor, o forzar 1.0, 1.5, 2.0)
+scale_factor = 0.0
 
 ; Escala de fuente para pantallas HiDPI / 2K / 4K (1 = normal, 2 = 2x)
 font_scale = 1
@@ -291,6 +296,7 @@ window_height = {}
 menu_bar = {}
 status_bar = {}
 scrollbar = {}
+scale_factor = {:.1}
 font_scale = {}
 font_antialiasing = {}
 gamma_correction = {}
@@ -326,6 +332,7 @@ terminal_shell = {}
             self.gui.menu_bar,
             self.gui.status_bar,
             self.gui.scrollbar,
+            self.gui.scale_factor,
             self.gui.font_scale,
             self.gui.font_antialiasing,
             self.gui.gamma_correction,
@@ -483,6 +490,13 @@ terminal_shell = {}
                         "scrollbar" => {
                             if let Some(b) = as_bool {
                                 config.gui.scrollbar = b;
+                            }
+                        }
+                        "scale_factor" => {
+                            if let Ok(f) = val_unquoted.parse::<f64>() {
+                                if f >= 0.0 && f <= 5.0 {
+                                    config.gui.scale_factor = f;
+                                }
                             }
                         }
                         "font_scale" => {

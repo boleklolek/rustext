@@ -92,6 +92,12 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Preservación del 100% de nitidez geométrica en caracteres de dibujo de marcos y cajas (`│`, `─`, `┌`, `█`, etc.).
   - Totalmente configurable desde `config.ini` (`font_antialiasing = true`, `gamma_correction = true`).
 
+- **Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor**:
+  - Detección precisa y automática del factor de escala (`scale_factor`) reportado por el monitor y el sistema operativo (X11 DPI / `Xft.dpi` / variables de entorno `RUSTEXT_SCALE_FACTOR`, `GDK_SCALE`, `QT_SCALE_FACTOR`, `XCURSOR_SIZE`; Win32 `GetDpiForWindow` / `USER_DEFAULT_SCREEN_DPI`; macOS Retina backing scale).
+  - Multiplicación matemática rigurosa de las coordenadas lógicas de diseño para producir píxeles físicos exactos en el `Framebuffer`: dimensiones de ventana, barras de menús, pestañas, barras de estado, terminal integrado, scrollbars, minimapas, márgenes, paneles divididos y diálogos modales.
+  - Mapeo bidireccional exacto de eventos de entrada de ratón y cursor con precisión de subpíxel/píxel físico.
+  - Totalmente configurable desde `config.ini` (`scale_factor = 0.0` para autodetección, o fijar factores explícitos como `1.5`, `2.0`).
+
 - **Árbol de Proyecto y Explorador Lateral (File Explorer)**:
   - Barra lateral acoplada a la izquierda con visibilidad alternable mediante `Ctrl + B`.
   - Escaneo perezoso de carpetas (solo inspecciona en disco lo que se expande).
@@ -292,6 +298,7 @@ name = tokyo-night   # tokyo-night, catppuccin-mocha, one-dark, monokai, solariz
 [gui]
 window_width = 1100
 window_height = 720
+scale_factor = 0.0   # Factor de escala HiDPI (0.0 = autodetección por monitor/OS, 1.0, 1.5, 2.0)
 font_scale = 1
 line_spacing = 2
 cursor_style = bar   # bar, block, underline

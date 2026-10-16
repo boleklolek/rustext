@@ -40,6 +40,9 @@ impl UnsupportedWindow {
         true
     }
     pub fn cancel_close(&mut self) {}
+    pub fn scale_factor(&self) -> f64 {
+        1.0
+    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

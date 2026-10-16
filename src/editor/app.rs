@@ -2809,20 +2809,34 @@ impl Editor {
         let mut window = crate::window::NativeWindow::new("Rustext", initial_width, initial_height)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-        let mut fb = crate::gfx::Framebuffer::new(initial_width, initial_height);
+        let monitor_scale = window.scale_factor();
+        let effective_scale = if self.config.gui.scale_factor > 0.0 {
+            self.config.gui.scale_factor
+        } else {
+            monitor_scale
+        };
+
+        let mut fb = crate::gfx::Framebuffer::new(window.width, window.height);
         let mut renderer = crate::gfx::GfxRenderer::new();
+        renderer.set_scale_factor(effective_scale);
+        self.menu_bar.set_scale_factor(effective_scale);
+        if self.config.gui.font_scale > 1 {
+            renderer.font_scale = self.config.gui.font_scale;
+        }
+        fb.font_scale = renderer.font_scale;
         renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
         renderer.show_line_numbers = self.config.editor.show_line_numbers;
-        renderer.font_scale = self.config.gui.font_scale;
         renderer.font_antialiasing = self.config.gui.font_antialiasing;
         renderer.gamma_correction = self.config.gui.gamma_correction;
-        renderer.line_spacing = self.config.gui.line_spacing;
         renderer.rounded_corners = self.config.gui.rounded_corners;
         renderer.shadows = self.config.gui.shadows;
         renderer.cursor_style = self.config.gui.cursor_style.clone();
         renderer.cursor_blink = self.config.gui.cursor_blink;
+        self.sidebar.is_visible = self.config.gui.sidebar;
+        self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
         renderer.minimap_enabled = self.config.gui.minimap;
-        renderer.minimap_width = self.config.gui.minimap_width;
+        renderer.minimap_width = renderer.scale_coord(self.config.gui.minimap_width);
+        self.terminal.height = renderer.scale_coord(self.config.gui.terminal_height);
 
         let mut active_theme_name = self.config.theme.name.clone();
         let mut active_show_line_numbers = self.config.editor.show_line_numbers;
@@ -2854,18 +2868,28 @@ impl Editor {
                 needs_redraw = true;
             }
             if self.config.gui != active_gui_settings {
-                renderer.font_scale = self.config.gui.font_scale;
+                let effective_scale = if self.config.gui.scale_factor > 0.0 {
+                    self.config.gui.scale_factor
+                } else {
+                    window.scale_factor()
+                };
+                renderer.set_scale_factor(effective_scale);
+                self.menu_bar.set_scale_factor(effective_scale);
+                if self.config.gui.font_scale > 1 {
+                    renderer.font_scale = self.config.gui.font_scale;
+                }
+                fb.font_scale = renderer.font_scale;
                 renderer.font_antialiasing = self.config.gui.font_antialiasing;
                 renderer.gamma_correction = self.config.gui.gamma_correction;
-                renderer.line_spacing = self.config.gui.line_spacing;
                 renderer.rounded_corners = self.config.gui.rounded_corners;
                 renderer.shadows = self.config.gui.shadows;
                 renderer.cursor_style = self.config.gui.cursor_style.clone();
                 renderer.cursor_blink = self.config.gui.cursor_blink;
                 self.sidebar.is_visible = self.config.gui.sidebar;
-                self.sidebar.width = self.config.gui.sidebar_width;
+                self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
                 renderer.minimap_enabled = self.config.gui.minimap;
-                renderer.minimap_width = self.config.gui.minimap_width;
+                renderer.minimap_width = renderer.scale_coord(self.config.gui.minimap_width);
+                self.terminal.height = renderer.scale_coord(self.config.gui.terminal_height);
                 active_gui_settings = self.config.gui.clone();
                 needs_redraw = true;
             }
@@ -2909,29 +2933,29 @@ impl Editor {
                         if button == crate::window::MouseButton::Left {
                             // 0. Check Unsaved Confirm Dialog interaction
                             if let EditorMode::UnsavedConfirm(dialog) = &mut self.mode {
-                                let win_w = 520.min(fb.width.saturating_sub(20));
-                                let win_h = 190.min(fb.height.saturating_sub(20));
+                                let win_w = renderer.scale_coord(520).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                                let win_h = renderer.scale_coord(190).min(fb.height.saturating_sub(renderer.scale_coord(20)));
                                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
                                 let win_y = (fb.height.saturating_sub(win_h)) / 2;
-                                let title_h = 28;
-                                let close_w = 36;
+                                let title_h = renderer.scale_coord(28);
+                                let close_w = renderer.scale_coord(36);
                                 let close_x = win_x + win_w - close_w;
 
                                 let hit_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + title_h;
                                 let hit_outside = x < win_x || x >= win_x + win_w || y < win_y || y >= win_y + win_h;
 
-                                let btn_bar_y = win_y + win_h - 42;
-                                let btn_h = 28;
+                                let btn_bar_y = win_y + win_h - renderer.scale_coord(42);
+                                let btn_h = renderer.scale_coord(28);
                                 let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
-                                let btn_save_w = (lbl_save.chars().count() * crate::gfx::FONT_WIDTH + 24).max(100);
-                                let btn_discard_w = (lbl_discard.chars().count() * crate::gfx::FONT_WIDTH + 24).max(110);
-                                let btn_cancel_w = (lbl_cancel.chars().count() * crate::gfx::FONT_WIDTH + 24).max(90);
-                                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
-                                let btn_start_x = win_x + win_w - total_btns_w - 16;
+                                let btn_save_w = (lbl_save.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(100));
+                                let btn_discard_w = (lbl_discard.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(110));
+                                let btn_cancel_w = (lbl_cancel.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(90));
+                                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + renderer.scale_coord(16);
+                                let btn_start_x = win_x + win_w - total_btns_w - renderer.scale_coord(16);
 
                                 let b0_x = btn_start_x;
-                                let b1_x = b0_x + btn_save_w + 8;
-                                let b2_x = b1_x + btn_discard_w + 8;
+                                let b1_x = b0_x + btn_save_w + renderer.scale_coord(8);
+                                let b2_x = b1_x + btn_discard_w + renderer.scale_coord(8);
 
                                 let hit_b0 = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= b0_x && x < b0_x + btn_save_w;
                                 let hit_b1 = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= b1_x && x < b1_x + btn_discard_w;
@@ -2946,18 +2970,18 @@ impl Editor {
                                 }
                             // A. Check About Dialog Window interaction
                             } else if self.mode == EditorMode::AboutDialog {
-                                let win_w = 640.min(fb.width.saturating_sub(20));
-                                let win_h = 450.min(fb.height.saturating_sub(20));
+                                let win_w = renderer.scale_coord(640).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                                let win_h = renderer.scale_coord(450).min(fb.height.saturating_sub(renderer.scale_coord(20)));
                                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
                                 let win_y = (fb.height.saturating_sub(win_h)) / 2;
-                                let close_w = 36;
+                                let close_w = renderer.scale_coord(36);
                                 let close_x = win_x + win_w - close_w;
-                                let btn_w = 130;
-                                let btn_h = 28;
+                                let btn_w = renderer.scale_coord(130);
+                                let btn_h = renderer.scale_coord(28);
                                 let btn_x = win_x + (win_w - btn_w) / 2;
-                                let btn_y = win_y + win_h - 38;
+                                let btn_y = win_y + win_h - renderer.scale_coord(38);
 
-                                let hit_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + 28;
+                                let hit_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + renderer.scale_coord(28);
                                 let hit_ok = x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + btn_h;
                                 let hit_outside = x < win_x || x >= win_x + win_w || y < win_y || y >= win_y + win_h;
 
@@ -2966,41 +2990,41 @@ impl Editor {
                                 }
                             // B. Check Extensions Manager Dialog interaction
                             } else if let EditorMode::ExtensionsManager { selected_idx, scroll_offset } = &mut self.mode {
-                                let win_w = 680.min(fb.width.saturating_sub(20));
-                                let win_h = 480.min(fb.height.saturating_sub(20));
+                                let win_w = renderer.scale_coord(680).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                                let win_h = renderer.scale_coord(480).min(fb.height.saturating_sub(renderer.scale_coord(20)));
                                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
                                 let win_y = (fb.height.saturating_sub(win_h)) / 2;
-                                let close_w = 36;
+                                let close_w = renderer.scale_coord(36);
                                 let close_x = win_x + win_w - close_w;
-                                let hit_top_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + 28;
+                                let hit_top_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + renderer.scale_coord(28);
 
-                                let footer_y = win_y + win_h - 34;
-                                let close_btn_w = 80;
-                                let close_btn_x = win_x + win_w - close_btn_w - 12;
-                                let hit_bottom_close = x >= close_btn_x && x < close_btn_x + close_btn_w && y >= footer_y && y < footer_y + 26;
+                                let footer_y = win_y + win_h - renderer.scale_coord(34);
+                                let close_btn_w = renderer.scale_coord(80);
+                                let close_btn_x = win_x + win_w - close_btn_w - renderer.scale_coord(12);
+                                let hit_bottom_close = x >= close_btn_x && x < close_btn_x + close_btn_w && y >= footer_y && y < footer_y + renderer.scale_coord(26);
 
                                 let hit_outside = x < win_x || x >= win_x + win_w || y < win_y || y >= win_y + win_h;
 
                                 if hit_top_close || hit_bottom_close || hit_outside {
                                     self.mode = EditorMode::Normal;
                                 } else {
-                                    let body_y = win_y + 28 + 1;
-                                    let bar_y = body_y + 8;
-                                    let reload_btn_w = 90;
-                                    let create_btn_w = 120;
-                                    let reload_btn_x = win_x + win_w - reload_btn_w - 12;
-                                    let create_btn_x = reload_btn_x - create_btn_w - 8;
+                                    let body_y = win_y + renderer.scale_coord(28) + 1;
+                                    let bar_y = body_y + renderer.scale_coord(8);
+                                    let reload_btn_w = renderer.scale_coord(90);
+                                    let create_btn_w = renderer.scale_coord(120);
+                                    let reload_btn_x = win_x + win_w - reload_btn_w - renderer.scale_coord(12);
+                                    let create_btn_x = reload_btn_x - create_btn_w - renderer.scale_coord(8);
 
-                                    if x >= create_btn_x && x < create_btn_x + create_btn_w && y >= bar_y && y < bar_y + 24 {
+                                    if x >= create_btn_x && x < create_btn_x + create_btn_w && y >= bar_y && y < bar_y + renderer.scale_coord(24) {
                                         self.execute_action(EditorAction::CreateSampleExtension);
-                                    } else if x >= reload_btn_x && x < reload_btn_x + reload_btn_w && y >= bar_y && y < bar_y + 24 {
+                                    } else if x >= reload_btn_x && x < reload_btn_x + reload_btn_w && y >= bar_y && y < bar_y + renderer.scale_coord(24) {
                                         self.execute_action(EditorAction::ReloadExtensions);
                                     } else {
-                                        let list_x = win_x + 12;
-                                        let list_y = bar_y + 30;
-                                        let list_w = win_w.saturating_sub(24);
-                                        let list_h = win_h.saturating_sub(115);
-                                        let card_h = 58;
+                                        let list_x = win_x + renderer.scale_coord(12);
+                                        let list_y = bar_y + renderer.scale_coord(30);
+                                        let list_w = win_w.saturating_sub(renderer.scale_coord(24));
+                                        let list_h = win_h.saturating_sub(renderer.scale_coord(115));
+                                        let card_h = (renderer.char_height() * 3 + renderer.scale_coord(10)).max(renderer.scale_coord(58));
 
                                         if x >= list_x && x < list_x + list_w && y >= list_y && y < list_y + list_h {
                                             let card_idx = (y - list_y) / card_h;
@@ -3008,9 +3032,9 @@ impl Editor {
                                             if actual_idx < self.extension_manager.extensions.len() {
                                                 *selected_idx = actual_idx;
                                                 let card_y = list_y + 2 + card_idx * card_h;
-                                                let toggle_w = 64;
-                                                let toggle_x = list_x + list_w - toggle_w - 8;
-                                                if x >= toggle_x && x < toggle_x + toggle_w && y >= card_y + 4 && y < card_y + 24 {
+                                                let toggle_w = renderer.scale_coord(64);
+                                                let toggle_x = list_x + list_w - toggle_w - renderer.scale_coord(8);
+                                                if x >= toggle_x && x < toggle_x + toggle_w && y >= card_y + 4 && y < card_y + renderer.scale_coord(24) {
                                                     let name = self.extension_manager.extensions[actual_idx].name.clone();
                                                     let state = self.extension_manager.toggle_extension(actual_idx);
                                                     self.set_status(format!("Extensión '{}': {}", name, if state { "Activada" } else { "Desactivada" }));
@@ -3022,25 +3046,26 @@ impl Editor {
                             // C. Check Modal Prompt Window interaction
                             } else if let EditorMode::ModalPrompt(modal) = &mut self.mode {
                                 if modal.is_file_dialog() {
-                                    let box_w = fb.width.min(680).max(420);
-                                    let box_h = fb.height.min(480).max(360);
+                                    let box_w = fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(420));
+                                    let box_h = fb.height.min(renderer.scale_coord(480)).max(renderer.scale_coord(360));
                                     let box_x = (fb.width.saturating_sub(box_w)) / 2;
                                     let box_y = (fb.height.saturating_sub(box_h)) / 2;
-                                    let close_w = 32;
-                                    let header_h = 26;
+                                    let close_w = renderer.scale_coord(32);
+                                    let header_h = renderer.scale_coord(26);
                                     let close_x = box_x + box_w - close_w;
 
                                     let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
-                                    let btn_bar_y = box_y + box_h - 30;
-                                    let action_btn_w = 88;
-                                    let cancel_btn_w = 80;
-                                    let cancel_btn_x = box_x + box_w - cancel_btn_w - 12;
-                                    let action_btn_x = cancel_btn_x - action_btn_w - 8;
+                                    let btn_bar_y = box_y + box_h - renderer.scale_coord(30);
+                                    let action_btn_w = renderer.scale_coord(88);
+                                    let cancel_btn_w = renderer.scale_coord(80);
+                                    let cancel_btn_x = box_x + box_w - cancel_btn_w - renderer.scale_coord(12);
+                                    let action_btn_x = cancel_btn_x - action_btn_w - renderer.scale_coord(8);
+                                    let btn_h = renderer.scale_coord(24);
 
-                                    let hit_cancel = y >= btn_bar_y && y < btn_bar_y + 24 && x >= cancel_btn_x && x < cancel_btn_x + cancel_btn_w;
-                                    let hit_action = y >= btn_bar_y && y < btn_bar_y + 24 && x >= action_btn_x && x < action_btn_x + action_btn_w;
+                                    let hit_cancel = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= cancel_btn_x && x < cancel_btn_x + cancel_btn_w;
+                                    let hit_action = y >= btn_bar_y && y < btn_bar_y + btn_h && x >= action_btn_x && x < action_btn_x + action_btn_w;
 
                                     if hit_close || hit_outside || hit_cancel {
                                         self.mode = EditorMode::Normal;
@@ -3063,37 +3088,37 @@ impl Editor {
                                         }
                                     } else {
                                         // [Subir] button
-                                        let dir_bar_y = box_y + header_h + 1 + 6;
-                                        let up_btn_w = 64;
-                                        let up_btn_x = box_x + box_w - up_btn_w - 12;
-                                        if x >= up_btn_x && x < up_btn_x + up_btn_w && y >= dir_bar_y + 2 && y < dir_bar_y + 22 {
+                                        let dir_bar_y = box_y + header_h + 1 + renderer.scale_coord(6);
+                                        let up_btn_w = renderer.scale_coord(64);
+                                        let up_btn_x = box_x + box_w - up_btn_w - renderer.scale_coord(12);
+                                        if x >= up_btn_x && x < up_btn_x + up_btn_w && y >= dir_bar_y + renderer.scale_coord(2) && y < dir_bar_y + renderer.scale_coord(22) {
                                             modal.navigate_up();
                                         } else {
                                             // Bookmarks
-                                            let bm_bar_y = dir_bar_y + 24 + 4;
+                                            let bm_bar_y = dir_bar_y + renderer.scale_coord(24) + renderer.scale_coord(4);
                                             let bookmarks = crate::ui::prompt::get_quick_bookmarks();
-                                            let mut cur_bm_x = box_x + 8;
+                                            let mut cur_bm_x = box_x + renderer.scale_coord(8);
                                             let mut clicked_bm = false;
                                             for bm in &bookmarks {
                                                 let bm_text = format!("[{}]", bm.label);
-                                                let bm_w = bm_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
-                                                if cur_bm_x + bm_w < box_x + box_w - 8 {
-                                                    if y >= bm_bar_y && y < bm_bar_y + 20 && x >= cur_bm_x && x < cur_bm_x + bm_w {
+                                                let bm_w = bm_text.chars().count() * renderer.char_width() + renderer.scale_coord(8);
+                                                if cur_bm_x + bm_w < box_x + box_w - renderer.scale_coord(8) {
+                                                    if y >= bm_bar_y && y < bm_bar_y + renderer.scale_coord(20) && x >= cur_bm_x && x < cur_bm_x + bm_w {
                                                         modal.navigate_to(bm.path.clone());
                                                         clicked_bm = true;
                                                         break;
                                                     }
-                                                    cur_bm_x += bm_w + 6;
+                                                    cur_bm_x += bm_w + renderer.scale_coord(6);
                                                 }
                                             }
 
                                             if !clicked_bm {
                                                 // Directory entries list
-                                                let list_y = bm_bar_y + 26;
-                                                let list_h = box_h.saturating_sub(190);
-                                                let list_w = box_w.saturating_sub(16);
-                                                let list_x = box_x + 8;
-                                                let row_h = 22;
+                                                let list_y = bm_bar_y + renderer.scale_coord(26);
+                                                let list_h = box_h.saturating_sub(renderer.scale_coord(190));
+                                                let list_w = box_w.saturating_sub(renderer.scale_coord(16));
+                                                let list_x = box_x + renderer.scale_coord(8);
+                                                let row_h = (renderer.char_height() + renderer.scale_coord(6)).max(renderer.scale_coord(22));
 
                                                 if x >= list_x && x < list_x + list_w && y >= list_y && y < list_y + list_h {
                                                     let row_click_idx = (y - list_y) / row_h;
@@ -3127,26 +3152,27 @@ impl Editor {
                                         }
                                     }
                                 } else if modal.kind == PromptKind::Replace {
-                                    let box_w = fb.width.min(540).max(380);
-                                    let box_h = 168;
+                                    let box_w = fb.width.min(renderer.scale_coord(540)).max(renderer.scale_coord(380));
+                                    let box_h = renderer.scale_coord(168);
                                     let box_x = (fb.width.saturating_sub(box_w)) / 2;
-                                    let box_y = 28;
-                                    let close_w = 30;
+                                    let box_y = renderer.scale_coord(28);
+                                    let close_w = renderer.scale_coord(30);
+                                    let header_h = renderer.scale_coord(24);
                                     let close_x = box_x + box_w - close_w;
 
-                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
                                     if hit_close || hit_outside {
                                         self.mode = EditorMode::Normal;
                                     } else {
-                                        let body_y = box_y + 24 + 1;
-                                        let input_margin = 12;
-                                        let label_w = 100;
+                                        let body_y = box_y + header_h + 1;
+                                        let input_margin = renderer.scale_coord(12);
+                                        let label_w = renderer.scale_coord(100);
                                         let input_w = box_w.saturating_sub(input_margin * 2 + label_w);
-                                        let input_h = 24;
-                                        let row1_y = body_y + 12;
-                                        let row2_y = row1_y + input_h + 10;
+                                        let input_h = renderer.scale_coord(24);
+                                        let row1_y = body_y + renderer.scale_coord(12);
+                                        let row2_y = row1_y + input_h + renderer.scale_coord(10);
                                         let input_x = box_x + input_margin + label_w;
 
                                         // Click row 1 input (Buscar)
@@ -3156,16 +3182,16 @@ impl Editor {
                                         } else if x >= input_x && x < input_x + input_w && y >= row2_y && y < row2_y + input_h {
                                             modal.active_field = 1;
                                         } else {
-                                            let btn_y = row2_y + input_h + 16;
-                                            let btn_h = 24;
+                                            let btn_y = row2_y + input_h + renderer.scale_coord(16);
+                                            let btn_h = renderer.scale_coord(24);
                                             let b1_x = box_x + input_margin;
-                                            let b1_w = 68;
-                                            let b2_x = b1_x + b1_w + 8;
-                                            let b2_w = 68;
-                                            let b3_x = b2_x + b2_w + 14;
-                                            let b3_w = 98;
-                                            let b4_x = b3_x + b3_w + 8;
-                                            let b4_w = 126;
+                                            let b1_w = renderer.scale_coord(68);
+                                            let b2_x = b1_x + b1_w + renderer.scale_coord(8);
+                                            let b2_w = renderer.scale_coord(68);
+                                            let b3_x = b2_x + b2_w + renderer.scale_coord(14);
+                                            let b3_w = renderer.scale_coord(98);
+                                            let b4_x = b3_x + b3_w + renderer.scale_coord(8);
+                                            let b4_w = renderer.scale_coord(126);
 
                                             if y >= btn_y && y < btn_y + btn_h {
                                                 if x >= b1_x && x < b1_x + b1_w {
@@ -3187,38 +3213,41 @@ impl Editor {
                                         }
                                     }
                                 } else if modal.kind == PromptKind::GlobalSearch {
-                                    let box_w = fb.width.min(740).max(460);
-                                    let box_h = fb.height.min(500).max(360);
+                                    let box_w = fb.width.min(renderer.scale_coord(740)).max(renderer.scale_coord(460));
+                                    let box_h = fb.height.min(renderer.scale_coord(500)).max(renderer.scale_coord(360));
                                     let box_x = (fb.width.saturating_sub(box_w)) / 2;
-                                    let box_y = 28;
-                                    let close_w = 30;
+                                    let box_y = renderer.scale_coord(28);
+                                    let header_h = renderer.scale_coord(24);
+                                    let close_w = renderer.scale_coord(30);
                                     let close_x = box_x + box_w - close_w;
 
-                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
                                     if hit_close || hit_outside {
                                         self.mode = EditorMode::Normal;
                                     } else {
-                                        let body_y = box_y + 24 + 1;
-                                        let input_y = body_y + 8;
-                                        let subbar_y = input_y + 24 + 8;
-                                        let subbar_h = 22;
-                                        let input_w = box_w.saturating_sub(24);
+                                        let body_y = box_y + header_h + 1;
+                                        let input_margin = renderer.scale_coord(12);
+                                        let input_y = body_y + renderer.scale_coord(8);
+                                        let input_h = renderer.scale_coord(24);
+                                        let subbar_y = input_y + input_h + renderer.scale_coord(8);
+                                        let subbar_h = renderer.scale_coord(22);
+                                        let input_w = box_w.saturating_sub(input_margin * 2);
                                         let case_btn_text = if modal.case_sensitive { "[Aa Mayús: Sí]" } else { "[Aa Mayús: No]" };
-                                        let case_w = case_btn_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
-                                        let case_x = box_x + 12 + input_w - case_w;
+                                        let case_w = case_btn_text.chars().count() * renderer.char_width() + renderer.scale_coord(8);
+                                        let case_x = box_x + input_margin + input_w - case_w;
 
                                         if y >= subbar_y && y < subbar_y + subbar_h && x >= case_x && x < case_x + case_w {
                                             modal.toggle_case_sensitivity();
                                         } else {
-                                            let list_y = subbar_y + subbar_h + 8;
-                                            let footer_h = 24;
-                                            let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + 4);
-                                            let row_h = 22;
+                                            let list_y = subbar_y + subbar_h + renderer.scale_coord(8);
+                                            let footer_h = renderer.scale_coord(24);
+                                            let list_h = (box_y + box_h).saturating_sub(list_y + footer_h + renderer.scale_coord(4));
+                                            let row_h = (renderer.char_height() + renderer.scale_coord(6)).max(renderer.scale_coord(22));
                                             let max_visible = list_h / row_h;
 
-                                            if x >= box_x + 12 && x < box_x + box_w - 12 && y >= list_y && y < list_y + max_visible * row_h {
+                                            if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= list_y && y < list_y + max_visible * row_h {
                                                 let row_idx = (y - list_y) / row_h;
                                                 let item_idx = modal.scroll_offset + row_idx;
                                                 if item_idx < modal.global_results.len() {
@@ -3231,23 +3260,25 @@ impl Editor {
                                         }
                                     }
                                 } else if modal.kind == PromptKind::RecentFiles {
-                                    let box_w = fb.width.min(680).max(400);
-                                    let box_h = 340;
+                                    let box_w = fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400));
+                                    let box_h = renderer.scale_coord(340);
                                     let box_x = (fb.width.saturating_sub(box_w)) / 2;
-                                    let box_y = 28;
-                                    let close_w = 30;
+                                    let box_y = renderer.scale_coord(28);
+                                    let header_h = renderer.scale_coord(24);
+                                    let close_w = renderer.scale_coord(30);
                                     let close_x = box_x + box_w - close_w;
 
-                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
                                     if hit_close || hit_outside {
                                         self.mode = EditorMode::Normal;
                                     } else {
-                                        let item_start_y = box_y + 24 + 10 + 26 + 8;
-                                        let item_h = 26;
+                                        let input_margin = renderer.scale_coord(12);
+                                        let item_start_y = box_y + header_h + 1 + renderer.scale_coord(8) + renderer.scale_coord(24) + renderer.scale_coord(8);
+                                        let item_h = (renderer.char_height() + renderer.scale_coord(10)).max(renderer.scale_coord(26));
                                         let matching = modal.matching_recent_files();
-                                        if x >= box_x + 12 && x < box_x + box_w - 12 && y >= item_start_y {
+                                        if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= item_start_y {
                                             let row_idx = (y - item_start_y) / item_h;
                                             if row_idx < matching.len().min(9) {
                                                 let target_path = matching[row_idx].clone();
@@ -3258,25 +3289,27 @@ impl Editor {
                                     }
                                 } else {
                                     let is_palette = modal.kind == PromptKind::CommandPalette;
-                                    let box_w = fb.width.min(580).max(340);
-                                    let box_h = if is_palette { 340 } else { 120 };
+                                    let box_w = fb.width.min(renderer.scale_coord(580)).max(renderer.scale_coord(340));
+                                    let box_h = if is_palette { renderer.scale_coord(340) } else { renderer.scale_coord(120) };
                                     let box_x = (fb.width.saturating_sub(box_w)) / 2;
-                                    let box_y = 28;
-                                    let close_w = 30;
+                                    let box_y = renderer.scale_coord(28);
+                                    let header_h = renderer.scale_coord(24);
+                                    let close_w = renderer.scale_coord(30);
                                     let close_x = box_x + box_w - close_w;
 
-                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + 24;
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
                                     if hit_close || hit_outside {
                                         self.mode = EditorMode::Normal;
                                     } else if is_palette {
-                                        let body_y = box_y + 24 + 1;
-                                        let input_y = body_y + 8;
-                                        let item_start_y = input_y + 24 + 8;
-                                        let item_h = 24;
+                                        let body_y = box_y + header_h + 1;
+                                        let input_margin = renderer.scale_coord(12);
+                                        let input_y = body_y + renderer.scale_coord(8);
+                                        let item_start_y = input_y + renderer.scale_coord(24) + renderer.scale_coord(8);
+                                        let item_h = (renderer.char_height() + renderer.scale_coord(8)).max(renderer.scale_coord(24));
                                         let matching = modal.matching_commands();
-                                        if x >= box_x + 12 && x < box_x + box_w - 12 && y >= item_start_y {
+                                        if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= item_start_y {
                                             let row_idx = (y - item_start_y) / item_h;
                                             if row_idx < matching.len().min(9) {
                                                 let action = matching[row_idx].action.clone();
@@ -3354,7 +3387,7 @@ impl Editor {
 
                                 if !ac_hit {
                                     // 1. Try Menu Bar and open dropdown
-                                    if let Some(action) = self.menu_bar.handle_mouse_click(x, y, crate::gfx::FONT_WIDTH) {
+                                    if let Some(action) = self.menu_bar.handle_mouse_click(x, y, renderer.char_width()) {
                                         self.execute_action(action);
                                     } else if !self.menu_bar.is_open() {
                                         let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
@@ -3364,7 +3397,7 @@ impl Editor {
                                     if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
                                         let rel_x = x;
                                         let rel_y = y - menu_offset;
-                                        let row_h = (crate::gfx::FONT_HEIGHT + 4).max(18);
+                                        let row_h = (renderer.char_height() + renderer.scale_coord(4)).max(renderer.scale_coord(18));
                                         let header_h = renderer.tab_bar_height;
                                         match self.sidebar.handle_click(rel_x, rel_y, row_h, header_h) {
                                             crate::editor::sidebar::SidebarClickResult::OpenFile(path) => {
@@ -3433,22 +3466,22 @@ impl Editor {
                                                 }
                                                 adjust_viewport = false;
                                                 needs_redraw = true;
-                                            } else if x < max_code_x && y >= p0_geom.y + renderer.tab_bar_height {
+                                             } else if x < max_code_x && y >= p0_geom.y + renderer.tab_bar_height {
                                                 let content_y_start = p0_geom.y + renderer.tab_bar_height;
                                                 let total_lines = self.doc().buffer.len_lines();
                                                 let gutter_cols = total_lines.to_string().len().max(3);
                                                 let gutter_width = if renderer.show_line_numbers {
-                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                    (gutter_cols + 2) * renderer.char_width()
                                                 } else {
-                                                    8
+                                                    renderer.scale_coord(8)
                                                 };
-                                                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                let line_height = renderer.line_height();
                                                 let row = (y - content_y_start) / line_height;
                                                 let target_line = self.doc().scroll_row + row;
                                                 if target_line < total_lines {
-                                                    let text_start_x = p0_geom.x + gutter_width + crate::gfx::FONT_WIDTH;
+                                                    let text_start_x = p0_geom.x + gutter_width + renderer.char_width();
                                                     let col = if x >= text_start_x {
-                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                        (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
                                                     } else {
                                                         0
                                                     };
@@ -3492,17 +3525,17 @@ impl Editor {
                                                 let total_lines = self.doc().buffer.len_lines();
                                                 let gutter_cols = total_lines.to_string().len().max(3);
                                                 let gutter_width = if renderer.show_line_numbers {
-                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                    (gutter_cols + 2) * renderer.char_width()
                                                 } else {
-                                                    8
+                                                    renderer.scale_coord(8)
                                                 };
-                                                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                let line_height = renderer.line_height();
                                                 let row = (y - content_y_start) / line_height;
                                                 let target_line = self.doc().scroll_row + row;
                                                 if target_line < total_lines {
-                                                    let text_start_x = p1_geom.x + gutter_width + crate::gfx::FONT_WIDTH;
+                                                    let text_start_x = p1_geom.x + gutter_width + renderer.char_width();
                                                     let col = if x >= text_start_x {
-                                                        (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                        (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
                                                     } else {
                                                         0
                                                     };
@@ -3545,14 +3578,14 @@ impl Editor {
                                             let tab_bar_y = menu_offset;
                                             let tab_bar_h = renderer.tab_bar_height;
                                             if y >= tab_bar_y && y < tab_bar_y + tab_bar_h {
-                                                let mut cur_x = sidebar_w + 8;
+                                                let mut cur_x = sidebar_w + renderer.scale_coord(8);
                                                 let mut clicked = false;
                                                 for idx in 0..self.documents.len() {
                                                     let title = self.documents[idx].tab_title();
                                                     let tab_text = format!(" {} {} × ", idx + 1, title);
-                                                    let tab_w = tab_text.chars().count() * crate::gfx::FONT_WIDTH + 8;
+                                                    let tab_w = tab_text.chars().count() * renderer.char_width() + renderer.scale_coord(8);
                                                     if x >= cur_x && x < cur_x + tab_w {
-                                                        let close_x = cur_x + tab_w - 2 * crate::gfx::FONT_WIDTH - 4;
+                                                        let close_x = cur_x + tab_w - 2 * renderer.char_width() - renderer.scale_coord(4);
                                                         if x >= close_x {
                                                             self.close_tab_at(idx);
                                                         } else {
@@ -3564,9 +3597,9 @@ impl Editor {
                                                         clicked = true;
                                                         break;
                                                     }
-                                                    cur_x += tab_w + 3;
+                                                    cur_x += tab_w + renderer.scale_coord(3);
                                                 }
-                                                if !clicked && x >= cur_x && x < cur_x + 24 {
+                                                if !clicked && x >= cur_x && x < cur_x + renderer.scale_coord(24) {
                                                     self.new_tab();
                                                     self.sidebar.is_focused = false;
                                                     adjust_viewport = true;
@@ -3577,22 +3610,22 @@ impl Editor {
                                                 let total_lines = self.doc().buffer.len_lines();
                                                 let gutter_cols = total_lines.to_string().len().max(3);
                                                 let gutter_width = if renderer.show_line_numbers {
-                                                    (gutter_cols + 2) * crate::gfx::FONT_WIDTH
+                                                    (gutter_cols + 2) * renderer.char_width()
                                                 } else {
-                                                    8
+                                                    renderer.scale_coord(8)
                                                 };
                                                 let canvas_w = fb.width.saturating_sub(sidebar_w);
-                                                let mm_w = if renderer.minimap_enabled && canvas_w >= 320 { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
+                                                let mm_w = if renderer.minimap_enabled && canvas_w >= renderer.scale_coord(320) { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
                                                 let max_code_x = fb.width.saturating_sub(renderer.scrollbar_width + mm_w);
                                                 if y >= content_y_start && x >= sidebar_w && x < max_code_x {
                                                     self.sidebar.is_focused = false;
-                                                    let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                                                    let line_height = renderer.line_height();
                                                     let row = (y - content_y_start) / line_height;
                                                     let target_line = self.doc().scroll_row + row;
                                                     if target_line < total_lines {
-                                                        let text_start_x = sidebar_w + gutter_width + crate::gfx::FONT_WIDTH;
+                                                        let text_start_x = sidebar_w + gutter_width + renderer.char_width();
                                                         let col = if x >= text_start_x {
-                                                            (x - text_start_x) / crate::gfx::FONT_WIDTH + self.doc().scroll_col
+                                                            (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
                                                         } else {
                                                             0
                                                         };
@@ -3758,7 +3791,7 @@ impl Editor {
 
                             let in_menu_zone = self.menu_bar.is_open() || y < renderer.menu_bar_height || old_my < renderer.menu_bar_height;
                             if in_menu_zone {
-                                self.menu_bar.handle_mouse_move(x, y, crate::gfx::FONT_WIDTH);
+                                self.menu_bar.handle_mouse_move(x, y, renderer.char_width());
                                 needs_redraw = true;
                             }
                             if self.terminal.is_visible {
@@ -3955,8 +3988,8 @@ impl Editor {
 
             let total_lines = self.documents[active_idx].buffer.len_lines();
             let gutter_cols = total_lines.to_string().len().max(3);
-            let gutter_width = if renderer.show_line_numbers { (gutter_cols + 2) * crate::gfx::FONT_WIDTH } else { 8 };
-            let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
+            let gutter_width = if renderer.show_line_numbers { (gutter_cols + 2) * renderer.char_width() } else { renderer.scale_coord(8) };
+            let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(renderer.scale_coord(100))) } else { 0 };
 
             let term_inset = if self.terminal.is_visible {
                 renderer.terminal_geometry(fb.width, fb.height, sidebar_w, self.terminal.height).height
@@ -3968,21 +4001,21 @@ impl Editor {
                 let (p0_geom, p1_geom, _) = renderer.pane_geometries_with_inset(fb.width, fb.height, sidebar_w, self.config.gui.menu_bar, &self.split, term_inset);
                 let active_geom = if self.split.active_pane == 0 { p0_geom } else { p1_geom };
                 let pane_content_h = active_geom.height.saturating_sub(renderer.tab_bar_height);
-                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                let line_height = renderer.line_height();
                 let vl = pane_content_h / line_height;
-                let mini_w = if renderer.minimap_enabled && active_geom.width >= 320 { renderer.minimap_width.min(active_geom.width / 4) } else { 0 };
+                let mini_w = if renderer.minimap_enabled && active_geom.width >= renderer.scale_coord(320) { renderer.minimap_width.min(active_geom.width / 4) } else { 0 };
                 let pane_content_w = active_geom.width.saturating_sub(gutter_width + renderer.scrollbar_width + mini_w);
-                let vc = pane_content_w / crate::gfx::FONT_WIDTH;
+                let vc = pane_content_w / renderer.char_width();
                 (vl, vc)
             } else {
                 let content_y_start = renderer.menu_bar_height + renderer.tab_bar_height;
                 let content_h = fb.height.saturating_sub(content_y_start + renderer.status_bar_height + term_inset);
-                let line_height = (crate::gfx::FONT_HEIGHT + renderer.line_spacing).max(1);
+                let line_height = renderer.line_height();
                 let vl = content_h / line_height;
                 let canvas_w = fb.width.saturating_sub(sidebar_w);
-                let mini_w = if renderer.minimap_enabled && canvas_w >= 320 { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
+                let mini_w = if renderer.minimap_enabled && canvas_w >= renderer.scale_coord(320) { renderer.minimap_width.min(canvas_w / 4) } else { 0 };
                 let content_w = fb.width.saturating_sub(sidebar_w + gutter_width + renderer.scrollbar_width + mini_w);
-                let vc = content_w / crate::gfx::FONT_WIDTH;
+                let vc = content_w / renderer.char_width();
                 (vl, vc)
             };
 
@@ -4104,30 +4137,34 @@ impl Editor {
 
             // Render Prompt Modal if active (with interactive hover state)
             if let EditorMode::ModalPrompt(modal) = &self.mode {
-                let box_w = if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles {
-                    fb.width.min(680).max(400)
+                let box_w = if modal.kind == PromptKind::GlobalSearch {
+                    fb.width.min(renderer.scale_coord(740)).max(renderer.scale_coord(460))
+                } else if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles {
+                    fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400))
                 } else if modal.kind == PromptKind::Replace {
-                    fb.width.min(540).max(380)
+                    fb.width.min(renderer.scale_coord(540)).max(renderer.scale_coord(380))
                 } else {
-                    fb.width.min(580).max(340)
+                    fb.width.min(renderer.scale_coord(580)).max(renderer.scale_coord(340))
                 };
-                let box_h = if modal.is_file_dialog() {
-                    fb.height.min(480).max(360)
+                let box_h = if modal.kind == PromptKind::GlobalSearch {
+                    fb.height.min(renderer.scale_coord(500)).max(renderer.scale_coord(360))
+                } else if modal.is_file_dialog() {
+                    fb.height.min(renderer.scale_coord(480)).max(renderer.scale_coord(360))
                 } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles {
-                    340
+                    renderer.scale_coord(340)
                 } else if modal.kind == PromptKind::Replace {
-                    168
+                    renderer.scale_coord(168)
                 } else {
-                    120
+                    renderer.scale_coord(120)
                 };
                 let box_x = (fb.width.saturating_sub(box_w)) / 2;
                 let box_y = if modal.is_file_dialog() {
                     (fb.height.saturating_sub(box_h)) / 2
                 } else {
-                    28
+                    renderer.scale_coord(28)
                 };
-                let close_w = if modal.is_file_dialog() { 32 } else { 30 };
-                let close_h = if modal.is_file_dialog() { 26 } else { 24 };
+                let close_w = if modal.is_file_dialog() { renderer.scale_coord(32) } else { renderer.scale_coord(30) };
+                let close_h = if modal.is_file_dialog() { renderer.scale_coord(26) } else { renderer.scale_coord(24) };
                 let close_x = box_x + box_w - close_w;
                 let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= box_y && mouse_y < box_y + close_h;
                 renderer.render_prompt_overlay_with_hover(&mut fb, modal, close_hovered);
@@ -4135,18 +4172,18 @@ impl Editor {
 
             // Render About Dialog Window if active (with interactive hover state)
             if self.mode == EditorMode::AboutDialog {
-                let win_w = 640.min(fb.width.saturating_sub(20));
-                let win_h = 450.min(fb.height.saturating_sub(20));
+                let win_w = renderer.scale_coord(640).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                let win_h = renderer.scale_coord(450).min(fb.height.saturating_sub(renderer.scale_coord(20)));
                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
                 let win_y = (fb.height.saturating_sub(win_h)) / 2;
-                let close_w = 36;
+                let close_w = renderer.scale_coord(36);
                 let close_x = win_x + win_w - close_w;
-                let btn_w = 130;
-                let btn_h = 28;
+                let btn_w = renderer.scale_coord(130);
+                let btn_h = renderer.scale_coord(28);
                 let btn_x = win_x + (win_w - btn_w) / 2;
-                let btn_y = win_y + win_h - 38;
+                let btn_y = win_y + win_h - renderer.scale_coord(38);
 
-                let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + 28;
+                let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + renderer.scale_coord(28);
                 let ok_hovered = mouse_x >= btn_x && mouse_x < btn_x + btn_w && mouse_y >= btn_y && mouse_y < btn_y + btn_h;
 
                 renderer.render_about_dialog(&mut fb, close_hovered, ok_hovered);
@@ -4154,38 +4191,38 @@ impl Editor {
 
             // Render Extensions Manager Dialog Window if active
             if let EditorMode::ExtensionsManager { selected_idx, scroll_offset } = self.mode {
-                let win_w = 680.min(fb.width.saturating_sub(20));
+                let win_w = renderer.scale_coord(680).min(fb.width.saturating_sub(renderer.scale_coord(20)));
                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
-                let win_y = (fb.height.saturating_sub(480.min(fb.height.saturating_sub(20)))) / 2;
-                let close_w = 36;
+                let win_y = (fb.height.saturating_sub(renderer.scale_coord(480).min(fb.height.saturating_sub(renderer.scale_coord(20))))) / 2;
+                let close_w = renderer.scale_coord(36);
                 let close_x = win_x + win_w - close_w;
-                let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + 28;
+                let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + renderer.scale_coord(28);
 
                 renderer.render_extensions_dialog(&mut fb, &self.extension_manager, selected_idx, scroll_offset, close_hovered);
             }
 
             // Render Unsaved Changes Confirmation Dialog if active
             if let EditorMode::UnsavedConfirm(dialog) = &self.mode {
-                let win_w = 520.min(fb.width.saturating_sub(20));
-                let win_h = 190.min(fb.height.saturating_sub(20));
+                let win_w = renderer.scale_coord(520).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                let win_h = renderer.scale_coord(190).min(fb.height.saturating_sub(renderer.scale_coord(20)));
                 let win_x = (fb.width.saturating_sub(win_w)) / 2;
                 let win_y = (fb.height.saturating_sub(win_h)) / 2;
-                let title_h = 28;
-                let close_w = 36;
+                let title_h = renderer.scale_coord(28);
+                let close_w = renderer.scale_coord(36);
                 let close_x = win_x + win_w - close_w;
 
-                let btn_bar_y = win_y + win_h - 42;
-                let btn_h = 28;
+                let btn_bar_y = win_y + win_h - renderer.scale_coord(42);
+                let btn_h = renderer.scale_coord(28);
                 let (lbl_save, lbl_discard, lbl_cancel) = dialog.button_labels();
-                let btn_save_w = (lbl_save.chars().count() * crate::gfx::FONT_WIDTH + 24).max(100);
-                let btn_discard_w = (lbl_discard.chars().count() * crate::gfx::FONT_WIDTH + 24).max(110);
-                let btn_cancel_w = (lbl_cancel.chars().count() * crate::gfx::FONT_WIDTH + 24).max(90);
-                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + 16;
-                let btn_start_x = win_x + win_w - total_btns_w - 16;
+                let btn_save_w = (lbl_save.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(100));
+                let btn_discard_w = (lbl_discard.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(110));
+                let btn_cancel_w = (lbl_cancel.chars().count() * renderer.char_width() + renderer.scale_coord(24)).max(renderer.scale_coord(90));
+                let total_btns_w = btn_save_w + btn_discard_w + btn_cancel_w + renderer.scale_coord(16);
+                let btn_start_x = win_x + win_w - total_btns_w - renderer.scale_coord(16);
 
                 let b0_x = btn_start_x;
-                let b1_x = b0_x + btn_save_w + 8;
-                let b2_x = b1_x + btn_discard_w + 8;
+                let b1_x = b0_x + btn_save_w + renderer.scale_coord(8);
+                let b2_x = b1_x + btn_discard_w + renderer.scale_coord(8);
 
                 let hovered_btn = if mouse_y >= btn_bar_y && mouse_y < btn_bar_y + btn_h {
                     if mouse_x >= b0_x && mouse_x < b0_x + btn_save_w {

@@ -10,6 +10,7 @@ pub struct Framebuffer {
     pub width: usize,
     pub height: usize,
     pub pixels: Vec<u32>,
+    pub font_scale: usize,
 }
 
 impl Framebuffer {
@@ -20,6 +21,7 @@ impl Framebuffer {
             width,
             height,
             pixels: vec![0xFF000000; size],
+            font_scale: 1,
         }
     }
 
@@ -317,8 +319,18 @@ impl Framebuffer {
         }
     }
 
+    /// Sets the font scaling factor for automatic scaling during draw_char and draw_text.
+    pub fn set_font_scale(&mut self, scale: usize) {
+        self.font_scale = scale.max(1);
+    }
+
     /// Draws a single character glyph at pixel coordinates (x, y) with subpixel anti-aliasing and gamma correction.
     pub fn draw_char(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+        if self.font_scale > 1 {
+            self.draw_char_scaled(ch, x, y, fg, bg, self.font_scale);
+            return;
+        }
+
         if x >= self.width || y >= self.height {
             return;
         }
@@ -353,6 +365,11 @@ impl Framebuffer {
 
     /// Draws a string of text starting at pixel coordinates (x, y) with anti-aliasing and gamma correction.
     pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+        if self.font_scale > 1 {
+            self.draw_text_scaled(text, x, y, fg, bg, self.font_scale);
+            return;
+        }
+
         let mut cur_x = x;
         for ch in text.chars() {
             if cur_x + FONT_WIDTH > self.width {

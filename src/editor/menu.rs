@@ -32,18 +32,19 @@ impl MenuItem {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MenuCategory {
     pub name: &'static str,
     pub items: Vec<MenuItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MenuBar {
     pub categories: Vec<MenuCategory>,
     pub active_category: Option<usize>,
     pub hovered_item: Option<usize>,
     pub height: usize,
+    pub scale_factor: f64,
 }
 
 impl MenuBar {
@@ -159,14 +160,22 @@ impl MenuBar {
             active_category: None,
             hovered_item: None,
             height: 24,
+            scale_factor: 1.0,
         }
+    }
+
+    /// Sets the UI scale factor and updates logical height.
+    pub fn set_scale_factor(&mut self, factor: f64) {
+        self.scale_factor = factor;
+        self.height = (24.0 * factor).round() as usize;
     }
 
     /// Returns horizontal (start_x, end_x) for a category index.
     pub fn category_bounds(&self, index: usize, font_width: usize) -> (usize, usize) {
-        let mut cur_x = 8;
+        let pad = (16.0 * self.scale_factor).round() as usize;
+        let mut cur_x = (8.0 * self.scale_factor).round() as usize;
         for (i, cat) in self.categories.iter().enumerate() {
-            let w = cat.name.chars().count() * font_width + 16;
+            let w = cat.name.chars().count() * font_width + pad;
             if i == index {
                 return (cur_x, cur_x + w);
             }
@@ -180,11 +189,13 @@ impl MenuBar {
     /// If clicked inside open dropdown, returns the triggered EditorAction.
     /// If clicked outside, closes dropdown.
     pub fn handle_mouse_click(&mut self, x: usize, y: usize, font_width: usize) -> Option<EditorAction> {
+        let pad = (16.0 * self.scale_factor).round() as usize;
+        let start_x = (8.0 * self.scale_factor).round() as usize;
         // 1. Click on Menu Bar header
         if y < self.height {
-            let mut cur_x = 8;
+            let mut cur_x = start_x;
             for (idx, cat) in self.categories.iter().enumerate() {
-                let w = cat.name.chars().count() * font_width + 16;
+                let w = cat.name.chars().count() * font_width + pad;
                 if x >= cur_x && x < cur_x + w {
                     if self.active_category == Some(idx) {
                         self.active_category = None;
@@ -203,9 +214,9 @@ impl MenuBar {
         // 2. Click inside open dropdown menu
         if let Some(cat_idx) = self.active_category {
             let (drop_x, _) = self.category_bounds(cat_idx, font_width);
-            let drop_w = 260;
+            let drop_w = (260.0 * self.scale_factor).round() as usize;
             let cat = &self.categories[cat_idx];
-            let item_h = 22;
+            let item_h = (22.0 * self.scale_factor).round() as usize;
             let drop_h = cat.items.len() * item_h + 4;
 
             let drop_y = self.height;
@@ -242,11 +253,14 @@ impl MenuBar {
             return;
         }
 
+        let pad = (16.0 * self.scale_factor).round() as usize;
+        let start_x = (8.0 * self.scale_factor).round() as usize;
+
         // Switch category if hovering over another header while a menu is open
         if y < self.height {
-            let mut cur_x = 8;
+            let mut cur_x = start_x;
             for (idx, cat) in self.categories.iter().enumerate() {
-                let w = cat.name.chars().count() * font_width + 16;
+                let w = cat.name.chars().count() * font_width + pad;
                 if x >= cur_x && x < cur_x + w {
                     self.active_category = Some(idx);
                     self.hovered_item = None;
@@ -260,9 +274,9 @@ impl MenuBar {
         // Update hovered item inside open dropdown
         if let Some(cat_idx) = self.active_category {
             let (drop_x, _) = self.category_bounds(cat_idx, font_width);
-            let drop_w = 260;
+            let drop_w = (260.0 * self.scale_factor).round() as usize;
             let cat = &self.categories[cat_idx];
-            let item_h = 22;
+            let item_h = (22.0 * self.scale_factor).round() as usize;
             let drop_h = cat.items.len() * item_h + 4;
             let drop_y = self.height;
 
