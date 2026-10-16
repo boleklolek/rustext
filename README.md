@@ -107,6 +107,24 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - **Percepción de Bordes y Contraste Adaptativo**: Ajuste perceptivo según la ley de Weber-Fechner y la norma ITU-R BT.709 para modular el contraste del contorno tipográfico entre temas oscuros y claros, neutralizando la irradiación visual y ofreciendo filtro *unsharp masking* laplaciano.
   - Configurable desde `config.ini` (`font_ligatures = true`, `font_hinting = medium`, `smooth_shadows = true`, `animation_enabled = true`, `edge_perception = true`).
 
+- **Sistemas de Cajas Flexibles (Flexbox Layout Engine) y Arquitectura Reactiva vs. Retained**:
+  - **Motor Flexbox 100% Pure Rust**: Implementación completa inspirada en el estándar W3C CSS Flexible Box Layout:
+    - Ejes principales y transversales (`Row`, `Column`, `RowReverse`, `ColumnReverse`).
+    - Flujo multilínea con envoltura automática (`FlexWrap::Wrap`, `WrapReverse`).
+    - Distribución del espacio positivo libre y contracción de desbordamiento mediante factores `flex_grow`, `flex_shrink` y `flex_basis`.
+    - Justificación de elementos en el eje principal: `JustifyContent` (`FlexStart`, `Center`, `FlexEnd`, `SpaceBetween`, `SpaceAround`, `SpaceEvenly`).
+    - Alineación transversal: `AlignItems` (`Stretch`, `Center`, `FlexStart`, `FlexEnd`, `Baseline`), anulación individual con `AlignSelf`, y distribución multilínea con `AlignContent`.
+    - Dimensiones absolutas (`Points`), porcentuales (`Percent`) y automáticas (`Auto`), con márgenes (`margin`), rellenos (`padding`) y espaciado entre elementos (`gap`, `row_gap`, `col_gap`).
+    - Resolución recursiva en 2 pasadas con anidamiento jerárquico ilimitado para interfaces complejas.
+  - **Patrones Reactivos de Grano Fino (Fine-Grained Reactivity)**:
+    - Primitivas reactivas `Signal<T>` con versionado de épocas y notificaciones dirigidas.
+    - Cómputos derivados cacheados `Computed<T>` (*Memos*) que solo reevalúan cuando una señal observada cambia de versión (`eval_count`).
+    - Disparadores de efectos colaterales `Effect` para suscribir acciones a mutaciones de estado sin polling.
+  - **Arquitectura Híbrida Reactive-Retained**:
+    - **Immediate Mode**: Re-ejecuta toda la lógica por frame; sencillo pero costoso en cómputos de layout y gestión de estado retenido (foco, scroll, hit-testing).
+    - **Retained Mode**: Árbol persistente de widgets (`WidgetTree`, `WidgetNode`) que preserva geometrías, foco y despacha eventos de ratón (`hit_test`, `dispatch_mouse_click`, `dispatch_mouse_move`).
+    - **Patrón Reactivo-Retenido de Rustext**: Los widgets persisten en memoria y se suscriben a primitivas `Signal`. Al modificarse una señal, únicamente los nodos afectados actualizan sus banderas `DirtyFlags` (`layout`, `paint`) con propagación ascendente, evitando costosos recorridos de reconciliación tipo Virtual DOM y garantizando cero latencia en el renderizado sobre el `Framebuffer`.
+
 - **Árbol de Proyecto y Explorador Lateral (File Explorer)**:
   - Barra lateral acoplada a la izquierda con visibilidad alternable mediante `Ctrl + B`.
   - Escaneo perezoso de carpetas (solo inspecciona en disco lo que se expande).

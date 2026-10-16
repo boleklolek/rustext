@@ -890,3 +890,57 @@ Ejecute simplemente `./target/release/rustext` sin banderas, o `./target/release
 
 ### ¿Cómo cambio el tema visual?
 Abra el menú superior **Preferencias > Tema** o agregue `name = catppuccin-mocha` en su archivo `config.ini`.
+
+---
+
+## 17. Motor de Cajas Flexibles (Flexbox) y Paradigmas de UI (Reactivo vs. Retained)
+
+Rustext incorpora un motor de diseño de interfaces modular y declarativo implementado íntegramente en **100% Rust estándar (`std::*`)**, sin librerías externas.
+
+### 17.1 El Motor de Cajas Flexibles (Flexbox Layout Engine)
+
+Inspirado en la especificación W3C CSS Flexible Box Layout, el módulo [`rustext::ui::flex`](file:///home/bolek/Proyectos/rustext/src/ui/flex.rs) desacopla la geometría rígida de coordenadas fijas, permitiendo que los componentes de la interfaz se adapten fluidamente a cualquier resolución o factor de escala HiDPI.
+
+#### 1. Modelo Bidimensional de Ejes:
+- **Eje Principal (*Main Axis*)**: Dirección a lo largo de la cual se apilan los elementos flexibles:
+  - `FlexDirection::Row`: Izquierda a derecha.
+  - `FlexDirection::RowReverse`: Derecha a izquierda.
+  - `FlexDirection::Column`: Arriba a abajo.
+  - `FlexDirection::ColumnReverse`: Abajo a arriba.
+- **Eje Transversal (*Cross Axis*)**: Perpendicular al eje principal (vertical en `Row`, horizontal en `Column`).
+
+#### 2. Distribución y Flexibilidad:
+- **`flex_grow`**: Proporción en la que un elemento absorbe el espacio positivo libre sobrante en el contenedor:
+  $$\text{espacio\_extra}_i = \text{espacio\_libre} \cdot \frac{\text{grow}_i}{\sum \text{grow}}$$
+- **`flex_shrink`**: Proporción en la que un elemento se comprime ante un desbordamiento negativo:
+  $$\text{reducción}_i = \text{desbordamiento} \cdot \frac{\text{shrink}_i \cdot \text{basis}_i}{\sum (\text{shrink}_k \cdot \text{basis}_k)}$$
+- **`flex_basis`**: Dimensión base inicial antes de aplicar distribución (`Auto`, `Points(f32)`, `Percent(f32)`).
+- **`gap` / `row_gap` / `col_gap`**: Separación física entre elementos adyacentes sin colisión de márgenes.
+
+#### 3. Justificación y Alineación:
+- **`JustifyContent`** (Eje Principal): `FlexStart`, `Center`, `FlexEnd`, `SpaceBetween`, `SpaceAround`, `SpaceEvenly`.
+- **`AlignItems`** y **`AlignSelf`** (Eje Transversal): `Stretch` (estiramiento automático a la altura/anchura de la línea), `Center`, `FlexStart`, `FlexEnd`, `Baseline`.
+- **`FlexWrap`** y **`AlignContent`**: Envoltura en múltiples líneas flexibles (`NoWrap`, `Wrap`, `WrapReverse`) y distribución vertical de las líneas resultantes.
+
+---
+
+### 17.2 Patrones de Interfaz: Immediate vs. Retained vs. Reactivo
+
+| Característica | Immediate Mode GUI (IMGUI) | Retained Mode GUI (RMGUI) | Fine-Grained Reactive (Reactivo) | Enfoque Híbrido de Rustext |
+| :--- | :--- | :--- | :--- | :--- |
+| **Persistencia del Árbol** | No existe. Se reconstruye y reejecuta cada frame. | Árbol pesado y persistente de objetos en memoria. | Grafo de dependencias de señales; componentes como closures. | **Árbol Retenido (`WidgetTree`) persistente**. |
+| **Frecuencia de Cómputo** | Constante a 60/120 FPS independientemente de cambios. | Por invalidación manual o eventos de sistema. | Por cambio de versión en señales individuales ($\mathcal{O}(1)$). | **Invalidación selectiva reactiva con `DirtyFlags`**. |
+| **Gestión de Foco y Scroll** | Requiere trucos de cache/ID stack por cuadro. | Nativa y retenida en el nodo del widget. | Enlazada a señales de estado de la aplicación. | **Retenida en el widget y sincronizada por señales**. |
+| **Complejidad de Layout** | Difícil para dos pasadas (shrink-to-fit requiere delay). | Natural, cacheado en nodos persistentes. | Recalculado cuando cambian dimensiones observadas. | **Resolución Flexbox de 2 pasadas cacheada**. |
+| **Reconciliación** | Inexistente (siempre redibuja). | Inexistente (mutación imperativa en árbol). | Inexistente (sin Virtual DOM; reacciona a nivel de dato). | **Cero Virtual DOM; sin diffing recursivo de árboles**. |
+
+#### La Síntesis Arquitectónica en Rustext:
+1. **Primitivas Reactivas de Grano Fino** ([`rustext::ui::reactive`](file:///home/bolek/Proyectos/rustext/src/ui/reactive.rs)):
+   - `Signal<T>`: Contenedor reactivo con versionado de épocas y lista de suscriptores directos.
+   - `Computed<T>` (*Memos*): Valores derivados cacheados que se evalúan perezosamente (*lazy*) únicamente cuando la versión de la señal origen avanza.
+   - `Effect`: Disparador de efectos colaterales automáticos ante mutaciones de estado.
+2. **Árbol de Widgets Retenido** ([`rustext::ui::retained`](file:///home/bolek/Proyectos/rustext/src/ui/retained.rs)):
+   - `WidgetNode` y `WidgetTree`: Mantienen identidades persistentes (`WidgetId`), estado de hover, foco y rectángulos de layout (`Rect`).
+   - Los widgets enlazan sus propiedades a señales reactivas (`bind_text`, etc.).
+   - Cuando una señal cambia, sólo los nodos dependientes marcan `dirty.layout` o `dirty.paint` y lo propagan hacia arriba, garantizando que el pipeline gráfico sólo procese lo estrictamente necesario sin pérdida de rendimiento.
+

@@ -2150,6 +2150,7 @@ fn test_recent_files_modal_navigation_and_open() {
     fs::write(&file_2, "file 2").unwrap();
 
     let mut editor = Editor::new(TextBuffer::new());
+    editor.recent_files.clear();
     editor.open_file(&file_1);
     editor.open_file(&file_2);
 

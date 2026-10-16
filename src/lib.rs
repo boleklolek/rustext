@@ -16,7 +16,13 @@ pub use plugin::{
     ExtensionCommand, ExtensionInfo, ExtensionManager, Plugin, PluginContext, PluginRegistry,
     ProcessPluginRunner,
 };
-pub use ui::{Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind};
+pub use ui::{
+    Key, TerminalGuard, Screen, Theme, PromptModal, PromptKind,
+    FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignSelf, AlignContent,
+    Dimension, Edges, Rect, FlexStyle, FlexNode,
+    Signal, Computed, Effect, DirtyFlags,
+    WidgetNode, WidgetTree, WidgetKind, WidgetId,
+};
 pub use gfx::{Framebuffer, GfxRenderer, ThemeColors};
 pub use window::{NativeWindow, WindowEvent, MouseButton};
 pub use editor::{
