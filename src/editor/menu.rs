@@ -3,6 +3,7 @@
 
 use crate::editor::keymap::EditorAction;
 use crate::editor::config::EditorTheme;
+use crate::gfx::FontFamily;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuItem {
@@ -115,6 +116,18 @@ impl MenuBar {
                 items: vec![
                     MenuItem::action("Abrir Configuración...", "", EditorAction::OpenConfig),
                     MenuItem::action("Recargar Configuración", "", EditorAction::ReloadConfig),
+                    MenuItem::separator(),
+                    MenuItem::action("Selector de Fuentes...", "Ctrl+Shift+T", EditorAction::OpenFontSelector),
+                    MenuItem::action("Aumentar Tamaño (+)", "Ctrl++", EditorAction::IncreaseFontSize),
+                    MenuItem::action("Disminuir Tamaño (-)", "Ctrl+-", EditorAction::DecreaseFontSize),
+                    MenuItem::action("Restablecer Tamaño (12pt)", "Ctrl+0", EditorAction::ResetFontSize),
+                    MenuItem::separator(),
+                    MenuItem::action("Fuente: Standard Mono", "", EditorAction::SetFontFamily(FontFamily::Standard)),
+                    MenuItem::action("Fuente: Terminus Console", "", EditorAction::SetFontFamily(FontFamily::Terminus)),
+                    MenuItem::action("Fuente: Modern Coding Sans", "", EditorAction::SetFontFamily(FontFamily::Modern)),
+                    MenuItem::action("Fuente: Typewriter Slab", "", EditorAction::SetFontFamily(FontFamily::Typewriter)),
+                    MenuItem::action("Fuente: Retro Pixel", "", EditorAction::SetFontFamily(FontFamily::Retro)),
+                    MenuItem::separator(),
                     MenuItem::action("Tema: Tokyo Night", "", EditorAction::SetTheme(EditorTheme::TokyoNight)),
                     MenuItem::action("Tema: Catppuccin Mocha", "", EditorAction::SetTheme(EditorTheme::Catppuccin)),
                     MenuItem::action("Tema: One Dark", "", EditorAction::SetTheme(EditorTheme::OneDark)),

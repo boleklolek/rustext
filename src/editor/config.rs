@@ -120,6 +120,9 @@ pub struct GuiSettings {
     pub terminal_shell: String,
     pub font_ligatures: bool,
     pub font_hinting: String,
+    pub font_family: String,
+    pub font_size: usize,
+    pub font_weight: String,
     pub smooth_shadows: bool,
     pub animation_enabled: bool,
     pub edge_perception: bool,
@@ -151,6 +154,9 @@ impl Default for GuiSettings {
             terminal_shell: String::new(),
             font_ligatures: true,
             font_hinting: "medium".to_string(),
+            font_family: "standard".to_string(),
+            font_size: 12,
+            font_weight: "normal".to_string(),
             smooth_shadows: true,
             animation_enabled: true,
             edge_perception: true,
@@ -274,6 +280,15 @@ terminal_height = 180
 
 ; Shell personalizada para el terminal integrado (vacío para autodetección)
 terminal_shell = 
+
+; Familia de fuente tipográfica: standard, terminus, modern, typewriter, retro
+font_family = standard
+
+; Tamaño de fuente en puntos (10, 11, 12, 14, 16, 18, 20, 24)
+font_size = 12
+
+; Grosor de trazo tipográfico: normal, semibold, bold
+font_weight = normal
 "#
     }
 
@@ -324,6 +339,9 @@ terminal_height = {}
 terminal_shell = {}
 font_ligatures = {}
 font_hinting = {}
+font_family = {}
+font_size = {}
+font_weight = {}
 smooth_shadows = {}
 animation_enabled = {}
 edge_perception = {}
@@ -365,6 +383,9 @@ edge_perception = {}
             self.gui.terminal_shell,
             self.gui.font_ligatures,
             self.gui.font_hinting,
+            self.gui.font_family,
+            self.gui.font_size,
+            self.gui.font_weight,
             self.gui.smooth_shadows,
             self.gui.animation_enabled,
             self.gui.edge_perception,
@@ -600,6 +621,21 @@ edge_perception = {}
                         "font_hinting" => {
                             if !val_unquoted.is_empty() {
                                 config.gui.font_hinting = val_unquoted.to_string();
+                            }
+                        }
+                        "font_family" => {
+                            if !val_unquoted.is_empty() {
+                                config.gui.font_family = val_unquoted.to_string();
+                            }
+                        }
+                        "font_size" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.font_size = n.clamp(8, 48);
+                            }
+                        }
+                        "font_weight" => {
+                            if !val_unquoted.is_empty() {
+                                config.gui.font_weight = val_unquoted.to_string();
                             }
                         }
                         "smooth_shadows" => {

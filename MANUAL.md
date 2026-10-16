@@ -17,6 +17,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
    - [3.4 Rasterizador de Fuentes Tipográficas y Corrección Gamma (sRGB IEC 61966-2-1)](#34-rasterizador-de-fuentes-tipográficas-y-corrección-gamma-srgb-iec-61966-2-1)
    - [3.5 Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor](#35-soporte-hidpi-nativo-y-escalado-de-coordenadas-del-monitor)
    - [3.6 Font Shaping, Hinting, Antialiasing Analítico y Efectos Visuales](#36-font-shaping-hinting-antialiasing-analítico-y-efectos-visuales)
+   - [3.7 Selector de Fuentes Interactivo y Sistema Tipográfico Avanzado](#37-selector-de-fuentes-interactivo-y-sistema-tipográfico-avanzado)
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
@@ -366,6 +367,66 @@ animation_enabled = true  # Activar animaciones y curvas de aceleración (easing
 edge_perception = true    # Adaptación de contraste perceptual de bordes (Weber-Fechner)
 ```
 
+### 3.7 Selector de Fuentes Interactivo y Sistema Tipográfico Avanzado
+
+Rustext incorpora un completo subsistema tipográfico y un diálogo modal interactivo de selección de fuentes (`Ctrl + Shift + T` o menú `Preferencias > Tipografía...`) que permite personalizar al vuelo la experiencia visual de lectura y programación sin dependencias externas ni consumo de recursos.
+
+#### 1. Cinco Familias Tipográficas Monoespaciadas Integradas (`FontFamily`)
+El motor cuenta con 5 fuentes diseñadas minuciosamente para programación, cada una con un carácter e identidad visual únicos:
+- **`Standard Mono` (`standard`)**: Familia equilibrada, neutra y limpia, optimizada para sesiones de desarrollo prolongadas con mínima fatiga visual.
+- **`Terminus Console` (`terminus`)**: Alto contraste geométrico, cero con barra oblicua interior (`0` tachado), `1` con pedestal y gancho superior, `l` con gancho inferior curvado, e `I` mayúscula con serifas transversales simétricas; rescata la estética clásica de consolas UNIX/Linux.
+- **`Modern Coding Sans` (`modern`)**: Diseño neo-grotesco contemporáneo de aperturas abiertas, cero con punto central distintivo, letras curvas suaves (`a`, `g`, `t`, `f`) y trazado minimalista.
+- **`Typewriter Slab` (`typewriter`)**: Tipografía de estilo mecanográfico editorial con serifas gruesas cuadradas (*slab serifs*) en letras clave (`A`, `H`, `M`, `i`, `l`, `r`).
+- **`Retro Pixel 8-Bit` (`retro`)**: Estilo arcade retro y computación clásica de los años 80; desactiva el suavizado analítico forzando píxeles nítidos y bloques rectos de alto impacto.
+
+#### 2. Escalado Bilineal Continuo y Tamaños de Fuente (`Font Size`)
+A diferencia de los rasterizadores de bitmap rígidos, Rustext implementa **muestreo subpíxel bilineal continuo**:
+$$\text{ancho\_celda} = \text{round}\left(\text{tamaño} \cdot \frac{8.0}{12.0}\right) \cdot \text{font\_scale}, \quad \text{alto\_celda} = \text{round}\left(\text{tamaño} \cdot \frac{16.0}{12.0}\right) \cdot \text{font\_scale}$$
+- Tamaños estándar seleccionables: **`10, 11, 12, 14, 16, 18, 20, 24 pt`**.
+- Mapea cualquier tamaño a la cuadrícula de cobertura continua mediante interpolación bilineal:
+  $$u = \frac{x + 0.5}{W} \cdot 8.0 - 0.5, \quad v = \frac{y + 0.5}{H} \cdot 16.0 - 0.5$$
+  proporcionando caracteres perfectamente proporcionados y legibles a cualquier resolución sin artefactos de escalera ni deformaciones.
+
+#### 3. Simulación Física de Grosores de Trazo (`FontWeight`)
+- **`Normal`**: Cobertura estándar derivada del contorno base.
+- **`Semibold`**: Aumento adaptativo de opacidad en bordes de subpíxel (+35 en la máscara de cobertura) para mayor peso visual en pantallas de alta densidad.
+- **`Bold` (Negrita)**: **Dilatación morfológica horizontal analítica**:
+  $$\text{bmp}_{\text{bold}}[y] = \text{bmp}[y] \mid (\text{bmp}[y] \gg 1)$$
+  Engrosa los tallos verticales exactamente en 1 píxel físico antes del cómputo de cobertura y blending lineal, produciendo un resaltado contundente y natural.
+
+#### 4. Diálogo Flotante de Selección y Vista Previa en Vivo (`FontSelectorDialog`)
+El modal flotante está organizado en un diseño ergonómico de dos columnas:
+- **Columna Izquierda (Controles)**:
+  - Tarjetas de selección para las 5 familias tipográficas con nombre y descripción.
+  - Píldoras de selección directa de tamaño de fuente (`10` a `24 pt`).
+  - Botones de selección de peso de trazo (`Normal`, `Semibold`, `Bold`).
+  - Chips de alternancia de ligaduras, anti-aliasing e interlineado vertical (`1px, 3px, 5px, 8px`).
+- **Columna Derecha (Live Preview Box)**:
+  - Cuadro de previsualización con código Rust sintácticamente coloreado (`fn benchmark_render()`, comentarios, palabras clave, cadenas con ligaduras `->`, `!=`, `=>`, `==`).
+  - Se re-rasteriza en tiempo real al seleccionar cualquier opción, permitiendo evaluar el resultado antes de confirmar.
+- **Navegación e Interacción Total**:
+  - **Teclado**: `Tab` para alternar entre secciones (Familias, Tamaños, Grosores, Opciones, Botones), `↑`/`↓` para seleccionar, `←`/`→` para ajustar tamaños o grosores, `+`/`-`/`0` para zoom rápido, `l` para ligaduras, `a` para anti-alias, `s` para interlineado, `Enter` para aplicar y `Esc` para cancelar.
+  - **Ratón**: Clic directo en cualquier tarjeta, píldora, chip o botón con respuesta hover visual; rueda del ratón (`ScrollUp`/`ScrollDown`) para incrementar o decrementar el tamaño de fuente interactivamente.
+
+#### 5. Atajos Rápidos de Zoom
+Rustext permite modificar el tamaño tipográfico en cualquier momento durante la edición:
+- `Ctrl + +` o `Ctrl + =`: Aumentar tamaño de fuente (siguiente peldaño en la escala).
+- `Ctrl + -`: Disminuir tamaño de fuente (peldaño anterior en la escala).
+- `Ctrl + 0`: Restablecer tamaño de fuente inmediatamente al valor predeterminado (**12 pt**).
+- `Ctrl + Shift + T`: Abrir el diálogo modal interactivo de tipografía.
+
+#### 6. Persistencia en `config.ini`
+```ini
+[gui]
+font_family = standard   # standard, terminus, modern, typewriter, retro
+font_size = 12            # 10, 11, 12, 14, 16, 18, 20, 24 pt
+font_weight = normal      # normal, semibold, bold
+line_spacing = 3          # Interlineado vertical en píxeles: 1, 3, 5, 8
+font_ligatures = true     # Ligaduras de programación
+font_antialiasing = true  # Anti-aliasing espacial
+font_hinting = medium     # none, slight, medium, full
+```
+
 ---
 
 ## 4. Árbol de Proyecto y Explorador Lateral
@@ -710,6 +771,10 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | `PageUp` | Cambiar a pestaña anterior | Ver > Pestaña Anterior |
 | `PageDown` | Cambiar a pestaña siguiente | Ver > Pestaña Siguiente |
 | `Ctrl + P` | Abrir Paleta de Comandos | Ver > Paleta de Comandos... |
+| `Ctrl + Shift + T`| **Selector de Fuentes y Tipografía (Modal con Vista Previa)** | Preferencias > Tipografía... |
+| `Ctrl + +` / `Ctrl + =` | **Aumentar Tamaño de Fuente (Zoom In)** | Preferencias > Aumentar Tamaño |
+| `Ctrl + -` | **Disminuir Tamaño de Fuente (Zoom Out)** | Preferencias > Disminuir Tamaño |
+| `Ctrl + 0` | **Restablecer Tamaño de Fuente (Reset Zoom a 12pt)** | Preferencias > Restablecer Tamaño |
 | `Ctrl + Shift + X`| Administrador de Extensiones | Extensiones > Administrador... |
 | `Ctrl + Shift + G`| **Actualizar Estado Git (Git Gutter)** | Herramientas > Actualizar Estado Git |
 | `Ctrl + Shift + I`| Formatear Documento | Herramientas > Formatear Documento |
@@ -753,7 +818,10 @@ window_width = 1100
 window_height = 720
 scale_factor = 0.0        # Factor de escala HiDPI (0.0 = autodetección por monitor/OS, 1.0, 1.5, 2.0)
 font_scale = 1
-line_spacing = 2
+font_family = standard   # standard, terminus, modern, typewriter, retro
+font_size = 12           # 10, 11, 12, 14, 16, 18, 20, 24 pt
+font_weight = normal     # normal, semibold, bold
+line_spacing = 3         # Interlineado vertical en píxeles: 1, 3, 5, 8
 cursor_style = bar       # Opciones: bar, block, underline
 cursor_blink = true
 rounded_corners = true

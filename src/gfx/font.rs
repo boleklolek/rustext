@@ -7,8 +7,108 @@ pub const FONT_HEIGHT: usize = 16;
 /// Fixed-size 8x16 anti-aliased coverage mask (128 bytes, 0..=255 per subpixel).
 pub type GlyphCoverage16 = [u8; 128];
 
+/// Font Family identifier for monospace coding fonts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FontFamily {
+    Standard,
+    Terminus,
+    Modern,
+    Typewriter,
+    Retro,
+}
+
+impl FontFamily {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            FontFamily::Standard => "standard",
+            FontFamily::Terminus => "terminus",
+            FontFamily::Modern => "modern",
+            FontFamily::Typewriter => "typewriter",
+            FontFamily::Retro => "retro",
+        }
+    }
+
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            FontFamily::Standard => "Standard Mono",
+            FontFamily::Terminus => "Terminus Console",
+            FontFamily::Modern => "Modern Coding Sans",
+            FontFamily::Typewriter => "Typewriter Slab",
+            FontFamily::Retro => "Retro Pixel 8-Bit",
+        }
+    }
+
+    pub const fn description(&self) -> &'static str {
+        match self {
+            FontFamily::Standard => "Equilibrada, limpia y optimizada para lectura prolongada",
+            FontFamily::Terminus => "Alto contraste, cero tachado y estetica de consola",
+            FontFamily::Modern => "Curvas suaves, aperturas abiertas y codigo minimalista",
+            FontFamily::Typewriter => "Serifas mecanicas marcadas de estilo academico",
+            FontFamily::Retro => "Pixeles puros estilo arcade y computacion de 8 bits",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name.to_lowercase().trim() {
+            "terminus" | "console" | "terminal" => FontFamily::Terminus,
+            "modern" | "sans" | "code" => FontFamily::Modern,
+            "typewriter" | "slab" | "serif" => FontFamily::Typewriter,
+            "retro" | "pixel" | "8bit" | "arcade" => FontFamily::Retro,
+            _ => FontFamily::Standard,
+        }
+    }
+
+    pub const ALL: [FontFamily; 5] = [
+        FontFamily::Standard,
+        FontFamily::Terminus,
+        FontFamily::Modern,
+        FontFamily::Typewriter,
+        FontFamily::Retro,
+    ];
+}
+
+/// Font stroke weight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FontWeight {
+    Normal,
+    Semibold,
+    Bold,
+}
+
+impl FontWeight {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            FontWeight::Normal => "normal",
+            FontWeight::Semibold => "semibold",
+            FontWeight::Bold => "bold",
+        }
+    }
+
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            FontWeight::Normal => "Normal",
+            FontWeight::Semibold => "Semibold",
+            FontWeight::Bold => "Bold",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name.to_lowercase().trim() {
+            "semibold" | "semi" | "medium" => FontWeight::Semibold,
+            "bold" | "negrita" => FontWeight::Bold,
+            _ => FontWeight::Normal,
+        }
+    }
+
+    pub const ALL: [FontWeight; 3] = [
+        FontWeight::Normal,
+        FontWeight::Semibold,
+        FontWeight::Bold,
+    ];
+}
+
 /// Advanced font rasterizer with subpixel spatial anti-aliasing,
-/// box-drawing edge preservation, and smooth bilinear high-DPI scaling.
+/// box-drawing edge preservation, multi-family fonts, and smooth continuous scaling.
 pub struct FontRasterizer;
 
 static ASCII_AA_CACHE: OnceLock<Box<[GlyphCoverage16; 95]>> = OnceLock::new();
@@ -135,28 +235,83 @@ impl FontRasterizer {
         }
     }
 
-    /// Rasterizes glyph scaled to `(8 * scale) x (16 * scale)` with continuous bilinear sampling.
-    pub fn rasterize_glyph_scaled(ch: char, scale: usize) -> (usize, usize, Vec<u8>) {
-        let scale = scale.max(1);
-        let base = Self::get_glyph_coverage(ch);
+    /// Computes coverage mask taking into account font family (e.g. sharp retro) and weight (dilation/bolding).
+    pub fn compute_coverage_ex(bitmap: &[u8; 16], is_box_drawing: bool, family: FontFamily, weight: FontWeight) -> GlyphCoverage16 {
+        let mut dilated = [0u8; 16];
+        let effective_bitmap = match weight {
+            FontWeight::Bold => {
+                for y in 0..16 {
+                    dilated[y] = bitmap[y] | (bitmap[y] >> 1);
+                }
+                &dilated
+            }
+            _ => bitmap,
+        };
 
-        if scale == 1 {
+        if family == FontFamily::Retro {
+            let mut out = [0u8; 128];
+            for y in 0..16 {
+                for x in 0..8 {
+                    let is_set = (effective_bitmap[y] & (0x80 >> x)) != 0;
+                    out[y * 8 + x] = if is_set { 255 } else { 0 };
+                }
+            }
+            return out;
+        }
+
+        let mut out = Self::compute_coverage(effective_bitmap, is_box_drawing);
+        if weight == FontWeight::Semibold {
+            for val in out.iter_mut() {
+                if *val > 0 && *val < 255 {
+                    *val = (*val as u16 + 35).min(255) as u8;
+                }
+            }
+        }
+        out
+    }
+
+    /// Retrieves glyph coverage for a specific font family and weight.
+    pub fn get_glyph_coverage_for(ch: char, family: FontFamily, weight: FontWeight) -> GlyphCoverage16 {
+        if family == FontFamily::Standard && weight == FontWeight::Normal {
+            return *Self::get_glyph_coverage(ch);
+        }
+        let is_box = Self::is_box_drawing(ch);
+        let bmp = get_family_glyph(ch, family);
+        Self::compute_coverage_ex(bmp, is_box, family, weight)
+    }
+
+    /// Rasterizes glyph sized to arbitrary target width and height `(target_w x target_h)`
+    /// applying continuous bilinear spatial interpolation.
+    pub fn rasterize_glyph_sized(
+        ch: char,
+        family: FontFamily,
+        target_w: usize,
+        target_h: usize,
+        weight: FontWeight,
+    ) -> (usize, usize, Vec<u8>) {
+        let target_w = target_w.max(1);
+        let target_h = target_h.max(1);
+
+        if target_w == FONT_WIDTH && target_h == FONT_HEIGHT && family == FontFamily::Standard && weight == FontWeight::Normal {
+            return (FONT_WIDTH, FONT_HEIGHT, Self::get_glyph_coverage(ch).to_vec());
+        }
+
+        let base = Self::get_glyph_coverage_for(ch, family, weight);
+        if target_w == FONT_WIDTH && target_h == FONT_HEIGHT {
             return (FONT_WIDTH, FONT_HEIGHT, base.to_vec());
         }
 
-        let w = FONT_WIDTH * scale;
-        let h = FONT_HEIGHT * scale;
-        let mut out = vec![0u8; w * h];
+        let mut out = vec![0u8; target_w * target_h];
 
-        for y in 0..h {
-            let v = (y as f64 + 0.5) / (scale as f64) - 0.5;
+        for y in 0..target_h {
+            let v = (y as f64 + 0.5) / (target_h as f64) * 16.0 - 0.5;
             let v_clamped = v.clamp(0.0, 15.0);
             let v0 = v_clamped.floor() as usize;
             let v1 = (v0 + 1).min(15);
             let fv = v_clamped - (v0 as f64);
 
-            for x in 0..w {
-                let u = (x as f64 + 0.5) / (scale as f64) - 0.5;
+            for x in 0..target_w {
+                let u = (x as f64 + 0.5) / (target_w as f64) * 8.0 - 0.5;
                 let u_clamped = u.clamp(0.0, 7.0);
                 let u0 = u_clamped.floor() as usize;
                 let u1 = (u0 + 1).min(7);
@@ -171,13 +326,138 @@ impl FontRasterizer {
                 let bot = c01 * (1.0 - fu) + c11 * fu;
                 let val = (top * (1.0 - fv) + bot * fv).round().clamp(0.0, 255.0) as u8;
 
-                out[y * w + x] = val;
+                out[y * target_w + x] = val;
             }
         }
 
-        (w, h, out)
+        (target_w, target_h, out)
+    }
+
+    /// Rasterizes glyph scaled to `(8 * scale) x (16 * scale)` with continuous bilinear sampling.
+    pub fn rasterize_glyph_scaled(ch: char, scale: usize) -> (usize, usize, Vec<u8>) {
+        let scale = scale.max(1);
+        Self::rasterize_glyph_sized(ch, FontFamily::Standard, FONT_WIDTH * scale, FONT_HEIGHT * scale, FontWeight::Normal)
     }
 }
+
+/// Retorna el mapa de bits crudo de 8x16 según la familia de fuente especificada.
+pub fn get_family_glyph(ch: char, family: FontFamily) -> &'static [u8; 16] {
+    match family {
+        FontFamily::Standard => get_glyph(ch),
+        FontFamily::Terminus => match ch {
+            '0' => &TERMINUS_0,
+            '1' => &TERMINUS_1,
+            'l' => &TERMINUS_L,
+            'I' => &TERMINUS_CAP_I,
+            'Z' => &TERMINUS_CAP_Z,
+            'z' => &TERMINUS_Z,
+            _ => get_glyph(ch),
+        },
+        FontFamily::Modern => match ch {
+            'a' => &MODERN_A,
+            'g' => &MODERN_G,
+            'f' => &MODERN_F,
+            't' => &MODERN_T,
+            '0' => &MODERN_0,
+            'Q' => &MODERN_CAP_Q,
+            _ => get_glyph(ch),
+        },
+        FontFamily::Typewriter => match ch {
+            'A' => &TYPEWRITER_CAP_A,
+            'H' => &TYPEWRITER_CAP_H,
+            'M' => &TYPEWRITER_CAP_M,
+            'i' => &TYPEWRITER_I,
+            'l' => &TYPEWRITER_L,
+            'r' => &TYPEWRITER_R,
+            _ => get_glyph(ch),
+        },
+        FontFamily::Retro => match ch {
+            '0' => &RETRO_0,
+            'C' => &RETRO_CAP_C,
+            'E' => &RETRO_CAP_E,
+            'o' => &RETRO_O,
+            's' => &RETRO_S,
+            _ => get_glyph(ch),
+        },
+    }
+}
+
+// Glifos específicos para Terminus Console
+const TERMINUS_0: [u8; 16] = [
+    0x00, 0x00, 0x3C, 0x66, 0x6E, 0x76, 0x76, 0x6E, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TERMINUS_1: [u8; 16] = [
+    0x00, 0x00, 0x18, 0x38, 0x58, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TERMINUS_L: [u8; 16] = [
+    0x00, 0x00, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TERMINUS_CAP_I: [u8; 16] = [
+    0x00, 0x00, 0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TERMINUS_CAP_Z: [u8; 16] = [
+    0x00, 0x00, 0x7E, 0x06, 0x1E, 0x18, 0x3C, 0x60, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TERMINUS_Z: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x7E, 0x0C, 0x3C, 0x30, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+// Glifos específicos para Modern Coding Sans
+const MODERN_A: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x3C, 0x06, 0x3E, 0x66, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const MODERN_G: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x3E, 0x66, 0x66, 0x3E, 0x06, 0x66, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const MODERN_F: [u8; 16] = [
+    0x00, 0x00, 0x1C, 0x30, 0x7E, 0x30, 0x30, 0x30, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const MODERN_T: [u8; 16] = [
+    0x00, 0x00, 0x20, 0x20, 0x7C, 0x20, 0x20, 0x22, 0x1C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const MODERN_0: [u8; 16] = [
+    0x00, 0x00, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const MODERN_CAP_Q: [u8; 16] = [
+    0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x0E, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+// Glifos específicos para Typewriter Slab Mono
+const TYPEWRITER_CAP_A: [u8; 16] = [
+    0x00, 0x00, 0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0xE7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TYPEWRITER_CAP_H: [u8; 16] = [
+    0x00, 0x00, 0xEE, 0x66, 0x66, 0x7E, 0x66, 0x66, 0xEE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TYPEWRITER_CAP_M: [u8; 16] = [
+    0x00, 0x00, 0xEF, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0xF7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TYPEWRITER_I: [u8; 16] = [
+    0x00, 0x00, 0x18, 0x00, 0x38, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TYPEWRITER_L: [u8; 16] = [
+    0x00, 0x00, 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const TYPEWRITER_R: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x76, 0x3C, 0x18, 0x18, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+// Glifos específicos para Retro Pixel 8-Bit
+const RETRO_0: [u8; 16] = [
+    0x00, 0x00, 0x7E, 0x42, 0x42, 0x5A, 0x42, 0x42, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const RETRO_CAP_C: [u8; 16] = [
+    0x00, 0x00, 0x7E, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const RETRO_CAP_E: [u8; 16] = [
+    0x00, 0x00, 0x7E, 0x40, 0x40, 0x7C, 0x40, 0x40, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const RETRO_O: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x3C, 0x24, 0x24, 0x24, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const RETRO_S: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x3C, 0x20, 0x3C, 0x04, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
 
 /// Retorna el mapa de bits crudo de 8x16 (16 bytes, 1 byte por fila) para un caracter dado.
 pub fn get_glyph(ch: char) -> &'static [u8; 16] {

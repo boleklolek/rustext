@@ -2707,3 +2707,214 @@ fn test_modern_gfx_config_and_renderer_integration() {
     assert!(renderer.font_ligatures);
     renderer.render_shadow(&mut fb, 20, 20, 80, 30, 6, 4);
 }
+
+#[test]
+fn test_font_family_and_weight_properties_and_dilation() {
+    use rustext::gfx::font::{FontFamily, FontRasterizer, FontWeight};
+
+    // 1. Verify 5 distinct monospace font families
+    assert_eq!(FontFamily::ALL.len(), 5);
+    for &f in &FontFamily::ALL {
+        assert!(!f.as_str().is_empty());
+        assert!(!f.display_name().is_empty());
+        assert!(!f.description().is_empty());
+        assert_eq!(FontFamily::from_name(f.as_str()), f);
+    }
+
+    assert_eq!(FontFamily::from_name("terminus"), FontFamily::Terminus);
+    assert_eq!(FontFamily::from_name("modern"), FontFamily::Modern);
+    assert_eq!(FontFamily::from_name("typewriter"), FontFamily::Typewriter);
+    assert_eq!(FontFamily::from_name("retro"), FontFamily::Retro);
+    assert_eq!(FontFamily::from_name("standard"), FontFamily::Standard);
+    assert_eq!(FontFamily::from_name("unknown_font"), FontFamily::Standard);
+
+    // 2. Verify Font weights and dilation
+    assert_eq!(FontWeight::ALL.len(), 3);
+    for &w in &FontWeight::ALL {
+        assert!(!w.as_str().is_empty());
+        assert!(!w.display_name().is_empty());
+        assert_eq!(FontWeight::from_name(w.as_str()), w);
+    }
+
+    // 3. Bilinear sizing test across dimensions
+    for &family in &FontFamily::ALL {
+        for (w, h) in [(8, 16), (11, 21), (13, 27), (16, 32)] {
+            let (out_w, out_h, cov) = FontRasterizer::rasterize_glyph_sized('A', family, w, h, FontWeight::Normal);
+            assert_eq!(out_w, w);
+            assert_eq!(out_h, h);
+            assert_eq!(cov.len(), w * h);
+            let active = cov.iter().filter(|&&c| c > 0).count();
+            assert!(active > 0, "Glyph 'A' for {:?} at {}x{} should have painted pixels", family, w, h);
+        }
+    }
+
+    // 4. Verify Bold dilation produces more covered subpixels than Normal
+    let (_, _, cov_normal) = FontRasterizer::rasterize_glyph_sized('B', FontFamily::Standard, 8, 16, FontWeight::Normal);
+    let (_, _, cov_bold) = FontRasterizer::rasterize_glyph_sized('B', FontFamily::Standard, 8, 16, FontWeight::Bold);
+    let count_normal: usize = cov_normal.iter().map(|&c| c as usize).sum();
+    let count_bold: usize = cov_bold.iter().map(|&c| c as usize).sum();
+    assert!(count_bold > count_normal, "Bold glyph should have higher total coverage due to horizontal dilation");
+}
+
+#[test]
+fn test_font_selector_dialog_lifecycle_and_navigation() {
+    use rustext::editor::font_selector::FontSelectorDialog;
+    use rustext::gfx::font::{FontFamily, FontWeight};
+    use rustext::gfx::HintingLevel;
+    use rustext::ui::terminal::Key;
+
+    let mut dialog = FontSelectorDialog::new(
+        FontFamily::Standard,
+        12,
+        FontWeight::Normal,
+        3,
+        true,
+        true,
+        HintingLevel::Medium,
+    );
+
+    assert_eq!(dialog.selected_family, FontFamily::Standard);
+    assert_eq!(dialog.selected_size, 12);
+    assert_eq!(dialog.selected_weight, FontWeight::Normal);
+    assert_eq!(dialog.line_spacing, 3);
+    assert!(dialog.ligatures);
+    assert!(dialog.antialiasing);
+
+    // 1. Navigation through sections with Tab
+    assert_eq!(dialog.focus_section, 0);
+    dialog.handle_key(Key::Tab);
+    assert_eq!(dialog.focus_section, 1); // Size section
+    dialog.handle_key(Key::Tab);
+    assert_eq!(dialog.focus_section, 2); // Weight section
+    dialog.handle_key(Key::Tab);
+    assert_eq!(dialog.focus_section, 3); // Options section
+    dialog.handle_key(Key::Tab);
+    assert_eq!(dialog.focus_section, 4); // Buttons section
+    dialog.handle_key(Key::Tab);
+    assert_eq!(dialog.focus_section, 0); // Wraps to Family
+
+    // 2. Change font family with Down / Up
+    dialog.handle_key(Key::Down);
+    assert_eq!(dialog.selected_family, FontFamily::Terminus);
+    dialog.handle_key(Key::Down);
+    assert_eq!(dialog.selected_family, FontFamily::Modern);
+    dialog.handle_key(Key::Up);
+    assert_eq!(dialog.selected_family, FontFamily::Terminus);
+
+    // 3. Zoom shortcuts: '+' and '-'
+    assert_eq!(dialog.selected_size, 12);
+    dialog.handle_key(Key::Char('+'));
+    assert_eq!(dialog.selected_size, 14);
+    dialog.handle_key(Key::Char('+'));
+    assert_eq!(dialog.selected_size, 16);
+    dialog.handle_key(Key::Char('-'));
+    assert_eq!(dialog.selected_size, 14);
+    dialog.handle_key(Key::Char('0'));
+    assert_eq!(dialog.selected_size, 12);
+
+    // 4. Feature toggles (l, a, h, s)
+    dialog.handle_key(Key::Char('l'));
+    assert!(!dialog.ligatures);
+    dialog.handle_key(Key::Char('l'));
+    assert!(dialog.ligatures);
+
+    dialog.handle_key(Key::Char('a'));
+    assert!(!dialog.antialiasing);
+    dialog.handle_key(Key::Char('a'));
+    assert!(dialog.antialiasing);
+
+    dialog.handle_key(Key::Char('s'));
+    assert_eq!(dialog.line_spacing, 5); // 3 -> 5
+
+    // 5. Esc cancels dialog
+    let cancel_res = dialog.handle_key(Key::Esc);
+    assert_eq!(cancel_res, Some(false));
+
+    // 6. Enter on Apply button applies dialog
+    dialog.focus_section = 4;
+    dialog.selected_button = 0; // Apply
+    let apply_res = dialog.handle_key(Key::Enter);
+    assert_eq!(apply_res, Some(true));
+}
+
+#[test]
+fn test_font_selector_gui_rendering_and_preview() {
+    use rustext::editor::font_selector::FontSelectorDialog;
+    use rustext::gfx::font::{FontFamily, FontWeight};
+    use rustext::gfx::HintingLevel;
+
+    let mut fb = Framebuffer::new(800, 600);
+    fb.clear(0x001A1B26);
+
+    let renderer = GfxRenderer::new();
+    let dialog = FontSelectorDialog::new(
+        FontFamily::Modern,
+        14,
+        FontWeight::Semibold,
+        3,
+        true,
+        true,
+        HintingLevel::Medium,
+    );
+
+    // Render dialog overlay onto framebuffer
+    renderer.render_font_selector_dialog(&mut fb, &dialog, false);
+
+    // Verify center of dialog is filled with modal background
+    let center_pixel = fb.get_pixel(400, 300);
+    assert_ne!(center_pixel, 0x001A1B26, "Dialog should render on top of backdrop");
+
+    // Close button hit area
+    renderer.render_font_selector_dialog(&mut fb, &dialog, true);
+    assert!(fb.width == 800 && fb.height == 600);
+}
+
+#[test]
+fn test_font_settings_editor_actions_and_ini_persistence() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+    use rustext::gfx::font::{FontFamily, FontWeight};
+
+    let mut editor = Editor::new(TextBuffer::from_str("fn main() {}"));
+    editor.config = rustext::editor::config::EditorConfig::default();
+    assert_eq!(editor.config.gui.font_family, "standard");
+    assert_eq!(editor.config.gui.font_size, 12);
+    assert_eq!(editor.config.gui.font_weight, "normal");
+
+    // Action: OpenFontSelector
+    editor.execute_action(EditorAction::OpenFontSelector);
+    assert!(matches!(editor.mode, EditorMode::FontSelector(_)));
+
+    // Action: IncreaseFontSize / DecreaseFontSize / ResetFontSize
+    editor.execute_action(EditorAction::IncreaseFontSize);
+    assert_eq!(editor.config.gui.font_size, 14);
+    editor.execute_action(EditorAction::IncreaseFontSize);
+    assert_eq!(editor.config.gui.font_size, 16);
+    editor.execute_action(EditorAction::DecreaseFontSize);
+    assert_eq!(editor.config.gui.font_size, 14);
+    editor.execute_action(EditorAction::ResetFontSize);
+    assert_eq!(editor.config.gui.font_size, 12);
+
+    // Action: SetFontFamily and SetFontWeight
+    editor.execute_action(EditorAction::SetFontFamily(FontFamily::Terminus));
+    assert_eq!(editor.config.gui.font_family, "terminus");
+
+    editor.execute_action(EditorAction::SetFontWeight(FontWeight::Bold));
+    assert_eq!(editor.config.gui.font_weight, "bold");
+
+    // Test INI serialization and roundtrip parsing
+    let ini_str = editor.config.to_ini_string();
+    assert!(ini_str.contains("font_family = terminus"));
+    assert!(ini_str.contains("font_size = 12"));
+    assert!(ini_str.contains("font_weight = bold"));
+
+    let reloaded = rustext::editor::config::EditorConfig::parse(&ini_str);
+    assert_eq!(reloaded.gui.font_family, "terminus");
+    assert_eq!(reloaded.gui.font_size, 12);
+    assert_eq!(reloaded.gui.font_weight, "bold");
+
+    // Restore default configuration
+    editor.config = rustext::editor::config::EditorConfig::default();
+    let _ = editor.config.save();
+}
+

@@ -2,7 +2,7 @@
 //! Zero third-party dependencies, purely standard library Rust.
 
 use super::edge_perception::EdgePerception;
-use super::font::{FONT_HEIGHT, FONT_WIDTH};
+use super::font::{FontFamily, FontRasterizer, FontWeight, FONT_HEIGHT, FONT_WIDTH};
 use super::framebuffer::Framebuffer;
 use super::gamma::blend_pixel_gamma;
 use super::hinting::{FontHinter, HintingLevel};
@@ -568,6 +568,9 @@ pub struct GfxRenderer {
     pub terminal_inset: usize,
     pub font_ligatures: bool,
     pub font_hinting: HintingLevel,
+    pub font_family: FontFamily,
+    pub font_size: usize,
+    pub font_weight: FontWeight,
     pub smooth_shadows: bool,
     pub animation_enabled: bool,
     pub edge_perception: bool,
@@ -611,6 +614,9 @@ impl GfxRenderer {
             terminal_inset: 0,
             font_ligatures: true,
             font_hinting: HintingLevel::Medium,
+            font_family: FontFamily::Standard,
+            font_size: 12,
+            font_weight: FontWeight::Normal,
             smooth_shadows: true,
             animation_enabled: true,
             edge_perception: true,
@@ -667,8 +673,8 @@ impl GfxRenderer {
 
         for token in tokens {
             let token_color = self.colors.token_color(token.token_type);
-            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception {
-                let shaped_glyphs = FontShaper::shape_text(&token.text, self.font_scale, self.font_ligatures);
+            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.font_size != 12 {
+                let shaped_glyphs = FontShaper::shape_text_ex(&token.text, self.font_scale, self.font_ligatures, self.font_family, self.font_weight, char_w, self.char_height());
                 for glyph in shaped_glyphs {
                     let col = col_accum;
                     col_accum += glyph.advance_cells;
@@ -750,16 +756,24 @@ impl GfxRenderer {
         }
     }
 
-    /// Character width in physical pixels based on font_scale.
+    /// Character width in physical pixels based on font_size and font_scale.
     #[inline]
     pub fn char_width(&self) -> usize {
-        FONT_WIDTH * self.font_scale
+        if self.font_size != 12 {
+            ((self.font_size as f64 * 8.0 / 12.0).round() as usize).max(5) * self.font_scale
+        } else {
+            FONT_WIDTH * self.font_scale
+        }
     }
 
-    /// Character height in physical pixels based on font_scale.
+    /// Character height in physical pixels based on font_size and font_scale.
     #[inline]
     pub fn char_height(&self) -> usize {
-        FONT_HEIGHT * self.font_scale
+        if self.font_size != 12 {
+            ((self.font_size as f64 * 16.0 / 12.0).round() as usize).max(10) * self.font_scale
+        } else {
+            FONT_HEIGHT * self.font_scale
+        }
     }
 
     /// Line height in physical pixels including line_spacing.
@@ -3541,6 +3555,333 @@ impl GfxRenderer {
         render_btn(fb, b0_x, btn_save_w, lbl_save, dialog.selected_button == 0, hovered_button == Some(0), 0);
         render_btn(fb, b1_x, btn_discard_w, lbl_discard, dialog.selected_button == 1, hovered_button == Some(1), 1);
         render_btn(fb, b2_x, btn_cancel_w, lbl_cancel, dialog.selected_button == 2, hovered_button == Some(2), 2);
+    }
+
+    /// Renders the interactive Font Selector and Typography Settings Dialog.
+    pub fn render_font_selector_dialog(
+        &self,
+        fb: &mut Framebuffer,
+        dialog: &crate::editor::font_selector::FontSelectorDialog,
+        close_hovered: bool,
+    ) {
+        // 1. Semi-transparent backdrop scrim
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 120);
+
+        let win_w = self.scale_coord(760).min(fb.width.saturating_sub(self.scale_coord(20)));
+        let win_h = self.scale_coord(520).min(fb.height.saturating_sub(self.scale_coord(20)));
+        let win_x = (fb.width.saturating_sub(win_w)) / 2;
+        let win_y = (fb.height.saturating_sub(win_h)) / 2;
+
+        // 2. Drop shadow
+        if self.shadows {
+            self.render_shadow(fb, win_x, win_y, win_w, win_h, 12, 8);
+        } else {
+            fb.fill_rect(win_x + 6, win_y + 6, win_w, win_h, 0x000A0A0A);
+        }
+
+        // 3. Header & Window Frame
+        let title_h = self.scale_coord(28);
+        fb.fill_rect(win_x.saturating_sub(1), win_y.saturating_sub(1), win_w + 2, win_h + 2, self.colors.modal_border);
+        fb.fill_rect(win_x, win_y, win_w, title_h, self.colors.modal_header_bg);
+
+        let body_y = win_y + title_h + 1;
+        let body_h = win_h.saturating_sub(title_h + 1);
+        fb.fill_rect(win_x, body_y, win_w, body_h, self.colors.modal_bg);
+
+        if self.rounded_corners {
+            fb.draw_rounded_outline(win_x, win_y, win_w, win_h, 6, self.colors.modal_border);
+        }
+
+        fb.draw_text("Tipografía y Selector de Fuentes", win_x + self.scale_coord(12), win_y + self.scale_coord(6), 0x00FFFFFF, None);
+
+        // Close button [×]
+        let close_w = self.scale_coord(36);
+        let close_x = win_x + win_w - close_w;
+        let close_bg = if close_hovered { 0x00E81123 } else { self.colors.modal_header_bg };
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x + 2, win_y + 2, close_w - 4, title_h - 4, 3, close_bg);
+        } else {
+            fb.fill_rect(close_x, win_y, close_w, title_h, close_bg);
+        }
+        fb.draw_text("×", close_x + self.scale_coord(14), win_y + self.scale_coord(6), 0x00FFFFFF, None);
+
+        fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
+
+        // Columns layout
+        let footer_h = self.scale_coord(44);
+        let content_h = body_h.saturating_sub(footer_h + self.scale_coord(12));
+        let col_w = (win_w.saturating_sub(self.scale_coord(36))) / 2;
+        let left_x = win_x + self.scale_coord(14);
+        let right_x = left_x + col_w + self.scale_coord(8);
+        let content_y = body_y + self.scale_coord(8);
+
+        // === LEFT COLUMN: Controls ===
+        // 1. Font Family header
+        fb.draw_text("FAMILIAS TIPOGRÁFICAS (5 fuentes)", left_x, content_y, self.colors.accent, None);
+        let fam_start_y = content_y + self.scale_coord(16);
+        let fam_card_h = self.scale_coord(34);
+
+        for (i, &f) in FontFamily::ALL.iter().enumerate() {
+            let card_y = fam_start_y + i * (fam_card_h + self.scale_coord(3));
+            let is_selected = f == dialog.selected_family;
+            let is_hovered = dialog.hovered_family == Some(i);
+
+            let bg = if is_selected {
+                self.colors.button_bg
+            } else if is_hovered {
+                self.colors.input_bg
+            } else {
+                self.colors.modal_bg
+            };
+
+            let border = if is_selected {
+                self.colors.accent
+            } else {
+                self.colors.scrollbar_border
+            };
+
+            if self.rounded_corners {
+                fb.fill_rounded_rect(left_x, card_y, col_w, fam_card_h, 4, bg);
+                fb.draw_rounded_outline(left_x, card_y, col_w, fam_card_h, 4, border);
+            } else {
+                fb.fill_rect(left_x, card_y, col_w, fam_card_h, bg);
+            }
+
+            let bullet = if is_selected { "[✓] " } else { "[ ] " };
+            let fam_title = format!("{}{}", bullet, f.display_name());
+            let title_color = if is_selected { 0x00FFFFFF } else { 0x00DDDDDD };
+            fb.draw_text(&fam_title, left_x + self.scale_coord(8), card_y + self.scale_coord(3), title_color, None);
+
+            let desc = f.description();
+            let desc_max_chars = (col_w.saturating_sub(self.scale_coord(20))) / self.char_width().max(1);
+            let desc_trunc: String = desc.chars().take(desc_max_chars).collect();
+            fb.draw_text(&desc_trunc, left_x + self.scale_coord(16), card_y + self.scale_coord(18), 0x00888888, None);
+        }
+
+        // 2. Font Size selector
+        let size_sec_y = fam_start_y + 5 * (fam_card_h + self.scale_coord(3)) + self.scale_coord(6);
+        fb.draw_text("TAMAÑO DE FUENTE (Font Size)", left_x, size_sec_y, self.colors.accent, None);
+        let size_pills_y = size_sec_y + self.scale_coord(16);
+        let pill_h = self.scale_coord(22);
+        let pill_w = (col_w.saturating_sub(self.scale_coord(28))) / crate::editor::font_selector::AVAILABLE_SIZES.len().max(1);
+
+        for (idx, &s) in crate::editor::font_selector::AVAILABLE_SIZES.iter().enumerate() {
+            let px = left_x + idx * (pill_w + self.scale_coord(4));
+            let is_sel = s == dialog.selected_size;
+            let bg = if is_sel { self.colors.accent } else { self.colors.chip_bg };
+            let fg = if is_sel { 0x00FFFFFF } else { 0x00CCCCCC };
+
+            if self.rounded_corners {
+                fb.fill_rounded_rect(px, size_pills_y, pill_w, pill_h, 3, bg);
+            } else {
+                fb.fill_rect(px, size_pills_y, pill_w, pill_h, bg);
+            }
+            let label = format!("{}", s);
+            let lx = px + (pill_w.saturating_sub(label.chars().count() * self.char_width())) / 2;
+            fb.draw_text(&label, lx, size_pills_y + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
+        }
+
+        // 3. Weight / Grosor
+        let weight_sec_y = size_pills_y + pill_h + self.scale_coord(8);
+        fb.draw_text("GROSOR DE TRAZO (Font Weight)", left_x, weight_sec_y, self.colors.accent, None);
+        let weight_pills_y = weight_sec_y + self.scale_coord(16);
+        let weight_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
+
+        for (idx, &w) in FontWeight::ALL.iter().enumerate() {
+            let wx = left_x + idx * (weight_w + self.scale_coord(8));
+            let is_sel = w == dialog.selected_weight;
+            let bg = if is_sel { self.colors.button_bg } else { self.colors.chip_bg };
+            let border = if is_sel { self.colors.accent } else { self.colors.scrollbar_border };
+            let fg = if is_sel { 0x00FFFFFF } else { 0x00CCCCCC };
+
+            if self.rounded_corners {
+                fb.fill_rounded_rect(wx, weight_pills_y, weight_w, pill_h, 3, bg);
+                fb.draw_rounded_outline(wx, weight_pills_y, weight_w, pill_h, 3, border);
+            } else {
+                fb.fill_rect(wx, weight_pills_y, weight_w, pill_h, bg);
+            }
+            let label = w.display_name();
+            let lx = wx + (weight_w.saturating_sub(label.chars().count() * self.char_width())) / 2;
+            fb.draw_text(label, lx, weight_pills_y + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
+        }
+
+        // 4. Advanced Typography Options
+        let opts_sec_y = weight_pills_y + pill_h + self.scale_coord(8);
+        fb.draw_text("CARACTERÍSTICAS TIPOGRÁFICAS", left_x, opts_sec_y, self.colors.accent, None);
+        let opts_chips_y = opts_sec_y + self.scale_coord(16);
+
+        let chip_lig_text = format!("Ligaduras: {}", if dialog.ligatures { "ON" } else { "OFF" });
+        let chip_aa_text = format!("Anti-alias: {}", if dialog.antialiasing { "ON" } else { "OFF" });
+        let chip_sp_text = format!("Interlineado: {}px", dialog.line_spacing);
+
+        let chip_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
+        let c0_x = left_x;
+        let c1_x = c0_x + chip_w + self.scale_coord(8);
+        let c2_x = c1_x + chip_w + self.scale_coord(8);
+
+        let draw_opt_chip = |fb: &mut Framebuffer, cx: usize, text: &str, active: bool| {
+            let bg = if active { self.colors.chip_bg } else { self.colors.modal_bg };
+            let border = if active { self.colors.accent } else { self.colors.scrollbar_border };
+            let fg = if active { self.colors.accent } else { 0x00888888 };
+            if self.rounded_corners {
+                fb.fill_rounded_rect(cx, opts_chips_y, chip_w, pill_h, 3, bg);
+                fb.draw_rounded_outline(cx, opts_chips_y, chip_w, pill_h, 3, border);
+            } else {
+                fb.fill_rect(cx, opts_chips_y, chip_w, pill_h, bg);
+            }
+            let tx = cx + (chip_w.saturating_sub(text.chars().count() * self.char_width())) / 2;
+            fb.draw_text(text, tx, opts_chips_y + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
+        };
+
+        draw_opt_chip(fb, c0_x, &chip_lig_text, dialog.ligatures);
+        draw_opt_chip(fb, c1_x, &chip_aa_text, dialog.antialiasing);
+        draw_opt_chip(fb, c2_x, &chip_sp_text, true);
+
+        // === RIGHT COLUMN: Live Preview ===
+        let prev_title = format!("VISTA PREVIA EN VIVO ({} pt • {})", dialog.selected_size, dialog.selected_family.display_name());
+        fb.draw_text(&prev_title, right_x, content_y, self.colors.accent, None);
+
+        let prev_box_y = content_y + self.scale_coord(16);
+        let prev_box_h = content_h.saturating_sub(self.scale_coord(16));
+
+        if self.rounded_corners {
+            fb.fill_rounded_rect(right_x, prev_box_y, col_w, prev_box_h, 6, self.colors.input_bg);
+            fb.draw_rounded_outline(right_x, prev_box_y, col_w, prev_box_h, 6, self.colors.modal_border);
+        } else {
+            fb.fill_rect(right_x, prev_box_y, col_w, prev_box_h, self.colors.input_bg);
+        }
+
+        // Render preview code sample inside preview box
+        let sample_lines = [
+            ("//! Vista previa en vivo con Rustext", self.colors.syntax_comment),
+            ("fn benchmark_render() -> f64 {", self.colors.syntax_keyword),
+            ("    let font = \"Rustext Mono\";", self.colors.syntax_plain),
+            ("    let latency_us = 20;", self.colors.syntax_number),
+            ("    if latency_us <= 50 && enabled {", self.colors.syntax_keyword),
+            ("        println!(\"-> != => ==\");", self.colors.syntax_string),
+            ("    }", self.colors.syntax_keyword),
+            ("    488.6 // Throughput MB/s", self.colors.syntax_comment),
+            ("}", self.colors.syntax_keyword),
+        ];
+
+        let prev_char_w = ((dialog.selected_size as f64 * 8.0 / 12.0).round() as usize).max(5);
+        let prev_char_h = ((dialog.selected_size as f64 * 16.0 / 12.0).round() as usize).max(10);
+        let prev_line_h = prev_char_h + dialog.line_spacing;
+
+        let prev_pad_x = right_x + self.scale_coord(12);
+        let prev_pad_y = prev_box_y + self.scale_coord(14);
+
+        for (line_idx, &(line_str, line_fg)) in sample_lines.iter().enumerate() {
+            let ly = prev_pad_y + line_idx * prev_line_h;
+            if ly + prev_char_h > prev_box_y + prev_box_h {
+                break;
+            }
+
+            if dialog.ligatures {
+                let glyphs = FontShaper::shape_text_ex(
+                    line_str,
+                    1,
+                    dialog.ligatures,
+                    dialog.selected_family,
+                    dialog.selected_weight,
+                    prev_char_w,
+                    prev_char_h,
+                );
+                let mut gx = prev_pad_x;
+                for g in glyphs {
+                    if gx + g.width > right_x + col_w - self.scale_coord(8) {
+                        break;
+                    }
+                    let max_w = g.width.min(fb.width.saturating_sub(gx));
+                    let max_h = g.height.min(fb.height.saturating_sub(ly));
+                    for row in 0..max_h {
+                        let py = ly + row;
+                        let row_offset = row * g.width;
+                        let fb_offset = py * fb.width + gx;
+                        for col in 0..max_w {
+                            let alpha = g.coverage[row_offset + col];
+                            if alpha > 0 {
+                                fb.pixels[fb_offset + col] = blend_pixel_gamma(self.colors.input_bg, line_fg, alpha);
+                            }
+                        }
+                    }
+                    gx += g.advance_cells * prev_char_w;
+                }
+            } else {
+                let mut cur_gx = prev_pad_x;
+                for ch in line_str.chars() {
+                    if cur_gx + prev_char_w > right_x + col_w - self.scale_coord(8) {
+                        break;
+                    }
+                    let (gw, gh, cov) = FontRasterizer::rasterize_glyph_sized(
+                        ch,
+                        dialog.selected_family,
+                        prev_char_w,
+                        prev_char_h,
+                        dialog.selected_weight,
+                    );
+                    let max_w = gw.min(fb.width.saturating_sub(cur_gx));
+                    let max_h = gh.min(fb.height.saturating_sub(ly));
+                    for row in 0..max_h {
+                        let py = ly + row;
+                        let row_offset = row * gw;
+                        let fb_offset = py * fb.width + cur_gx;
+                        for col in 0..max_w {
+                            let alpha = cov[row_offset + col];
+                            if alpha > 0 {
+                                fb.pixels[fb_offset + col] = blend_pixel_gamma(self.colors.input_bg, line_fg, alpha);
+                            }
+                        }
+                    }
+                    cur_gx += prev_char_w;
+                }
+            }
+        }
+
+        // === FOOTER BAR: Buttons & Key Hints ===
+        let footer_y = win_y + win_h - footer_h;
+        fb.fill_rect(win_x, footer_y, win_w, 1, self.colors.scrollbar_border);
+
+        let hint = "Tab: Sección  •  ↑/↓: Seleccionar  •  Ctrl++/--: Zoom  •  Enter: Aplicar  •  Esc: Cancelar";
+        fb.draw_text(hint, win_x + self.scale_coord(14), footer_y + self.scale_coord(14), self.colors.gutter_fg, None);
+
+        let btn_cancel_w = self.scale_coord(95);
+        let btn_apply_w = self.scale_coord(145);
+        let btn_h = self.scale_coord(26);
+        let btn_y = footer_y + (footer_h.saturating_sub(btn_h)) / 2;
+
+        let btn_apply_x = win_x + win_w - btn_apply_w - self.scale_coord(14);
+        let btn_cancel_x = btn_apply_x - btn_cancel_w - self.scale_coord(10);
+
+        let is_cancel_focused = dialog.focus_section == 4 && dialog.selected_button == 1;
+        let is_apply_focused = dialog.focus_section == 4 && dialog.selected_button == 0;
+
+        let cancel_bg = if is_cancel_focused || dialog.hovered_button == Some(1) {
+            self.colors.button_hover_bg
+        } else {
+            self.colors.chip_bg
+        };
+
+        let apply_bg = if is_apply_focused || dialog.hovered_button == Some(0) {
+            self.colors.button_hover_bg
+        } else {
+            self.colors.button_bg
+        };
+
+        if self.rounded_corners {
+            fb.fill_rounded_rect(btn_cancel_x, btn_y, btn_cancel_w, btn_h, 4, cancel_bg);
+            fb.draw_rounded_outline(btn_cancel_x, btn_y, btn_cancel_w, btn_h, 4, self.colors.scrollbar_border);
+            fb.fill_rounded_rect(btn_apply_x, btn_y, btn_apply_w, btn_h, 4, apply_bg);
+            fb.draw_rounded_outline(btn_apply_x, btn_y, btn_apply_w, btn_h, 4, self.colors.accent);
+        } else {
+            fb.fill_rect(btn_cancel_x, btn_y, btn_cancel_w, btn_h, cancel_bg);
+            fb.fill_rect(btn_apply_x, btn_y, btn_apply_w, btn_h, apply_bg);
+        }
+
+        let ctx = btn_cancel_x + (btn_cancel_w.saturating_sub("Cancelar".chars().count() * self.char_width())) / 2;
+        let atx = btn_apply_x + (btn_apply_w.saturating_sub("Aplicar y Guardar".chars().count() * self.char_width())) / 2;
+        fb.draw_text("Cancelar", ctx, btn_y + (btn_h.saturating_sub(self.char_height())) / 2, 0x00CCCCCC, None);
+        fb.draw_text("Aplicar y Guardar", atx, btn_y + (btn_h.saturating_sub(self.char_height())) / 2, 0x00FFFFFF, None);
     }
 
     /// Computes the bounding geometry for the docked bottom terminal pane.

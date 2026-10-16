@@ -103,6 +103,7 @@ pub enum EditorMode {
     AboutDialog,
     ExtensionsManager { selected_idx: usize, scroll_offset: usize },
     UnsavedConfirm(UnsavedConfirmDialog),
+    FontSelector(crate::editor::font_selector::FontSelectorDialog),
 }
 
 pub struct Editor {
@@ -285,6 +286,41 @@ impl Editor {
                     self.mode = EditorMode::Normal;
                 }
                 _ => {}
+            },
+            EditorMode::FontSelector(dialog) => {
+                if let Some(applied) = dialog.handle_key(key) {
+                    if applied {
+                        let family = dialog.selected_family;
+                        let size = dialog.selected_size;
+                        let weight = dialog.selected_weight;
+                        let line_spacing = dialog.line_spacing;
+                        let ligatures = dialog.ligatures;
+                        let antialiasing = dialog.antialiasing;
+                        let hinting = dialog.hinting;
+                        self.config.gui.font_family = family.as_str().to_string();
+                        self.config.gui.font_size = size;
+                        self.config.gui.font_weight = weight.as_str().to_string();
+                        self.config.gui.line_spacing = line_spacing;
+                        self.config.gui.font_ligatures = ligatures;
+                        self.config.gui.font_antialiasing = antialiasing;
+                        self.config.gui.font_hinting = match hinting {
+                            crate::gfx::HintingLevel::None => "none".to_string(),
+                            crate::gfx::HintingLevel::Slight => "slight".to_string(),
+                            crate::gfx::HintingLevel::Full => "full".to_string(),
+                            crate::gfx::HintingLevel::Medium => "medium".to_string(),
+                        };
+                        let _ = self.config.save();
+                        self.set_status(format!(
+                            "Tipografía actualizada: {} {}pt ({})",
+                            family.display_name(),
+                            size,
+                            weight.display_name()
+                        ));
+                    } else {
+                        self.set_status("Selector de fuentes cancelado");
+                    }
+                    self.mode = EditorMode::Normal;
+                }
             },
             EditorMode::ExtensionsManager { selected_idx, scroll_offset } => {
                 let ext_count = self.extension_manager.extensions.len();
@@ -790,6 +826,67 @@ impl Editor {
 
             EditorAction::SetTheme(theme) => {
                 self.set_theme(theme.as_str());
+            }
+
+            EditorAction::OpenFontSelector => {
+                let family = crate::gfx::FontFamily::from_name(&self.config.gui.font_family);
+                let size = self.config.gui.font_size;
+                let weight = crate::gfx::FontWeight::from_name(&self.config.gui.font_weight);
+                let line_spacing = self.config.gui.line_spacing;
+                let ligatures = self.config.gui.font_ligatures;
+                let antialiasing = self.config.gui.font_antialiasing;
+                let hinting = crate::gfx::HintingLevel::from_str(&self.config.gui.font_hinting);
+                self.mode = EditorMode::FontSelector(crate::editor::font_selector::FontSelectorDialog::new(
+                    family,
+                    size,
+                    weight,
+                    line_spacing,
+                    ligatures,
+                    antialiasing,
+                    hinting,
+                ));
+            }
+
+            EditorAction::IncreaseFontSize => {
+                let current = self.config.gui.font_size;
+                let sizes = crate::editor::font_selector::AVAILABLE_SIZES;
+                let next = sizes.iter().copied().find(|&s| s > current).unwrap_or(*sizes.last().unwrap_or(&24));
+                self.config.gui.font_size = next;
+                let _ = self.config.save();
+                self.set_status(format!("Tamaño de fuente: {} pt", next));
+            }
+
+            EditorAction::DecreaseFontSize => {
+                let current = self.config.gui.font_size;
+                let sizes = crate::editor::font_selector::AVAILABLE_SIZES;
+                let prev = sizes.iter().copied().rev().find(|&s| s < current).unwrap_or(*sizes.first().unwrap_or(&10));
+                self.config.gui.font_size = prev;
+                let _ = self.config.save();
+                self.set_status(format!("Tamaño de fuente: {} pt", prev));
+            }
+
+            EditorAction::ResetFontSize => {
+                self.config.gui.font_size = 12;
+                let _ = self.config.save();
+                self.set_status("Tamaño de fuente restablecido a 12 pt");
+            }
+
+            EditorAction::SetFontFamily(family) => {
+                self.config.gui.font_family = family.as_str().to_string();
+                let _ = self.config.save();
+                self.set_status(format!("Familia tipográfica: {}", family.display_name()));
+            }
+
+            EditorAction::SetFontSize(size) => {
+                self.config.gui.font_size = size;
+                let _ = self.config.save();
+                self.set_status(format!("Tamaño de fuente: {} pt", size));
+            }
+
+            EditorAction::SetFontWeight(weight) => {
+                self.config.gui.font_weight = weight.as_str().to_string();
+                let _ = self.config.save();
+                self.set_status(format!("Grosor de fuente: {}", weight.display_name()));
             }
 
             EditorAction::CollapseCursors => {
@@ -2721,6 +2818,7 @@ impl Editor {
             EditorMode::AboutDialog => "ABOUT",
             EditorMode::ExtensionsManager { .. } => "EXTENSIONS",
             EditorMode::UnsavedConfirm(_) => "CONFIRM",
+            EditorMode::FontSelector(_) => "FONT",
         };
 
         self.screen.render_status_bar(
@@ -2767,6 +2865,15 @@ impl Editor {
                 );
                 self.screen.render_prompt_line(&prompt_text);
             }
+            EditorMode::FontSelector(dialog) => {
+                let prompt_text = format!(
+                    "Fuente: {} │ Tamaño: {}pt │ Grosor: {} │ [Tab: Sección] [Enter: Aplicar] [Esc: Cancelar]",
+                    dialog.selected_family.display_name(),
+                    dialog.selected_size,
+                    dialog.selected_weight.display_name(),
+                );
+                self.screen.render_prompt_line(&prompt_text);
+            }
             EditorMode::Normal => {
                 let diag_msg = self.diagnostics.for_line(primary_pos.line + 1).map(|d| d.to_display_string());
                 let msg_text = self
@@ -2786,7 +2893,7 @@ impl Editor {
                 let prompt_col = modal.kind.label().chars().count() + modal.cursor_col;
                 (prompt_row, prompt_col)
             }
-            EditorMode::AboutDialog | EditorMode::ExtensionsManager { .. } | EditorMode::UnsavedConfirm(_) => {
+            EditorMode::AboutDialog | EditorMode::ExtensionsManager { .. } | EditorMode::UnsavedConfirm(_) | EditorMode::FontSelector(_) => {
                 (self.screen.rows.saturating_sub(1), 0)
             }
             EditorMode::Normal => {
@@ -2824,6 +2931,12 @@ impl Editor {
             renderer.font_scale = self.config.gui.font_scale;
         }
         fb.font_scale = renderer.font_scale;
+        renderer.font_family = crate::gfx::FontFamily::from_name(&self.config.gui.font_family);
+        renderer.font_size = self.config.gui.font_size;
+        renderer.font_weight = crate::gfx::FontWeight::from_name(&self.config.gui.font_weight);
+        fb.font_family = renderer.font_family;
+        fb.font_size = renderer.font_size;
+        fb.font_weight = renderer.font_weight;
         renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
         renderer.show_line_numbers = self.config.editor.show_line_numbers;
         renderer.font_antialiasing = self.config.gui.font_antialiasing;
@@ -2884,6 +2997,12 @@ impl Editor {
                     renderer.font_scale = self.config.gui.font_scale;
                 }
                 fb.font_scale = renderer.font_scale;
+                renderer.font_family = crate::gfx::FontFamily::from_name(&self.config.gui.font_family);
+                renderer.font_size = self.config.gui.font_size;
+                renderer.font_weight = crate::gfx::FontWeight::from_name(&self.config.gui.font_weight);
+                fb.font_family = renderer.font_family;
+                fb.font_size = renderer.font_size;
+                fb.font_weight = renderer.font_weight;
                 renderer.font_antialiasing = self.config.gui.font_antialiasing;
                 renderer.gamma_correction = self.config.gui.gamma_correction;
                 renderer.rounded_corners = self.config.gui.rounded_corners;
@@ -3050,6 +3169,119 @@ impl Editor {
                                                     self.set_status(format!("Extensión '{}': {}", name, if state { "Activada" } else { "Desactivada" }));
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            // B2. Check Font Selector Dialog interaction
+                            } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
+                                let win_w = renderer.scale_coord(760).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                                let win_h = renderer.scale_coord(520).min(fb.height.saturating_sub(renderer.scale_coord(20)));
+                                let win_x = (fb.width.saturating_sub(win_w)) / 2;
+                                let win_y = (fb.height.saturating_sub(win_h)) / 2;
+                                let title_h = renderer.scale_coord(28);
+                                let close_w = renderer.scale_coord(36);
+                                let close_x = win_x + win_w - close_w;
+
+                                let hit_close = x >= close_x && x < close_x + close_w && y >= win_y && y < win_y + title_h;
+                                let hit_outside = x < win_x || x >= win_x + win_w || y < win_y || y >= win_y + win_h;
+
+                                let footer_h = renderer.scale_coord(44);
+                                let footer_y = win_y + win_h - footer_h;
+                                let btn_cancel_w = renderer.scale_coord(95);
+                                let btn_apply_w = renderer.scale_coord(145);
+                                let btn_h = renderer.scale_coord(26);
+                                let btn_y = footer_y + (footer_h.saturating_sub(btn_h)) / 2;
+                                let btn_apply_x = win_x + win_w - btn_apply_w - renderer.scale_coord(14);
+                                let btn_cancel_x = btn_apply_x - btn_cancel_w - renderer.scale_coord(10);
+
+                                let hit_apply = x >= btn_apply_x && x < btn_apply_x + btn_apply_w && y >= btn_y && y < btn_y + btn_h;
+                                let hit_cancel = x >= btn_cancel_x && x < btn_cancel_x + btn_cancel_w && y >= btn_y && y < btn_y + btn_h;
+
+                                if hit_close || hit_outside || hit_cancel {
+                                    self.mode = EditorMode::Normal;
+                                    self.set_status("Selector de fuentes cancelado");
+                                } else if hit_apply {
+                                    let dialog_clone = dialog.clone();
+                                    self.config.gui.font_family = dialog_clone.selected_family.as_str().to_string();
+                                    self.config.gui.font_size = dialog_clone.selected_size;
+                                    self.config.gui.font_weight = dialog_clone.selected_weight.as_str().to_string();
+                                    self.config.gui.line_spacing = dialog_clone.line_spacing;
+                                    self.config.gui.font_ligatures = dialog_clone.ligatures;
+                                    self.config.gui.font_antialiasing = dialog_clone.antialiasing;
+                                    self.config.gui.font_hinting = match dialog_clone.hinting {
+                                        crate::gfx::HintingLevel::None => "none".to_string(),
+                                        crate::gfx::HintingLevel::Slight => "slight".to_string(),
+                                        crate::gfx::HintingLevel::Full => "full".to_string(),
+                                        crate::gfx::HintingLevel::Medium => "medium".to_string(),
+                                    };
+                                    let _ = self.config.save();
+                                    self.set_status(format!(
+                                        "Tipografía actualizada: {} {}pt ({})",
+                                        dialog_clone.selected_family.display_name(),
+                                        dialog_clone.selected_size,
+                                        dialog_clone.selected_weight.display_name()
+                                    ));
+                                    self.mode = EditorMode::Normal;
+                                } else {
+                                    let body_y = win_y + title_h + 1;
+                                    let col_w = (win_w.saturating_sub(renderer.scale_coord(36))) / 2;
+                                    let left_x = win_x + renderer.scale_coord(14);
+                                    let content_y = body_y + renderer.scale_coord(8);
+
+                                    // Font families
+                                    let fam_start_y = content_y + renderer.scale_coord(16);
+                                    let fam_card_h = renderer.scale_coord(34);
+                                    for (i, &f) in crate::gfx::FontFamily::ALL.iter().enumerate() {
+                                        let card_y = fam_start_y + i * (fam_card_h + renderer.scale_coord(3));
+                                        if x >= left_x && x < left_x + col_w && y >= card_y && y < card_y + fam_card_h {
+                                            dialog.selected_family = f;
+                                            dialog.family_idx = i;
+                                            break;
+                                        }
+                                    }
+
+                                    // Font sizes
+                                    let size_sec_y = fam_start_y + 5 * (fam_card_h + renderer.scale_coord(3)) + renderer.scale_coord(6);
+                                    let size_pills_y = size_sec_y + renderer.scale_coord(16);
+                                    let pill_h = renderer.scale_coord(22);
+                                    let pill_w = (col_w.saturating_sub(renderer.scale_coord(28))) / crate::editor::font_selector::AVAILABLE_SIZES.len().max(1);
+                                    for (idx, &s) in crate::editor::font_selector::AVAILABLE_SIZES.iter().enumerate() {
+                                        let px = left_x + idx * (pill_w + renderer.scale_coord(4));
+                                        if x >= px && x < px + pill_w && y >= size_pills_y && y < size_pills_y + pill_h {
+                                            dialog.selected_size = s;
+                                            dialog.size_idx = idx;
+                                            break;
+                                        }
+                                    }
+
+                                    // Font weights
+                                    let weight_sec_y = size_pills_y + pill_h + renderer.scale_coord(8);
+                                    let weight_pills_y = weight_sec_y + renderer.scale_coord(16);
+                                    let weight_w = (col_w.saturating_sub(renderer.scale_coord(16))) / 3;
+                                    for (idx, &w) in crate::gfx::FontWeight::ALL.iter().enumerate() {
+                                        let wx = left_x + idx * (weight_w + renderer.scale_coord(8));
+                                        if x >= wx && x < wx + weight_w && y >= weight_pills_y && y < weight_pills_y + pill_h {
+                                            dialog.selected_weight = w;
+                                            dialog.weight_idx = idx;
+                                            break;
+                                        }
+                                    }
+
+                                    // Advanced options
+                                    let opts_sec_y = weight_pills_y + pill_h + renderer.scale_coord(8);
+                                    let opts_chips_y = opts_sec_y + renderer.scale_coord(16);
+                                    let chip_w = (col_w.saturating_sub(renderer.scale_coord(16))) / 3;
+                                    let c0_x = left_x;
+                                    let c1_x = c0_x + chip_w + renderer.scale_coord(8);
+                                    let c2_x = c1_x + chip_w + renderer.scale_coord(8);
+
+                                    if y >= opts_chips_y && y < opts_chips_y + pill_h {
+                                        if x >= c0_x && x < c0_x + chip_w {
+                                            dialog.toggle_ligatures();
+                                        } else if x >= c1_x && x < c1_x + chip_w {
+                                            dialog.toggle_antialiasing();
+                                        } else if x >= c2_x && x < c2_x + chip_w {
+                                            dialog.cycle_line_spacing();
                                         }
                                     }
                                 }
@@ -3811,6 +4043,49 @@ impl Editor {
                                 }
                             }
                         } else {
+                            if let EditorMode::FontSelector(dialog) = &mut self.mode {
+                                let win_w = renderer.scale_coord(760).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                                let win_h = renderer.scale_coord(520).min(fb.height.saturating_sub(renderer.scale_coord(20)));
+                                let win_x = (fb.width.saturating_sub(win_w)) / 2;
+                                let win_y = (fb.height.saturating_sub(win_h)) / 2;
+                                let title_h = renderer.scale_coord(28);
+                                let body_y = win_y + title_h + 1;
+                                let col_w = (win_w.saturating_sub(renderer.scale_coord(36))) / 2;
+                                let left_x = win_x + renderer.scale_coord(14);
+                                let content_y = body_y + renderer.scale_coord(8);
+                                let fam_start_y = content_y + renderer.scale_coord(16);
+                                let fam_card_h = renderer.scale_coord(34);
+
+                                dialog.hovered_family = None;
+                                for (i, _) in crate::gfx::FontFamily::ALL.iter().enumerate() {
+                                    let card_y = fam_start_y + i * (fam_card_h + renderer.scale_coord(3));
+                                    if x >= left_x && x < left_x + col_w && y >= card_y && y < card_y + fam_card_h {
+                                        dialog.hovered_family = Some(i);
+                                        break;
+                                    }
+                                }
+
+                                let footer_h = renderer.scale_coord(44);
+                                let footer_y = win_y + win_h - footer_h;
+                                let btn_cancel_w = renderer.scale_coord(95);
+                                let btn_apply_w = renderer.scale_coord(145);
+                                let btn_h = renderer.scale_coord(26);
+                                let btn_y = footer_y + (footer_h.saturating_sub(btn_h)) / 2;
+                                let btn_apply_x = win_x + win_w - btn_apply_w - renderer.scale_coord(14);
+                                let btn_cancel_x = btn_apply_x - btn_cancel_w - renderer.scale_coord(10);
+
+                                dialog.hovered_button = if y >= btn_y && y < btn_y + btn_h {
+                                    if x >= btn_apply_x && x < btn_apply_x + btn_apply_w {
+                                        Some(0)
+                                    } else if x >= btn_cancel_x && x < btn_cancel_x + btn_cancel_w {
+                                        Some(1)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+                            }
                             needs_redraw = true;
                         }
                     }
@@ -3838,6 +4113,9 @@ impl Editor {
                                         modal.select_prev_global_result();
                                     }
                                 }
+                            } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
+                                dialog.select_next_size();
+                                needs_redraw = true;
                             } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
                                 *scroll_offset = scroll_offset.saturating_sub(1);
                             } else if sidebar_w > 0 && mouse_x < sidebar_w && mouse_y >= menu_offset && mouse_y < content_y_end {
@@ -3890,6 +4168,9 @@ impl Editor {
                                         modal.select_next_global_result(12);
                                     }
                                 }
+                            } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
+                                dialog.select_prev_size();
+                                needs_redraw = true;
                             } else if let EditorMode::ExtensionsManager { scroll_offset, .. } = &mut self.mode {
                                 let ext_count = self.extension_manager.extensions.len();
                                 if *scroll_offset + 1 < ext_count {
@@ -4251,6 +4532,20 @@ impl Editor {
                 };
 
                 renderer.render_unsaved_confirm_dialog(&mut fb, dialog, hovered_btn);
+            }
+
+            // Render Font Selector Dialog if active
+            if let EditorMode::FontSelector(dialog) = &self.mode {
+                let win_w = renderer.scale_coord(760).min(fb.width.saturating_sub(renderer.scale_coord(20)));
+                let win_h = renderer.scale_coord(520).min(fb.height.saturating_sub(renderer.scale_coord(20)));
+                let win_x = (fb.width.saturating_sub(win_w)) / 2;
+                let win_y = (fb.height.saturating_sub(win_h)) / 2;
+                let title_h = renderer.scale_coord(28);
+                let close_w = renderer.scale_coord(36);
+                let close_x = win_x + win_w - close_w;
+                let close_hovered = mouse_x >= close_x && mouse_x < close_x + close_w && mouse_y >= win_y && mouse_y < win_y + title_h;
+
+                renderer.render_font_selector_dialog(&mut fb, dialog, close_hovered);
             }
 
             // Present framebuffer to OS window

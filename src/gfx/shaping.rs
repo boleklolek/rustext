@@ -1,7 +1,7 @@
 //! Font Shaping and Programming Ligature Engine.
 //! 100% pure standard-library Rust with zero third-party dependencies.
 
-use super::font::{FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
+use super::font::{FontFamily, FontWeight, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
 
 /// Identifies supported programming code ligatures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,9 +118,33 @@ pub struct ShapedGlyph {
 pub struct FontShaper;
 
 impl FontShaper {
-    /// Shapes an input string into a list of positioned `ShapedGlyph`s.
+    /// Shapes an input string into a list of positioned `ShapedGlyph`s using standard font settings.
     pub fn shape_text(text: &str, scale: usize, enable_ligatures: bool) -> Vec<ShapedGlyph> {
         let scale = scale.max(1);
+        Self::shape_text_ex(
+            text,
+            scale,
+            enable_ligatures,
+            FontFamily::Standard,
+            FontWeight::Normal,
+            FONT_WIDTH * scale,
+            FONT_HEIGHT * scale,
+        )
+    }
+
+    /// Shapes text with custom font family, stroke weight, and cell dimensions.
+    pub fn shape_text_ex(
+        text: &str,
+        scale: usize,
+        enable_ligatures: bool,
+        family: FontFamily,
+        weight: FontWeight,
+        cell_w: usize,
+        cell_h: usize,
+    ) -> Vec<ShapedGlyph> {
+        let scale = scale.max(1);
+        let cell_w = cell_w.max(1);
+        let cell_h = cell_h.max(1);
         let mut result = Vec::new();
         let chars: Vec<char> = text.chars().collect();
         let mut i = 0;
@@ -131,7 +155,22 @@ impl FontShaper {
             // 1. Check for programming ligatures if enabled
             if enable_ligatures {
                 if let Some((lig, len)) = LigatureKind::match_prefix(&slice) {
-                    let shaped = Self::rasterize_ligature(lig, scale);
+                    let mut shaped = Self::rasterize_ligature(lig, scale);
+                    let target_w = cell_w * lig.char_length();
+                    let target_h = cell_h;
+                    if shaped.width != target_w || shaped.height != target_h {
+                        let mut resampled = vec![0u8; target_w * target_h];
+                        for y in 0..target_h {
+                            let src_y = (y * shaped.height) / target_h;
+                            for x in 0..target_w {
+                                let src_x = (x * shaped.width) / target_w;
+                                resampled[y * target_w + x] = shaped.coverage[src_y * shaped.width + src_x];
+                            }
+                        }
+                        shaped.width = target_w;
+                        shaped.height = target_h;
+                        shaped.coverage = resampled;
+                    }
                     result.push(shaped);
                     i += len;
                     continue;
@@ -143,7 +182,7 @@ impl FontShaper {
             if i + 1 < chars.len() && Self::is_combining_mark(chars[i + 1]) {
                 let mark = chars[i + 1];
                 let combined_ch = Self::compose_diacritic(base_char, mark);
-                let (w, h, cov) = FontRasterizer::rasterize_glyph_scaled(combined_ch, scale);
+                let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(combined_ch, family, cell_w, cell_h, weight);
                 result.push(ShapedGlyph {
                     cluster: format!("{}{}", base_char, mark),
                     advance_cells: 1,
@@ -157,7 +196,7 @@ impl FontShaper {
             }
 
             // 3. Standard single character
-            let (w, h, cov) = FontRasterizer::rasterize_glyph_scaled(base_char, scale);
+            let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(base_char, family, cell_w, cell_h, weight);
             result.push(ShapedGlyph {
                 cluster: base_char.to_string(),
                 advance_cells: 1,

@@ -13,7 +13,7 @@ pub use animation::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
 pub use analytic_aa::AnalyticAA;
 pub use blur::BlurEngine;
 pub use edge_perception::EdgePerception;
-pub use font::{get_glyph, FontRasterizer, GlyphCoverage16, FONT_HEIGHT, FONT_WIDTH};
+pub use font::{get_glyph, FontFamily, FontWeight, FontRasterizer, GlyphCoverage16, FONT_HEIGHT, FONT_WIDTH};
 pub use framebuffer::Framebuffer;
 pub use gamma::{blend_channel_gamma, blend_pixel_gamma, blend_pixel_naive, GAMMA};
 pub use hinting::{FontHinter, HintingLevel};

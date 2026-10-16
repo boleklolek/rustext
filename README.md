@@ -107,6 +107,20 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - **Percepción de Bordes y Contraste Adaptativo**: Ajuste perceptivo según la ley de Weber-Fechner y la norma ITU-R BT.709 para modular el contraste del contorno tipográfico entre temas oscuros y claros, neutralizando la irradiación visual y ofreciendo filtro *unsharp masking* laplaciano.
   - Configurable desde `config.ini` (`font_ligatures = true`, `font_hinting = medium`, `smooth_shadows = true`, `animation_enabled = true`, `edge_perception = true`).
 
+- **Selector de Fuentes Interactivo y Sistema Tipográfico Avanzado (`Ctrl + Shift + T`)**:
+  - Diálogo modal flotante de escritorio con diseño de doble columna y **caja de vista previa en vivo** (*live syntax preview*) que re-renderiza código sintácticamente coloreado con ligaduras antes de aplicar.
+  - **5 Familias Tipográficas Monoespaciadas Integradas**:
+    - `Standard Mono`: Equilibrada, limpia y optimizada para lectura continuada.
+    - `Terminus Console`: Alto contraste, cero con barra oblicua (`0` tachado), `l` ganchuda y estética de consola Linux.
+    - `Modern Coding Sans`: Formas neo-grotescas abiertas, cero con punto central distintivo y código minimalista.
+    - `Typewriter Slab`: Serifas mecánicas rectangulares de estilo académico y editorial.
+    - `Retro Pixel 8-Bit`: Píxeles puros estilo arcade y computación de 8 bits sin suavizado analítico.
+  - **Escalado Bilineal Continuo y Selección de Tamaño**: Tamaños tipográficos estándar (`10, 11, 12, 14, 16, 18, 20, 24 pt`) muestreados subpíxel sin distorsión geométrica.
+  - **Atajos Rápidos de Zoom de Fuente**: `Ctrl + +` / `Ctrl + =` (aumentar tamaño), `Ctrl + -` (disminuir tamaño), `Ctrl + 0` (restablecer a 12 pt).
+  - **Grosor de Trazo Físico**: `Normal`, `Semibold` (+35 de realce de cobertura de borde), y `Bold` (dilatación morfológica horizontal analítica de 1 píxel).
+  - **Navegación Ergonómica**: Teclado completo (`Tab`, `↑`/`↓`, `←`/`→`, `+`/`-`/`0`, `l`, `a`, `s`, `Enter`, `Esc`), clics directos de ratón y rueda de scroll interactiva para ciclar tamaños.
+  - Menú `Preferencias > Tipografía...`, comandos en la Paleta (`Ctrl + P`) y persistencia automática en `config.ini` (`font_family`, `font_size`, `font_weight`).
+
 - **Sistemas de Cajas Flexibles (Flexbox Layout Engine) y Arquitectura Reactiva vs. Retained**:
   - **Motor Flexbox 100% Pure Rust**: Implementación completa inspirada en el estándar W3C CSS Flexible Box Layout:
     - Ejes principales y transversales (`Row`, `Column`, `RowReverse`, `ColumnReverse`).
@@ -316,6 +330,10 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Ctrl + Shift + F` | **Búsqueda Global en Todo el Proyecto** |
 | `Ctrl + Espacio` | **Autocompletado Contextual Inteligente** |
 | `Ctrl + P` | **Abrir Paleta de Comandos** |
+| `Ctrl + Shift + T` | **Selector de Fuentes y Tipografía (Modal con Vista Previa)** |
+| `Ctrl + +` / `Ctrl + =` | **Aumentar tamaño de fuente (Zoom In)** |
+| `Ctrl + -` | **Disminuir tamaño de fuente (Zoom Out)** |
+| `Ctrl + 0` | **Restablecer tamaño de fuente (Reset Zoom a 12 pt)** |
 | `PageUp` / `PageDown` | Cambiar de pestaña (Anterior / Siguiente) |
 | `Tab` | Indentación o expandir snippet (`fn`, `struct`, etc.) |
 | `Ctrl + Shift + I` | **Formatear documento con herramienta del sistema** |
@@ -355,7 +373,10 @@ window_width = 1100
 window_height = 720
 scale_factor = 0.0   # Factor de escala HiDPI (0.0 = autodetección por monitor/OS, 1.0, 1.5, 2.0)
 font_scale = 1
-line_spacing = 2
+font_family = standard   # standard, terminus, modern, typewriter, retro
+font_size = 12           # 10, 11, 12, 14, 16, 18, 20, 24 pt
+font_weight = normal     # normal, semibold, bold
+line_spacing = 3         # Interlineado vertical en píxeles: 1, 3, 5, 8
 cursor_style = bar   # bar, block, underline
 cursor_blink = true
 rounded_corners = true

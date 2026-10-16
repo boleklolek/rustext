@@ -4,7 +4,7 @@
 use super::analytic_aa::AnalyticAA;
 use super::blur::BlurEngine;
 use super::edge_perception::EdgePerception;
-use super::font::{get_glyph, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
+use super::font::{get_glyph, FontFamily, FontWeight, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
 use super::gamma::blend_pixel_gamma;
 use super::hinting::{FontHinter, HintingLevel};
 use super::shaping::FontShaper;
@@ -16,6 +16,9 @@ pub struct Framebuffer {
     pub height: usize,
     pub pixels: Vec<u32>,
     pub font_scale: usize,
+    pub font_family: FontFamily,
+    pub font_weight: FontWeight,
+    pub font_size: usize,
 }
 
 impl Framebuffer {
@@ -27,6 +30,9 @@ impl Framebuffer {
             height,
             pixels: vec![0xFF000000; size],
             font_scale: 1,
+            font_family: FontFamily::Standard,
+            font_weight: FontWeight::Normal,
+            font_size: 12,
         }
     }
 
@@ -329,10 +335,22 @@ impl Framebuffer {
         self.font_scale = scale.max(1);
     }
 
+    /// Returns the character cell dimensions `(width, height)` in pixels based on font_size and font_scale.
+    pub fn char_cell_size(&self) -> (usize, usize) {
+        if self.font_size != 12 {
+            let w = ((self.font_size as f64 * 8.0 / 12.0).round() as usize).max(5) * self.font_scale;
+            let h = ((self.font_size as f64 * 16.0 / 12.0).round() as usize).max(10) * self.font_scale;
+            (w, h)
+        } else {
+            (FONT_WIDTH * self.font_scale, FONT_HEIGHT * self.font_scale)
+        }
+    }
+
     /// Draws a single character glyph at pixel coordinates (x, y) with subpixel anti-aliasing and gamma correction.
     pub fn draw_char(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
-        if self.font_scale > 1 {
-            self.draw_char_scaled(ch, x, y, fg, bg, self.font_scale);
+        let (char_w, char_h) = self.char_cell_size();
+        if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
+            self.draw_char_sized(ch, x, y, fg, bg, char_w, char_h);
             return;
         }
 
@@ -368,20 +386,54 @@ impl Framebuffer {
         }
     }
 
-    /// Draws a string of text starting at pixel coordinates (x, y) with anti-aliasing and gamma correction.
-    pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
-        if self.font_scale > 1 {
-            self.draw_text_scaled(text, x, y, fg, bg, self.font_scale);
+    /// Draws a character glyph sized to `(target_w x target_h)` pixels.
+    pub fn draw_char_sized(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>, target_w: usize, target_h: usize) {
+        if x >= self.width || y >= self.height {
             return;
         }
 
+        let (w, h, coverage) = FontRasterizer::rasterize_glyph_sized(ch, self.font_family, target_w, target_h, self.font_weight);
+        let max_w = (x + w).min(self.width) - x;
+        let max_h = (y + h).min(self.height) - y;
+
+        for row in 0..max_h {
+            let py = y + row;
+            let row_offset = row * w;
+            let fb_offset = py * self.width + x;
+
+            for col in 0..max_w {
+                let alpha = coverage[row_offset + col];
+                if alpha == 0 {
+                    if let Some(bg_color) = bg {
+                        self.pixels[fb_offset + col] = bg_color;
+                    }
+                } else if alpha == 255 {
+                    self.pixels[fb_offset + col] = fg;
+                } else {
+                    let dst = match bg {
+                        Some(bg_color) => bg_color,
+                        None => self.pixels[fb_offset + col],
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                }
+            }
+        }
+    }
+
+    /// Draws a string of text starting at pixel coordinates (x, y) with anti-aliasing and gamma correction.
+    pub fn draw_text(&mut self, text: &str, x: usize, y: usize, fg: u32, bg: Option<u32>) {
+        let (char_w, char_h) = self.char_cell_size();
         let mut cur_x = x;
         for ch in text.chars() {
-            if cur_x + FONT_WIDTH > self.width {
+            if cur_x + char_w > self.width {
                 break;
             }
-            self.draw_char(ch, cur_x, y, fg, bg);
-            cur_x += FONT_WIDTH;
+            if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
+                self.draw_char_sized(ch, cur_x, y, fg, bg, char_w, char_h);
+            } else {
+                self.draw_char(ch, cur_x, y, fg, bg);
+            }
+            cur_x += char_w;
         }
     }
 
@@ -496,7 +548,8 @@ impl Framebuffer {
         hinting: HintingLevel,
         edge_enhance: bool,
     ) {
-        let glyphs = FontShaper::shape_text(text, self.font_scale, enable_ligatures);
+        let (cell_w, cell_h) = self.char_cell_size();
+        let glyphs = FontShaper::shape_text_ex(text, self.font_scale, enable_ligatures, self.font_family, self.font_weight, cell_w, cell_h);
         let mut cur_x = x;
 
         for glyph in glyphs {

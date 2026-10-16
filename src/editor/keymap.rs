@@ -38,6 +38,14 @@ pub enum EditorAction {
     OpenConfig,
     ReloadConfig,
     SetTheme(crate::editor::config::EditorTheme),
+    // Font & Typography
+    OpenFontSelector,
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize,
+    SetFontFamily(crate::gfx::FontFamily),
+    SetFontSize(usize),
+    SetFontWeight(crate::gfx::FontWeight),
     // Clipboard
     Copy,
     Cut,
@@ -153,6 +161,12 @@ impl Keymap {
 
             // Autocomplete trigger (Ctrl+Space)
             Key::Ctrl(' ') | Key::Ctrl('@') => EditorAction::TriggerAutocomplete,
+
+            // Font & Typography (Zoom / Selector)
+            Key::Ctrl('+') | Key::Ctrl('=') => EditorAction::IncreaseFontSize,
+            Key::Ctrl('-') => EditorAction::DecreaseFontSize,
+            Key::Ctrl('0') => EditorAction::ResetFontSize,
+            Key::CtrlShift('t') | Key::CtrlShift('T') => EditorAction::OpenFontSelector,
 
             // Help & About
             Key::F(1) => EditorAction::OpenAboutDialog,
