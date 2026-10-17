@@ -4280,4 +4280,199 @@ fn test_font_selector_dialog_no_text_overflow() {
     }
 }
 
+#[test]
+fn test_code_folding_engine_brace_matching() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::folding::FoldingManager;
+
+    let code = "fn alpha() {\n    let a = 10;\n    let b = 20;\n}\n\nfn beta() {\n    let s = \"{ ignored }\"; // comment {\n    let c = 30;\n}\n";
+    let buffer = TextBuffer::from_str(code);
+    let mut folding = FoldingManager::new();
+
+    folding.recompute_regions(&buffer, Language::Rust);
+    assert!(folding.regions.len() >= 2, "Expected at least 2 fold regions for the two functions");
+
+    // First function spans line 0 to line 3
+    let r0 = &folding.regions[0];
+    assert_eq!(r0.start_line, 0);
+    assert_eq!(r0.end_line, 3);
+    assert!(!r0.is_folded);
+
+    // Second function spans line 5 to line 8 (ignoring brace in string and comment)
+    let r1 = &folding.regions[1];
+    assert_eq!(r1.start_line, 5);
+    assert_eq!(r1.end_line, 8);
+    assert!(!r1.is_folded);
+
+    // Initial state: fold indicators
+    assert_eq!(folding.is_fold_start(0), Some(false)); // Expanded
+    assert_eq!(folding.is_fold_start(1), None);
+    assert_eq!(folding.is_fold_start(5), Some(false)); // Expanded
+
+    // Toggle fold at line 0
+    assert!(folding.toggle_fold_at_line(0));
+    assert_eq!(folding.is_fold_start(0), Some(true)); // Folded!
+    assert_eq!(folding.fold_end_for_line(0), Some(3));
+
+    // Lines 1, 2, 3 must be hidden; line 0 and line 4 must be visible
+    assert!(!folding.is_line_hidden(0));
+    assert!(folding.is_line_hidden(1));
+    assert!(folding.is_line_hidden(2));
+    assert!(folding.is_line_hidden(3));
+    assert!(!folding.is_line_hidden(4));
+    assert!(!folding.is_line_hidden(5));
+    assert_eq!(folding.hidden_line_count(), 3);
+}
+
+#[test]
+fn test_code_folding_engine_indentation() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::folding::FoldingManager;
+
+    let py_code = "def calculate():\n    x = 10\n    if x > 5:\n        y = x * 2\n        print(y)\n    return x\n";
+    let buffer = TextBuffer::from_str(py_code);
+    let mut folding = FoldingManager::new();
+
+    folding.recompute_regions(&buffer, Language::Python);
+    assert!(!folding.regions.is_empty(), "Python indentation folding must detect indented blocks");
+
+    // Outer function starts at line 0 and spans to line 5
+    let outer = folding.regions.iter().find(|r| r.start_line == 0);
+    assert!(outer.is_some(), "Outer block at line 0 must exist");
+    assert_eq!(outer.unwrap().end_line, 5);
+
+    // Inner block (if statement) starts at line 2 and spans to line 4
+    let inner = folding.regions.iter().find(|r| r.start_line == 2);
+    assert!(inner.is_some(), "Inner block at line 2 must exist");
+    assert_eq!(inner.unwrap().end_line, 4);
+
+    // Toggle inner block: lines 3 and 4 should be hidden, line 5 (return x) remains visible
+    folding.toggle_fold_at_line(2);
+    assert!(!folding.is_line_hidden(0));
+    assert!(!folding.is_line_hidden(2));
+    assert!(folding.is_line_hidden(3));
+    assert!(folding.is_line_hidden(4));
+    assert!(!folding.is_line_hidden(5));
+}
+
+#[test]
+fn test_code_folding_cursor_navigation_and_reveal() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::folding::FoldingManager;
+
+    let code = "line 0\nfn test() {\n    line 2\n    line 3\n    line 4\n}\nline 6\nline 7\n";
+    let buffer = TextBuffer::from_str(code);
+    let mut folding = FoldingManager::new();
+
+    folding.recompute_regions(&buffer, Language::Rust);
+    // Fold fn test() at line 1 (spans 1..=5)
+    folding.toggle_fold_at_line(1);
+    assert_eq!(folding.hidden_line_count(), 4);
+
+    let total = buffer.len_lines();
+
+    // Next visible line navigation:
+    // From line 0 -> line 1
+    assert_eq!(folding.next_visible_line(0, total), 1);
+    // From line 1 (folded!) -> skips hidden 2, 3, 4, 5 -> jumps to line 6!
+    assert_eq!(folding.next_visible_line(1, total), 6);
+    // From line 6 -> line 7
+    assert_eq!(folding.next_visible_line(6, total), 7);
+
+    // Previous visible line navigation:
+    // From line 6 -> skips hidden 5, 4, 3, 2 -> jumps to line 1!
+    assert_eq!(folding.prev_visible_line(6), 1);
+    // From line 1 -> line 0
+    assert_eq!(folding.prev_visible_line(1), 0);
+
+    // Screen row mapping:
+    // Screen row 0 starting at scroll_row 0 is line 0
+    assert_eq!(folding.visible_line_for_screen_row(0, 0, total), Some(0));
+    // Screen row 1 is line 1
+    assert_eq!(folding.visible_line_for_screen_row(0, 1, total), Some(1));
+    // Screen row 2 is line 6 (skipping folded lines 2..=5)
+    assert_eq!(folding.visible_line_for_screen_row(0, 2, total), Some(6));
+    // Screen row 3 is line 7
+    assert_eq!(folding.visible_line_for_screen_row(0, 3, total), Some(7));
+
+    // Test unfold_to_reveal: jumping to line 3 automatically unfolds the block!
+    assert!(folding.unfold_to_reveal(3));
+    assert_eq!(folding.hidden_line_count(), 0);
+    assert!(!folding.is_line_hidden(3));
+}
+
+#[test]
+fn test_code_folding_gui_rendering_and_actions() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::document::Document;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    let code = "fn compute() {\n    let val = 42;\n    val * 2\n}\n// trailing line\n";
+    let buffer = TextBuffer::from_str(code);
+    let mut doc = Document::new(buffer);
+    doc.language = rustext::core::syntax::Language::Rust;
+    doc.update_folding();
+
+    let renderer = GfxRenderer::new();
+    let mut fb = Framebuffer::new(800, 600);
+
+    // Initially expanded: fold indicator is ▼
+    renderer.render_editor_pane(&mut fb, &doc, 0, 0, 800, 600, true, "main.rs", false, false, false, false);
+    // Check gutter indicator on line 0 (y around tab_bar_height + line_spacing)
+    let char_w = renderer.char_width();
+    let line_h = renderer.line_height();
+    let tab_h = renderer.tab_bar_height;
+    let gutter_w = (3 + 2) * char_w;
+    let fold_chevron_x = (3 + 1) * char_w;
+
+    // Toggle fold at line 0
+    assert!(doc.folding.toggle_fold_at_line(0));
+    assert!(doc.folding.is_line_hidden(1));
+    assert!(doc.folding.is_line_hidden(2));
+    assert!(doc.folding.is_line_hidden(3));
+
+    // Render folded editor pane
+    let mut fb_folded = Framebuffer::new(800, 600);
+    renderer.render_editor_pane(&mut fb_folded, &doc, 0, 0, 800, 600, true, "main.rs", false, false, false, false);
+
+    // Verify gutter chevron has accent color pixel drawn for '▶'
+    let mut has_accent_chevron = false;
+    for px in fold_chevron_x..(fold_chevron_x + char_w) {
+        for py in tab_h..(tab_h + line_h) {
+            let pixel = fb_folded.get_pixel(px, py);
+            if pixel != renderer.colors.background && pixel != renderer.colors.gutter_bg {
+                has_accent_chevron = true;
+                break;
+            }
+        }
+    }
+    assert!(has_accent_chevron, "Folded gutter must render the collapse indicator chevron");
+
+    // Verify collapsed badge ' ··· ' is rendered after line 0 text
+    let line_0_len = "fn compute() {".len();
+    let text_start_x = gutter_w + char_w;
+    let badge_start_x = text_start_x + line_0_len * char_w;
+    let mut has_badge_pixel = false;
+    for px in badge_start_x..(badge_start_x + char_w * 6) {
+        for py in tab_h..(tab_h + line_h) {
+            let pixel = fb_folded.get_pixel(px, py);
+            if pixel != renderer.colors.background {
+                has_badge_pixel = true;
+                break;
+            }
+        }
+    }
+    assert!(has_badge_pixel, "Folded line must display the inline collapsed badge ' ··· '");
+
+    // Test fold_all and unfold_all
+    doc.folding.fold_all();
+    assert!(doc.folding.regions.iter().all(|r| r.is_folded));
+    doc.folding.unfold_all();
+    assert!(doc.folding.regions.iter().all(|r| !r.is_folded));
+    assert_eq!(doc.folding.hidden_line_count(), 0);
+}
+
 

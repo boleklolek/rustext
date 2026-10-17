@@ -1650,12 +1650,17 @@ impl GfxRenderer {
         }
 
         if !self.word_wrap {
+            let mut current_line = doc.scroll_row;
+            while current_line > 0 && doc.folding.is_line_hidden(current_line) {
+                current_line = doc.folding.prev_visible_line(current_line);
+            }
+
             for row in 0..visible_lines {
-                let line_idx = doc.scroll_row + row;
                 let py = content_y + row * line_height;
                 let text_y = py + self.line_spacing / 2;
 
-                if line_idx < total_lines {
+                if current_line < total_lines {
+                    let line_idx = current_line;
                     // Gutter line number
                     if self.show_line_numbers {
                         let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
@@ -1670,6 +1675,20 @@ impl GfxRenderer {
 
                         if let Some(b) = badge {
                             fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
+                        }
+
+                        // Code folding indicator in gutter
+                        if doc.folding.enabled {
+                            let fold_x = pane_x + (gutter_cols + 1) * self.char_width();
+                            match doc.folding.is_fold_start(line_idx) {
+                                Some(true) => {
+                                    fb.draw_char('▶', fold_x, text_y, self.colors.accent, None);
+                                }
+                                Some(false) => {
+                                    fb.draw_char('▼', fold_x, text_y, self.colors.gutter_fg, None);
+                                }
+                                None => {}
+                            }
                         }
 
                         // Git Gutter diff indicator bar
@@ -1721,6 +1740,17 @@ impl GfxRenderer {
                     let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
                     self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
 
+                    // Folded line indicator badge: " ··· "
+                    if doc.folding.fold_end_for_line(line_idx).is_some() {
+                        let text_chars = line_text.chars().count();
+                        let badge_x = text_start_x + text_chars.saturating_sub(doc.scroll_col) * self.char_width() + 6;
+                        if badge_x + self.char_width() * 4 < max_code_x {
+                            let badge_w = self.char_width() * 5;
+                            fb.fill_rect(badge_x, py + 2, badge_w, line_height.saturating_sub(4), self.colors.gutter_bg);
+                            fb.draw_text(" ··· ", badge_x, text_y, self.colors.accent, None);
+                        }
+                    }
+
                     // Cursors (only rendered if this pane is active)
                     if is_active {
                         for pos in &cursor_positions {
@@ -1729,7 +1759,7 @@ impl GfxRenderer {
                                 if cx + 2 <= max_code_x {
                                     match self.cursor_style.as_str() {
                                         "block" => {
-                                            let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                             let cw = self.char_width().min(max_code_x.saturating_sub(cx));
                                             fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
                                         }
                                         "underline" => {
@@ -1744,6 +1774,14 @@ impl GfxRenderer {
                             }
                         }
                     }
+
+                    // Advance to next visible line for the next screen row
+                    let next = doc.folding.next_visible_line(current_line, total_lines);
+                    if next <= current_line {
+                        current_line = total_lines;
+                    } else {
+                        current_line = next;
+                    }
                 } else if self.show_line_numbers {
                     fb.draw_char('~', pane_x + self.char_width(), text_y, self.colors.gutter_fg, None);
                 }
@@ -1753,6 +1791,9 @@ impl GfxRenderer {
             let max_cols = (code_width / self.char_width()).max(10);
             let mut screen_row = 0;
             let mut line_idx = doc.scroll_row;
+            while line_idx > 0 && doc.folding.is_line_hidden(line_idx) {
+                line_idx = doc.folding.prev_visible_line(line_idx);
+            }
             let mut start_sub_idx = doc.scroll_subline;
 
             while screen_row < visible_lines && line_idx < total_lines {
@@ -1789,6 +1830,20 @@ impl GfxRenderer {
 
                             if let Some(b) = badge {
                                 fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
+                            }
+
+                            // Code folding indicator in gutter
+                            if doc.folding.enabled {
+                                let fold_x = pane_x + (gutter_cols + 1) * self.char_width();
+                                match doc.folding.is_fold_start(line_idx) {
+                                    Some(true) => {
+                                        fb.draw_char('▶', fold_x, text_y, self.colors.accent, None);
+                                    }
+                                    Some(false) => {
+                                        fb.draw_char('▼', fold_x, text_y, self.colors.gutter_fg, None);
+                                    }
+                                    None => {}
+                                }
                             }
 
                             if self.git_gutter_enabled {
@@ -1858,6 +1913,17 @@ impl GfxRenderer {
 
                     self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
 
+                    // Folded line indicator badge: " ··· "
+                    if sub_idx + 1 == sublines.len() && doc.folding.fold_end_for_line(line_idx).is_some() {
+                        let text_chars = sub.len_chars();
+                        let badge_x = text_start_x + text_chars * self.char_width() + 6;
+                        if badge_x + self.char_width() * 4 < max_code_x {
+                            let badge_w = self.char_width() * 5;
+                            fb.fill_rect(badge_x, py + 2, badge_w, line_height.saturating_sub(4), self.colors.gutter_bg);
+                            fb.draw_text(" ··· ", badge_x, text_y, self.colors.accent, None);
+                        }
+                    }
+
                     // Cursors
                     if is_active {
                         for pos in &cursor_positions {
@@ -1892,7 +1958,11 @@ impl GfxRenderer {
                     screen_row += 1;
                 }
 
-                line_idx += 1;
+                let next_line = doc.folding.next_visible_line(line_idx, total_lines);
+                if next_line <= line_idx {
+                    break;
+                }
+                line_idx = next_line;
                 start_sub_idx = 0;
             }
 

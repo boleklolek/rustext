@@ -15,6 +15,7 @@ pub struct Document {
     pub scroll_row: usize,
     pub scroll_col: usize,
     pub scroll_subline: usize,
+    pub folding: crate::editor::folding::FoldingManager,
 }
 
 impl Document {
@@ -34,7 +35,13 @@ impl Document {
             scroll_row: 0,
             scroll_col: 0,
             scroll_subline: 0,
+            folding: crate::editor::folding::FoldingManager::new(),
         }
+    }
+
+    /// Recomputes code fold regions if the buffer version has changed.
+    pub fn update_folding(&mut self) {
+        self.folding.recompute_regions(&self.buffer, self.language);
     }
 
     /// Display title for the tab bar.

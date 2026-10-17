@@ -671,22 +671,83 @@ impl Editor {
                 doc.cursors.move_right(&doc.buffer, select);
             }
             EditorAction::MoveUp { select } => {
-                if self.word_wrap {
-                    let max_cols = self.active_max_cols();
-                    let doc = self.doc_mut();
+                let is_word_wrap = self.word_wrap;
+                let max_cols = self.active_max_cols();
+                let doc = self.doc_mut();
+                doc.update_folding();
+                if is_word_wrap {
                     crate::editor::wrap::WordWrap::move_up(&mut doc.cursors, &doc.buffer, max_cols, select);
+                    if doc.folding.enabled && doc.folding.hidden_line_count() > 0 {
+                        for c in doc.cursors.cursors_mut() {
+                            let pos = doc.buffer.char_to_position(c.head);
+                            if doc.folding.is_line_hidden(pos.line) {
+                                let target_line = doc.folding.prev_visible_line(pos.line);
+                                let line_len = doc.buffer.line_len(target_line);
+                                let target_col = std::cmp::min(pos.col, line_len);
+                                let target_char = doc.buffer.position_to_char(Position::new(target_line, target_col));
+                                c.head = target_char;
+                                if !select {
+                                    c.anchor = target_char;
+                                }
+                            }
+                        }
+                        doc.cursors.normalize();
+                    }
+                } else if doc.folding.enabled && doc.folding.hidden_line_count() > 0 {
+                    for c in doc.cursors.cursors_mut() {
+                        let pos = doc.buffer.char_to_position(c.head);
+                        let target_line = doc.folding.prev_visible_line(pos.line);
+                        let line_len = doc.buffer.line_len(target_line);
+                        let target_col = std::cmp::min(pos.col, line_len);
+                        let target_char = doc.buffer.position_to_char(Position::new(target_line, target_col));
+                        c.head = target_char;
+                        if !select {
+                            c.anchor = target_char;
+                        }
+                    }
+                    doc.cursors.normalize();
                 } else {
-                    let doc = self.doc_mut();
                     doc.cursors.move_up(&doc.buffer, select);
                 }
             }
             EditorAction::MoveDown { select } => {
-                if self.word_wrap {
-                    let max_cols = self.active_max_cols();
-                    let doc = self.doc_mut();
+                let is_word_wrap = self.word_wrap;
+                let max_cols = self.active_max_cols();
+                let doc = self.doc_mut();
+                doc.update_folding();
+                let total_lines = doc.buffer.len_lines();
+                if is_word_wrap {
                     crate::editor::wrap::WordWrap::move_down(&mut doc.cursors, &doc.buffer, max_cols, select);
+                    if doc.folding.enabled && doc.folding.hidden_line_count() > 0 {
+                        for c in doc.cursors.cursors_mut() {
+                            let pos = doc.buffer.char_to_position(c.head);
+                            if doc.folding.is_line_hidden(pos.line) {
+                                let target_line = doc.folding.next_visible_line(pos.line, total_lines);
+                                let line_len = doc.buffer.line_len(target_line);
+                                let target_col = std::cmp::min(pos.col, line_len);
+                                let target_char = doc.buffer.position_to_char(Position::new(target_line, target_col));
+                                c.head = target_char;
+                                if !select {
+                                    c.anchor = target_char;
+                                }
+                            }
+                        }
+                        doc.cursors.normalize();
+                    }
+                } else if doc.folding.enabled && doc.folding.hidden_line_count() > 0 {
+                    for c in doc.cursors.cursors_mut() {
+                        let pos = doc.buffer.char_to_position(c.head);
+                        let target_line = doc.folding.next_visible_line(pos.line, total_lines);
+                        let line_len = doc.buffer.line_len(target_line);
+                        let target_col = std::cmp::min(pos.col, line_len);
+                        let target_char = doc.buffer.position_to_char(Position::new(target_line, target_col));
+                        c.head = target_char;
+                        if !select {
+                            c.anchor = target_char;
+                        }
+                    }
+                    doc.cursors.normalize();
                 } else {
-                    let doc = self.doc_mut();
                     doc.cursors.move_down(&doc.buffer, select);
                 }
             }
@@ -1050,6 +1111,49 @@ impl Editor {
                 self.set_status("Terminal limpiado");
             }
 
+            EditorAction::ToggleFold => {
+                let primary_line = {
+                    let doc = self.doc();
+                    let pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+                    pos.line
+                };
+                let doc = self.doc_mut();
+                doc.update_folding();
+                if doc.folding.toggle_fold_at_line(primary_line) {
+                    let head_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+                    if doc.folding.is_line_hidden(head_pos.line) {
+                        for r in &doc.folding.regions {
+                            if r.is_folded && head_pos.line > r.start_line && head_pos.line <= r.end_line {
+                                let target_char = doc.buffer.position_to_char(Position::new(r.start_line, doc.buffer.line_len(r.start_line)));
+                                doc.cursors.set_single(target_char);
+                                break;
+                            }
+                        }
+                    }
+                    self.set_status(format!("Plegado alternado en línea {}", primary_line + 1));
+                } else {
+                    self.set_status("No se encontró ningún bloque plegable en esta línea");
+                }
+            }
+            EditorAction::FoldAll => {
+                let doc = self.doc_mut();
+                doc.update_folding();
+                doc.folding.fold_all();
+                let head_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+                if doc.folding.is_line_hidden(head_pos.line) {
+                    let visible_line = doc.folding.prev_visible_line(head_pos.line);
+                    let target_char = doc.buffer.position_to_char(Position::new(visible_line, 0));
+                    doc.cursors.set_single(target_char);
+                }
+                self.set_status("Todos los bloques plegados");
+            }
+            EditorAction::UnfoldAll => {
+                let doc = self.doc_mut();
+                doc.update_folding();
+                doc.folding.unfold_all();
+                self.set_status("Todos los bloques desplegados");
+            }
+
             EditorAction::None => {}
         }
     }
@@ -1096,21 +1200,20 @@ impl Editor {
     ) -> Option<usize> {
         let total_lines = doc.buffer.len_lines();
         if !word_wrap {
-            let target_line = doc.scroll_row + row;
-            if target_line < total_lines {
-                let col = if x >= text_start_x {
-                    (x - text_start_x) / char_w + doc.scroll_col
-                } else {
-                    0
-                };
-                let pos = Position::new(target_line, col);
-                Some(doc.buffer.position_to_char(pos))
+            let target_line = doc.folding.visible_line_for_screen_row(doc.scroll_row, row, total_lines)?;
+            let col = if x >= text_start_x {
+                (x - text_start_x) / char_w + doc.scroll_col
             } else {
-                None
-            }
+                0
+            };
+            let pos = Position::new(target_line, col);
+            Some(doc.buffer.position_to_char(pos))
         } else {
             let mut current_vrow = 0;
             let mut cur_line = doc.scroll_row;
+            while cur_line > 0 && doc.folding.is_line_hidden(cur_line) {
+                cur_line = doc.folding.prev_visible_line(cur_line);
+            }
             let mut cur_sub = doc.scroll_subline;
 
             while cur_line < total_lines && current_vrow <= row {
@@ -1129,10 +1232,80 @@ impl Editor {
                     }
                     current_vrow += 1;
                 }
-                cur_line += 1;
+                let next_line = doc.folding.next_visible_line(cur_line, total_lines);
+                if next_line <= cur_line {
+                    break;
+                }
+                cur_line = next_line;
                 cur_sub = 0;
             }
             None
+        }
+    }
+
+    /// Handles mouse clicks on the editor canvas: toggling folds from gutter chevrons,
+    /// expanding blocks via the inline collapsed badge, or positioning cursors.
+    pub fn handle_code_canvas_click(
+        &mut self,
+        row: usize,
+        x: usize,
+        text_start_x: usize,
+        char_w: usize,
+        code_cols: usize,
+    ) -> (bool, bool) {
+        let total_lines = self.doc().buffer.len_lines();
+        let target_line = if !self.word_wrap {
+            self.doc().folding.visible_line_for_screen_row(self.doc().scroll_row, row, total_lines)
+        } else {
+            let mut current_vrow = 0;
+            let mut cur_line = self.doc().scroll_row;
+            while cur_line > 0 && self.doc().folding.is_line_hidden(cur_line) {
+                cur_line = self.doc().folding.prev_visible_line(cur_line);
+            }
+            let mut found = None;
+            while cur_line < total_lines && current_vrow <= row {
+                let cow = self.doc().buffer.line_cow(cur_line).unwrap_or(std::borrow::Cow::Borrowed(""));
+                let sublines = crate::editor::wrap::WordWrap::compute_sublines(&cow, code_cols);
+                if row < current_vrow + sublines.len() {
+                    found = Some(cur_line);
+                    break;
+                }
+                current_vrow += sublines.len();
+                let next_l = self.doc().folding.next_visible_line(cur_line, total_lines);
+                if next_l <= cur_line {
+                    break;
+                }
+                cur_line = next_l;
+            }
+            found
+        };
+
+        if let Some(tl) = target_line {
+            // 1. Gutter fold chevron click
+            if x < text_start_x {
+                if self.doc().folding.is_fold_start(tl).is_some() {
+                    self.doc_mut().folding.toggle_fold_at_line(tl);
+                    self.set_status(format!("Plegado alternado en línea {}", tl + 1));
+                    return (false, true);
+                }
+            } else if self.doc().folding.fold_end_for_line(tl).is_some() {
+                // 2. Collapsed badge " ··· " click
+                let line_len = self.doc().buffer.line_len(tl);
+                let badge_x = text_start_x + line_len.saturating_sub(self.doc().scroll_col) * char_w;
+                if x >= badge_x && x <= badge_x + char_w * 8 {
+                    self.doc_mut().folding.toggle_fold_at_line(tl);
+                    self.set_status(format!("Bloque desplegado en línea {}", tl + 1));
+                    return (false, true);
+                }
+            }
+        }
+
+        // 3. Normal text click
+        if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, char_w, self.word_wrap, code_cols) {
+            self.doc_mut().cursors.set_single(char_offset);
+            (true, true)
+        } else {
+            (false, false)
         }
     }
 
@@ -3961,11 +4134,9 @@ impl Editor {
                                                 let text_start_x = p0_geom.x + gutter_width + renderer.char_width();
                                                 let code_width = max_code_x.saturating_sub(text_start_x);
                                                 let code_cols = (code_width / renderer.char_width()).max(10);
-                                                if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
-                                                    self.doc_mut().cursors.set_single(char_offset);
-                                                    adjust_viewport = true;
-                                                    needs_redraw = true;
-                                                }
+                                                let (adj, red) = self.handle_code_canvas_click(row, x, text_start_x, renderer.char_width(), code_cols);
+                                                if adj { adjust_viewport = true; }
+                                                if red { needs_redraw = true; }
                                             }
                                         } else if p1_geom.contains_point(x, y) {
                                             if self.split.active_pane != 1 {
@@ -4009,11 +4180,9 @@ impl Editor {
                                                 let text_start_x = p1_geom.x + gutter_width + renderer.char_width();
                                                 let code_width = max_code_x.saturating_sub(text_start_x);
                                                 let code_cols = (code_width / renderer.char_width()).max(10);
-                                                if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
-                                                    self.doc_mut().cursors.set_single(char_offset);
-                                                    adjust_viewport = true;
-                                                    needs_redraw = true;
-                                                }
+                                                let (adj, red) = self.handle_code_canvas_click(row, x, text_start_x, renderer.char_width(), code_cols);
+                                                if adj { adjust_viewport = true; }
+                                                if red { needs_redraw = true; }
                                             }
                                         }
                                     } else {
@@ -4095,10 +4264,9 @@ impl Editor {
                                                     let text_start_x = sidebar_w + gutter_width + renderer.char_width();
                                                     let code_width = max_code_x.saturating_sub(text_start_x);
                                                     let code_cols = (code_width / renderer.char_width()).max(10);
-                                                    if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
-                                                        self.doc_mut().cursors.set_single(char_offset);
-                                                        adjust_viewport = true;
-                                                    }
+                                                    let (adj, red) = self.handle_code_canvas_click(row, x, text_start_x, renderer.char_width(), code_cols);
+                                                    if adj { adjust_viewport = true; }
+                                                    if red { needs_redraw = true; }
                                                 }
                                             }
                                         }
@@ -4572,6 +4740,10 @@ impl Editor {
 
             if adjust_viewport {
                 let doc = &mut self.documents[active_idx];
+                doc.folding.unfold_to_reveal(primary_pos.line);
+                if doc.folding.is_line_hidden(doc.scroll_row) {
+                    doc.scroll_row = doc.folding.prev_visible_line(doc.scroll_row);
+                }
                 if self.word_wrap {
                     doc.scroll_col = 0;
                     crate::editor::wrap::WordWrap::adjust_viewport(doc, visible_lines, self.last_code_cols);

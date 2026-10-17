@@ -59,6 +59,7 @@ pub struct EditorSettings {
     pub hot_exit: bool,
     pub max_recent_files: usize,
     pub word_wrap: bool,
+    pub code_folding: bool,
 }
 
 impl Default for EditorSettings {
@@ -78,6 +79,7 @@ impl Default for EditorSettings {
             hot_exit: false,
             max_recent_files: 20,
             word_wrap: false,
+            code_folding: true,
         }
     }
 }
@@ -250,6 +252,9 @@ max_recent_files = 20
 ; Ajuste de línea visual suave (Soft Wrap / Word Wrap) sin alterar el buffer de texto
 word_wrap = false
 
+; Plegado de código sintáctico e indentación con indicadores en el gutter (Code Folding)
+code_folding = true
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -377,6 +382,7 @@ auto_save_session = {}
 hot_exit = {}
 max_recent_files = {}
 word_wrap = {}
+code_folding = {}
 
 [theme]
 name = {}
@@ -438,6 +444,7 @@ ttf_font_path = {}
             self.editor.hot_exit,
             self.editor.max_recent_files,
             self.editor.word_wrap,
+            self.editor.code_folding,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -591,6 +598,11 @@ ttf_font_path = {}
                         "word_wrap" => {
                             if let Some(b) = as_bool {
                                 config.editor.word_wrap = b;
+                            }
+                        }
+                        "code_folding" => {
+                            if let Some(b) = as_bool {
+                                config.editor.code_folding = b;
                             }
                         }
                         _ => {}

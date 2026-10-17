@@ -84,6 +84,10 @@ pub enum EditorAction {
     ClearTerminal,
     // Word Wrap (Soft Wrap)
     ToggleWordWrap,
+    // Code Folding
+    ToggleFold,
+    FoldAll,
+    UnfoldAll,
     Quit,
     None,
 }
@@ -96,6 +100,11 @@ impl Keymap {
         match key {
             // Word wrap (Alt+Z)
             Key::Alt('z') | Key::Alt('Z') => EditorAction::ToggleWordWrap,
+
+            // Code folding (Alt+[, Ctrl+Shift+[, F9 for toggle; Alt+0 fold all; Alt+J unfold all)
+            Key::Alt('[') | Key::CtrlShift('[') | Key::CtrlShift('{') | Key::F(9) => EditorAction::ToggleFold,
+            Key::Alt('0') => EditorAction::FoldAll,
+            Key::Alt('j') | Key::Alt('J') => EditorAction::UnfoldAll,
 
             // Sidebar shortcut (Sublime / VS Code Ctrl+B)
             Key::Ctrl('b') => EditorAction::ToggleSidebar,
