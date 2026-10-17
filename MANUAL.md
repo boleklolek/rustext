@@ -918,6 +918,10 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + X` | Cortar selección o línea | Editar > Cortar |
 | `Ctrl + C` | Copiar selección o línea | Editar > Copiar |
 | `Ctrl + V` | Pegar desde el portapapeles | Editar > Pegar |
+| `Alt + Up` | **Mover Línea Arriba** | Editar > Mover Línea Arriba |
+| `Alt + Down` | **Mover Línea Abajo** | Editar > Mover Línea Abajo |
+| `Shift + Alt + Down` / `Ctrl + Shift + D` | **Duplicar Línea Abajo** | Editar > Duplicar Línea Abajo |
+| `Ctrl + /` / `Ctrl + _` | **Alternar Comentario de Línea** | Editar > Alternar Comentario |
 | `Ctrl + F` | Buscar en el documento | Editar > Buscar... |
 | `Ctrl + H` | Buscar y Reemplazar | Editar > Reemplazar... |
 | `Ctrl + Shift + F`| **Búsqueda Global en el Proyecto** | Editar > Buscar en el Proyecto... |
@@ -927,6 +931,8 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + J` | Añadir cursor abajo | Selección > Añadir Cursor Abajo |
 | `Esc` | Cursor único / Cancelar modal | Selección > Cursor Único |
 | `Ctrl + B` | Alternar Explorador Lateral | Ver > Explorador Lateral |
+| `Alt + Left` | **Saltar Atrás (Pila de Navegación Jump List)** | Ver > Saltar Atrás |
+| `Alt + Right` | **Saltar Adelante (Pila de Navegación Jump List)** | Ver > Saltar Adelante |
 | `Alt + Z` | **Alternar Ajuste de Línea (Word Wrap)** | Ver > Ajuste de Línea (Word Wrap) |
 | `Alt + I` | **Alternar Guías de Indentación** | Ver > Guías de Indentación |
 | `Alt + [` / `F9` | **Plegar/Desplegar Bloque (Toggle Fold)** | Ver > Plegar/Desplegar Bloque |
@@ -951,6 +957,7 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Shift + F8` | Saltar al Error Anterior | Herramientas > Error Anterior |
 | `F12` | **LSP: Ir a Definición** | Herramientas > LSP: Ir a Definición |
 | `F2` / `Alt + K` | **LSP: Información de Tipo (Hover)** | Herramientas > LSP: Información de Tipo (Hover) |
+| `Ctrl + Shift + Espacio` | **LSP: Firma de Métodos (Signature Help)** | Herramientas > LSP: Firma de Métodos |
 | `F1` | Ventana Acerca de Rustext | Ayuda > Acerca de Rustext |
 
 ---

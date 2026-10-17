@@ -640,6 +640,7 @@ pub struct GfxRenderer {
     pub rulers: Vec<usize>,
     pub sticky_scroll: bool,
     pub max_sticky_lines: usize,
+    pub signature_help: Option<crate::editor::lsp::LspSignatureHelp>,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -702,6 +703,7 @@ impl GfxRenderer {
             rulers: vec![80, 120],
             sticky_scroll: true,
             max_sticky_lines: 3,
+            signature_help: None,
         }
     }
 
@@ -1614,6 +1616,127 @@ impl GfxRenderer {
                 track_y
             };
             fb.fill_rect(track_x, thumb_y, 2, thumb_h, self.colors.accent);
+        }
+    }
+
+    /// Renders a floating signature help tooltip near the cursor showing parameter hints.
+    pub fn render_signature_help(
+        &self,
+        fb: &mut Framebuffer,
+        sig_help: &crate::editor::lsp::LspSignatureHelp,
+        doc: &Document,
+        sidebar_w: usize,
+        has_menu_bar: bool,
+    ) {
+        if sig_help.signatures.is_empty() {
+            return;
+        }
+
+        let sig_idx = sig_help.active_signature.min(sig_help.signatures.len().saturating_sub(1));
+        let sig = &sig_help.signatures[sig_idx];
+        if sig.label.is_empty() {
+            return;
+        }
+
+        let char_w = self.char_width();
+        let line_h = self.line_height();
+
+        // Calculate cursor position on screen
+        let cursor_head = doc.cursors.primary().head;
+        let cursor_pos = doc.buffer.char_to_position(cursor_head);
+        let gutter_cols = doc.buffer.len_lines().to_string().len().max(3);
+        let gutter_w = (gutter_cols + 2) * char_w;
+
+        let content_y = (if has_menu_bar { self.menu_bar_height } else { 0 }) + self.tab_bar_height;
+        let text_start_x = sidebar_w + gutter_w;
+
+        let screen_row = cursor_pos.line.saturating_sub(doc.scroll_row);
+        let cursor_y = content_y + screen_row * line_h;
+        let cursor_x = text_start_x + cursor_pos.col.saturating_sub(doc.scroll_col) * char_w;
+
+        let padding_x = self.scale_coord(10);
+        let padding_y = self.scale_coord(6);
+        let max_text_len = sig.label.chars().count();
+        let box_w = (max_text_len * char_w + padding_x * 2)
+            .max(self.scale_coord(180))
+            .min(fb.width.saturating_sub(sidebar_w + self.scale_coord(20)));
+        let has_doc = !sig.documentation.is_empty();
+        let box_h = if has_doc {
+            line_h * 2 + padding_y * 2
+        } else {
+            line_h + padding_y * 2
+        };
+
+        // Prefer placing above cursor, fall back to below if too close to top
+        let box_x = cursor_x
+            .saturating_sub(padding_x)
+            .min(fb.width.saturating_sub(box_w + self.scale_coord(10)))
+            .max(sidebar_w + self.scale_coord(5));
+        let box_y = if cursor_y >= content_y + box_h + self.scale_coord(4) {
+            cursor_y - box_h - self.scale_coord(4)
+        } else {
+            cursor_y + line_h + self.scale_coord(4)
+        };
+
+        // 1. Soft Shadow
+        if self.shadows {
+            self.render_shadow(fb, box_x, box_y, box_w, box_h, 6, 4);
+        } else {
+            fb.fill_rect(box_x + 2, box_y + 2, box_w, box_h, 0x00101010);
+        }
+
+        // 2. Background and Border
+        let bg = self.colors.modal_bg;
+        let border = self.colors.modal_border;
+        if self.rounded_corners {
+            fb.fill_rounded_rect(box_x, box_y, box_w, box_h, 4, bg);
+            fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 4, border);
+        } else {
+            fb.fill_rect(box_x, box_y, box_w, box_h, bg);
+            fb.draw_rect_outline(box_x, box_y, box_w, box_h, border);
+        }
+
+        // 3. Render signature label
+        let text_y = box_y + padding_y + (line_h.saturating_sub(self.char_height())) / 2;
+        let text_x = box_x + padding_x;
+
+        let active_param_idx = sig.active_parameter.unwrap_or(sig_help.active_parameter);
+        let active_param_label = sig.parameters.get(active_param_idx).map(|p| p.label.as_str()).unwrap_or("");
+
+        if !active_param_label.is_empty() && sig.label.contains(active_param_label) {
+            if let Some(param_start) = sig.label.find(active_param_label) {
+                let before = &sig.label[..param_start];
+                let param = &sig.label[param_start..param_start + active_param_label.len()];
+                let after = &sig.label[param_start + active_param_label.len()..];
+
+                fb.draw_text(before, text_x, text_y, self.colors.syntax_plain, None);
+                let before_w = before.chars().count() * char_w;
+                let param_x = text_x + before_w;
+                let param_w = param.chars().count() * char_w;
+                fb.fill_rect(param_x, text_y, param_w, self.char_height(), self.colors.chip_bg);
+                fb.draw_text(param, param_x, text_y, self.colors.accent, None);
+                let after_x = param_x + param_w;
+                fb.draw_text(after, after_x, text_y, self.colors.syntax_plain, None);
+            } else {
+                fb.draw_text(&sig.label, text_x, text_y, self.colors.syntax_plain, None);
+            }
+        } else {
+            fb.draw_text(&sig.label, text_x, text_y, self.colors.syntax_plain, None);
+        }
+
+        // 4. Render documentation line if present
+        if has_doc {
+            let doc_y = text_y + line_h;
+            let first_doc_line = sig.documentation.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+            let max_doc_chars = box_w.saturating_sub(padding_x * 2) / char_w.max(1);
+            let doc_display = if first_doc_line.chars().count() > max_doc_chars {
+                let mut s: String = first_doc_line.chars().take(max_doc_chars.saturating_sub(1)).collect();
+                s.push('…');
+                s
+            } else {
+                first_doc_line.to_string()
+            };
+            fb.draw_text(&doc_display, text_x, doc_y, self.colors.gutter_fg, None);
         }
     }
 
@@ -3155,6 +3278,11 @@ impl GfxRenderer {
                 );
                 self.render_autocomplete_popup(fb, ac, &ac_geom);
             }
+        }
+
+        // 10b. Draw Floating Signature Help Tooltip if present
+        if let Some(ref sig) = self.signature_help {
+            self.render_signature_help(fb, sig, doc, sidebar_w, menu_bar.is_some());
         }
 
         // 11. Draw Prompt Modal overlay if present

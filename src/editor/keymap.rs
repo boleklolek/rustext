@@ -95,9 +95,17 @@ pub enum EditorAction {
     ToggleFold,
     FoldAll,
     UnfoldAll,
+    // Ergonomics & Advanced Editing
+    MoveLineUp,
+    MoveLineDown,
+    DuplicateLineDown,
+    ToggleComment,
+    JumpBack,
+    JumpForward,
     // Language Server Protocol (LSP)
     LspGoToDefinition,
     LspHover,
+    TriggerSignatureHelp,
     RestartLspServer,
     Quit,
     None,
@@ -109,6 +117,21 @@ impl Keymap {
     /// Maps a raw key event to an editor action in normal editing mode.
     pub fn resolve_key(key: Key) -> EditorAction {
         match key {
+            // Line manipulation (Alt+Up/Down to move, Shift+Alt+Down or Ctrl+Shift+D to duplicate)
+            Key::AltUp => EditorAction::MoveLineUp,
+            Key::AltDown => EditorAction::MoveLineDown,
+            Key::ShiftAltDown | Key::CtrlShift('d') | Key::CtrlShift('D') => EditorAction::DuplicateLineDown,
+
+            // Toggle comment (Ctrl+/ or Ctrl+_)
+            Key::Ctrl('/') | Key::Ctrl('_') | Key::Ctrl('7') => EditorAction::ToggleComment,
+
+            // Jump List navigation (Alt+Left / Alt+Right)
+            Key::AltLeft => EditorAction::JumpBack,
+            Key::AltRight => EditorAction::JumpForward,
+
+            // Signature Help trigger (Ctrl+Shift+Space)
+            Key::CtrlShift(' ') => EditorAction::TriggerSignatureHelp,
+
             // Word wrap (Alt+Z)
             Key::Alt('z') | Key::Alt('Z') => EditorAction::ToggleWordWrap,
 

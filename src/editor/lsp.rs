@@ -442,9 +442,31 @@ pub struct LspHover {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspParameterInformation {
+    pub label: String,
+    pub documentation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspSignatureInformation {
+    pub label: String,
+    pub documentation: String,
+    pub parameters: Vec<LspParameterInformation>,
+    pub active_parameter: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspSignatureHelp {
+    pub signatures: Vec<LspSignatureInformation>,
+    pub active_signature: usize,
+    pub active_parameter: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LspCompletionItem {
     pub label: String,
     pub detail: String,
+    pub documentation: String,
     pub kind: CompletionKind,
     pub insert_text: Option<String>,
 }
@@ -456,6 +478,7 @@ pub enum LspEvent {
     PublishDiagnostics { file: PathBuf, diagnostics: Vec<Diagnostic> },
     CompletionResponse { request_id: u64, items: Vec<LspCompletionItem> },
     HoverResponse { request_id: u64, hover: Option<LspHover> },
+    SignatureHelpResponse { request_id: u64, signature_help: Option<LspSignatureHelp> },
     DefinitionResponse { request_id: u64, location: Option<LspLocation> },
     ServerExited { code: Option<i32> },
     Error { message: String },
@@ -717,6 +740,19 @@ impl LspClient {
                             JsonValue::Bool(false),
                         )]),
                     ),
+                    (
+                        "signatureHelp".to_string(),
+                        JsonValue::Object(vec![(
+                            "signatureInformation".to_string(),
+                            JsonValue::Object(vec![(
+                                "documentationFormat".to_string(),
+                                JsonValue::Array(vec![
+                                    JsonValue::String("plaintext".to_string()),
+                                    JsonValue::String("markdown".to_string()),
+                                ]),
+                            )]),
+                        )]),
+                    ),
                 ]),
             ),
         ]);
@@ -855,6 +891,24 @@ impl LspClient {
         self.send_request("textDocument/definition", params)
     }
 
+    pub fn request_signature_help(&mut self, path: &Path, line: usize, col: usize) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "position".to_string(),
+                JsonValue::Object(vec![
+                    ("line".to_string(), JsonValue::Number(line as f64)),
+                    ("character".to_string(), JsonValue::Number(col as f64)),
+                ]),
+            ),
+        ]);
+        self.send_request("textDocument/signatureHelp", params)
+    }
+
     fn dispatch_incoming_json(json: &JsonValue, event_tx: &Sender<LspEvent>) {
         // 1. Check for notifications (method present, no id)
         if let Some(method) = json.get("method").and_then(|v| v.as_str()) {
@@ -885,6 +939,15 @@ impl LspClient {
                     let _ = event_tx.send(LspEvent::Initialized);
                     return;
                 }
+            }
+
+            // Signature Help Response
+            if let Some(sig) = Self::try_parse_signature_help_response(json) {
+                let _ = event_tx.send(LspEvent::SignatureHelpResponse {
+                    request_id: id,
+                    signature_help: sig,
+                });
+                return;
             }
 
             // Completion Response
@@ -994,15 +1057,89 @@ impl LspClient {
             };
 
             let insert_text = item.get("insertText").and_then(|it| it.as_str()).map(|s| s.to_string());
+            let documentation = if let Some(d) = item.get("documentation") {
+                if let Some(s) = d.as_str() {
+                    s.to_string()
+                } else if let Some(v) = d.get("value").and_then(|val| val.as_str()) {
+                    v.to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
 
             list.push(LspCompletionItem {
                 label,
                 detail,
+                documentation,
                 kind,
                 insert_text,
             });
         }
         Some(list)
+    }
+
+    fn try_parse_signature_help_response(json: &JsonValue) -> Option<Option<LspSignatureHelp>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(None);
+        }
+
+        let signatures_arr = result.get("signatures")?.as_array()?;
+        let active_signature = result.get("activeSignature").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let active_parameter = result.get("activeParameter").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+        let mut signatures = Vec::with_capacity(signatures_arr.len());
+        for sig in signatures_arr {
+            let label = sig.get("label")?.as_str()?.to_string();
+            let documentation = if let Some(d) = sig.get("documentation") {
+                if let Some(s) = d.as_str() {
+                    s.to_string()
+                } else if let Some(v) = d.get("value").and_then(|val| val.as_str()) {
+                    v.to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
+            let sig_active_param = sig.get("activeParameter").and_then(|v| v.as_u64()).map(|v| v as usize);
+
+            let mut parameters = Vec::new();
+            if let Some(param_arr) = sig.get("parameters").and_then(|p| p.as_array()) {
+                for p in param_arr {
+                    let p_label = if let Some(s) = p.get("label").and_then(|l| l.as_str()) {
+                        s.to_string()
+                    } else {
+                        String::new()
+                    };
+                    let p_doc = p.get("documentation").and_then(|d| d.as_str()).unwrap_or("").to_string();
+                    parameters.push(LspParameterInformation {
+                        label: p_label,
+                        documentation: p_doc,
+                    });
+                }
+            }
+
+            signatures.push(LspSignatureInformation {
+                label,
+                documentation,
+                parameters,
+                active_parameter: sig_active_param,
+            });
+        }
+
+        if signatures.is_empty() {
+            Some(None)
+        } else {
+            Some(Some(LspSignatureHelp {
+                signatures,
+                active_signature,
+                active_parameter,
+            }))
+        }
     }
 
     fn try_parse_hover_response(json: &JsonValue) -> Option<Option<LspHover>> {

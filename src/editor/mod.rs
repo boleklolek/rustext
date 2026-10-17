@@ -16,6 +16,7 @@ pub mod font_selector;
 pub mod wrap;
 pub mod folding;
 pub mod lsp;
+pub mod jump_list;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -34,4 +35,5 @@ pub use terminal_panel::TerminalPanel;
 pub use font_selector::{FontSelectorDialog, AVAILABLE_SIZES, AVAILABLE_SPACINGS};
 pub use wrap::{WordWrap, SublineInfo};
 pub use folding::{FoldingManager, FoldRegion};
-pub use lsp::{LspClient, LspEvent, LspLocation, LspHover, LspCompletionItem, ServerStatus};
+pub use lsp::{LspClient, LspEvent, LspLocation, LspHover, LspCompletionItem, LspSignatureHelp, LspSignatureInformation, LspParameterInformation, ServerStatus};
+pub use jump_list::{JumpList, JumpLocation};

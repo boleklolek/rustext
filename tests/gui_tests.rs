@@ -5136,12 +5136,14 @@ fn test_lsp_event_dispatch_and_editor_integration() {
             LspCompletionItem {
                 label: "helper".to_string(),
                 detail: "fn() -> i32".to_string(),
+                documentation: "Calculates helper result".to_string(),
                 kind: CompletionKind::Function,
                 insert_text: Some("helper()".to_string()),
             },
             LspCompletionItem {
                 label: "println!".to_string(),
                 detail: "macro".to_string(),
+                documentation: "Prints to standard output with newline".to_string(),
                 kind: CompletionKind::Snippet,
                 insert_text: None,
             },
@@ -5243,6 +5245,204 @@ fn test_cli_version_and_help_flags() {
     assert!(help_text.contains("--gui"));
     assert!(help_text.contains("--version"));
 }
+
+#[test]
+fn test_editing_ergonomics_move_lines_up_and_down() {
+    use rustext::core::buffer::{Position, TextBuffer};
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+
+    let initial_text = "line 0\nline 1\nline 2\nline 3";
+    let mut editor = Editor::new(TextBuffer::from_str(initial_text));
+
+    // Place cursor on line 1 ("line 1")
+    let pos_line1 = editor.doc().buffer.position_to_char(Position::new(1, 2));
+    editor.doc_mut().cursors.set_single(pos_line1);
+
+    // Move line 1 down (swaps with line 2)
+    editor.execute_action(EditorAction::MoveLineDown);
+    assert_eq!(editor.doc().buffer.to_string(), "line 0\nline 2\nline 1\nline 3");
+    let current_pos = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(current_pos.line, 2);
+    assert_eq!(current_pos.col, 2);
+
+    // Move line 2 up (swaps back with line 1)
+    editor.execute_action(EditorAction::MoveLineUp);
+    assert_eq!(editor.doc().buffer.to_string(), "line 0\nline 1\nline 2\nline 3");
+    let current_pos2 = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(current_pos2.line, 1);
+    assert_eq!(current_pos2.col, 2);
+
+    // Undo moves line back down
+    editor.execute_action(EditorAction::Undo);
+    assert_eq!(editor.doc().buffer.to_string(), "line 0\nline 2\nline 1\nline 3");
+
+    // Redo restores it
+    editor.execute_action(EditorAction::Redo);
+    assert_eq!(editor.doc().buffer.to_string(), "line 0\nline 1\nline 2\nline 3");
+}
+
+#[test]
+fn test_editing_ergonomics_duplicate_lines_down() {
+    use rustext::core::buffer::{Position, TextBuffer};
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+
+    let mut editor = Editor::new(TextBuffer::from_str("hello\nworld"));
+
+    // Position cursor on line 0
+    let pos = editor.doc().buffer.position_to_char(Position::new(0, 1));
+    editor.doc_mut().cursors.set_single(pos);
+
+    // Duplicate line 0 down
+    editor.execute_action(EditorAction::DuplicateLineDown);
+    assert_eq!(editor.doc().buffer.to_string(), "hello\nhello\nworld");
+    let new_pos = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(new_pos.line, 1);
+    assert_eq!(new_pos.col, 1);
+
+    // Undo reverts back
+    editor.execute_action(EditorAction::Undo);
+    assert_eq!(editor.doc().buffer.to_string(), "hello\nworld");
+}
+
+#[test]
+fn test_editing_ergonomics_toggle_comment() {
+    use rustext::core::buffer::{Position, TextBuffer};
+    use rustext::core::cursor::Cursor;
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+
+    // 1. Rust comments (// )
+    let mut editor = Editor::new(TextBuffer::from_str("    let a = 1;\n    let b = 2;"));
+    editor.doc_mut().language = rustext::core::syntax::Language::Rust;
+
+    // Select across line 0 and line 1
+    let p_start = editor.doc().buffer.position_to_char(Position::new(0, 0));
+    let p_end = editor.doc().buffer.position_to_char(Position::new(1, 5));
+    editor.doc_mut().cursors.set_cursors(vec![Cursor::with_selection(p_start, p_end)]);
+
+    // Comment
+    editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(editor.doc().buffer.to_string(), "    // let a = 1;\n    // let b = 2;");
+
+    // Uncomment
+    editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(editor.doc().buffer.to_string(), "    let a = 1;\n    let b = 2;");
+
+    // 2. Python comments (# )
+    let mut py_editor = Editor::new(TextBuffer::from_str("def greet():\n    pass"));
+    py_editor.doc_mut().language = rustext::core::syntax::Language::Python;
+    py_editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(py_editor.doc().buffer.to_string(), "# def greet():\n    pass");
+    py_editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(py_editor.doc().buffer.to_string(), "def greet():\n    pass");
+
+    // 3. HTML comments (<!-- -->)
+    let mut html_editor = Editor::new(TextBuffer::from_str("<p>hello</p>"));
+    html_editor.doc_mut().language = rustext::core::syntax::Language::Html;
+    html_editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(html_editor.doc().buffer.to_string(), "<!-- <p>hello</p> -->");
+    html_editor.execute_action(EditorAction::ToggleComment);
+    assert_eq!(html_editor.doc().buffer.to_string(), "<p>hello</p>");
+}
+
+#[test]
+fn test_editing_ergonomics_jump_list() {
+    use rustext::core::buffer::{Position, TextBuffer};
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+
+    let temp_a = std::env::temp_dir().join(format!("rustext_jump_a_{}.rs", std::process::id()));
+    let temp_b = std::env::temp_dir().join(format!("rustext_jump_b_{}.rs", std::process::id()));
+
+    std::fs::write(&temp_a, "fn foo() {\n    let x = 1;\n    let y = 2;\n}\n").unwrap();
+    std::fs::write(&temp_b, "fn bar() {\n    let z = 99;\n}\n").unwrap();
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.open_file(&temp_a);
+    let p_a = editor.doc().buffer.position_to_char(Position::new(1, 4));
+    editor.doc_mut().cursors.set_single(p_a);
+
+    // Open file B (automatically records jump location in file A)
+    editor.open_file(&temp_b);
+    let p_b = editor.doc().buffer.position_to_char(Position::new(1, 8));
+    editor.doc_mut().cursors.set_single(p_b);
+
+    // Jump back (Alt+Left) -> returns to file A at line 1
+    editor.execute_action(EditorAction::JumpBack);
+    assert_eq!(editor.doc().buffer.file_path(), Some(temp_a.as_path()));
+    let pos_back = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(pos_back.line, 1);
+
+    // Jump forward (Alt+Right) -> returns to file B at line 1
+    editor.execute_action(EditorAction::JumpForward);
+    assert_eq!(editor.doc().buffer.file_path(), Some(temp_b.as_path()));
+    let pos_fwd = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(pos_fwd.line, 1);
+
+    let _ = std::fs::remove_file(temp_a);
+    let _ = std::fs::remove_file(temp_b);
+}
+
+#[test]
+fn test_lsp_signature_help_parsing_and_rendering() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::lsp::{
+        LspParameterInformation, LspSignatureHelp, LspSignatureInformation,
+    };
+    use rustext::gfx::framebuffer::Framebuffer;
+    use rustext::gfx::renderer::GfxRenderer;
+
+    let sig_info = LspSignatureInformation {
+        label: "fn push(&mut self, value: T) -> ()".to_string(),
+        documentation: "Appends an element to the back of a collection.".to_string(),
+        parameters: vec![
+            LspParameterInformation {
+                label: "&mut self".to_string(),
+                documentation: "Receiver handle".to_string(),
+            },
+            LspParameterInformation {
+                label: "value: T".to_string(),
+                documentation: "Element to insert".to_string(),
+            },
+        ],
+        active_parameter: Some(1),
+    };
+
+    let sig_help = LspSignatureHelp {
+        signatures: vec![sig_info],
+        active_signature: 0,
+        active_parameter: 1, // Highlighting "value: T"
+    };
+
+    assert_eq!(sig_help.signatures.len(), 1);
+    assert_eq!(sig_help.active_parameter, 1);
+    let active_sig = &sig_help.signatures[sig_help.active_signature];
+    assert_eq!(active_sig.parameters.len(), 2);
+    assert_eq!(active_sig.parameters[1].label, "value: T");
+
+    // Test renderer tooltip integration
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    let editor = Editor::new(TextBuffer::from_str("vec.push("));
+
+    // Call render_signature_help
+    renderer.render_signature_help(&mut fb, &sig_help, editor.doc(), 0, false);
+
+    // Verify pixels are non-zero inside the tooltip bounding box
+    let mut drawn_pixels = 0;
+    for y in 0..600 {
+        for x in 0..800 {
+            if fb.get_pixel(x, y) != 0 {
+                drawn_pixels += 1;
+            }
+        }
+    }
+    assert!(drawn_pixels > 0, "Signature help tooltip should draw frame pixels");
+}
+
 
 
 

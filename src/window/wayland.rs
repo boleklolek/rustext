@@ -1069,12 +1069,26 @@ impl WaylandWindow {
             15 => return Some(WindowEvent::Key(if self.shift_pressed { Key::BackTab } else { Key::Tab })),
             28 | 96 => return Some(WindowEvent::Key(Key::Enter)),
             102 => return Some(WindowEvent::Key(Key::Home)),
-            103 => return Some(WindowEvent::Key(Key::Up)),
+            103 => return Some(WindowEvent::Key(
+                if self.alt_pressed && self.shift_pressed { Key::ShiftAltUp }
+                else if self.alt_pressed { Key::AltUp }
+                else { Key::Up }
+            )),
             104 => return Some(WindowEvent::Key(Key::PageUp)),
-            105 => return Some(WindowEvent::Key(Key::Left)),
-            106 => return Some(WindowEvent::Key(Key::Right)),
+            105 => return Some(WindowEvent::Key(
+                if self.alt_pressed { Key::AltLeft }
+                else { Key::Left }
+            )),
+            106 => return Some(WindowEvent::Key(
+                if self.alt_pressed { Key::AltRight }
+                else { Key::Right }
+            )),
             107 => return Some(WindowEvent::Key(Key::End)),
-            108 => return Some(WindowEvent::Key(Key::Down)),
+            108 => return Some(WindowEvent::Key(
+                if self.alt_pressed && self.shift_pressed { Key::ShiftAltDown }
+                else if self.alt_pressed { Key::AltDown }
+                else { Key::Down }
+            )),
             109 => return Some(WindowEvent::Key(Key::PageDown)),
             111 => return Some(WindowEvent::Key(Key::Delete)),
             // Function Keys F1..F10
@@ -1157,7 +1171,7 @@ impl WaylandWindow {
             if self.ctrl_pressed && punct == ' ' {
                 return Some(WindowEvent::Key(Key::Ctrl(' ')));
             }
-            if self.ctrl_pressed && (punct == '-' || punct == '=') {
+            if self.ctrl_pressed && (punct == '-' || punct == '=' || punct == '/' || punct == '?' || punct == '\\') {
                 return Some(WindowEvent::Key(Key::Ctrl(punct)));
             }
             return Some(WindowEvent::Char(punct));

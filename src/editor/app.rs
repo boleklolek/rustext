@@ -134,6 +134,8 @@ pub struct Editor {
     pub last_code_cols: usize,
     pub should_quit: bool,
     pub lsp: crate::editor::lsp::LspClient,
+    pub jump_list: crate::editor::jump_list::JumpList,
+    pub signature_help: Option<crate::editor::lsp::LspSignatureHelp>,
 }
 
 impl Editor {
@@ -215,6 +217,8 @@ impl Editor {
             last_code_cols: 80,
             should_quit: false,
             lsp: crate::editor::lsp::LspClient::new(),
+            jump_list: crate::editor::jump_list::JumpList::default(),
+            signature_help: None,
         };
 
         if editor.config.lsp.enabled && editor.config.lsp.auto_start {
@@ -634,6 +638,7 @@ impl Editor {
                         }
                         Key::Esc => {
                             self.autocomplete.close();
+                            self.signature_help = None;
                             return;
                         }
                         Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
@@ -653,6 +658,11 @@ impl Editor {
                             } else {
                                 self.autocomplete.close();
                             }
+                            if c == '(' || c == ',' {
+                                self.trigger_signature_help(false);
+                            } else if c == ')' || c == ';' {
+                                self.signature_help = None;
+                            }
                             return;
                         }
                         _ => {}
@@ -662,6 +672,11 @@ impl Editor {
                     self.execute_action(action);
                     if crate::editor::autocomplete::AutocompleteState::is_identifier_char(c) || c == '.' || c == ':' {
                         self.trigger_autocomplete(false);
+                    }
+                    if c == '(' || c == ',' {
+                        self.trigger_signature_help(false);
+                    } else if c == ')' || c == ';' {
+                        self.signature_help = None;
                     }
                     return;
                 }
@@ -674,7 +689,7 @@ impl Editor {
 
     /// Executes high-level editor actions.
     pub fn execute_action(&mut self, action: EditorAction) {
-        let was_edit = matches!(
+        let mut was_edit = matches!(
             &action,
             EditorAction::InsertChar(_)
                 | EditorAction::InsertNewline
@@ -687,6 +702,10 @@ impl Editor {
                 | EditorAction::Paste
                 | EditorAction::Undo
                 | EditorAction::Redo
+                | EditorAction::MoveLineUp
+                | EditorAction::MoveLineDown
+                | EditorAction::DuplicateLineDown
+                | EditorAction::ToggleComment
         );
 
         match action {
@@ -1081,6 +1100,7 @@ impl Editor {
 
             EditorAction::CollapseCursors => {
                 self.snippet_session = None;
+                self.signature_help = None;
                 let primary = self.doc().cursors.primary();
                 self.doc_mut().cursors.set_single(primary.head);
                 self.set_status("Collapsed to single cursor");
@@ -1232,12 +1252,39 @@ impl Editor {
                 self.set_status("Todos los bloques desplegados");
             }
 
+            // Ergonomics & Advanced Editing
+            EditorAction::MoveLineUp => {
+                self.move_lines_up();
+                was_edit = true;
+            }
+            EditorAction::MoveLineDown => {
+                self.move_lines_down();
+                was_edit = true;
+            }
+            EditorAction::DuplicateLineDown => {
+                self.duplicate_lines_down();
+                was_edit = true;
+            }
+            EditorAction::ToggleComment => {
+                self.toggle_comment();
+                was_edit = true;
+            }
+            EditorAction::JumpBack => {
+                self.jump_back();
+            }
+            EditorAction::JumpForward => {
+                self.jump_forward();
+            }
+
             // Language Server Protocol (LSP)
             EditorAction::LspGoToDefinition => {
                 self.lsp_go_to_definition();
             }
             EditorAction::LspHover => {
                 self.lsp_hover();
+            }
+            EditorAction::TriggerSignatureHelp => {
+                self.trigger_signature_help(true);
             }
             EditorAction::RestartLspServer => {
                 self.lsp_restart();
@@ -1248,6 +1295,528 @@ impl Editor {
 
         if was_edit {
             self.lsp_notify_change_active_doc();
+        }
+    }
+
+    // ========================================================================
+    // Ergonomics & Advanced Editing
+    // ========================================================================
+
+    /// Moves the current line or selected line range(s) up by one row (Alt+Up).
+    pub fn move_lines_up(&mut self) {
+        let (ranges, _total_lines) = {
+            let doc = self.doc();
+            let total = doc.buffer.len_lines();
+            if total <= 1 {
+                return;
+            }
+            let mut line_ranges = Vec::new();
+            for c in doc.cursors.cursors() {
+                let (start_off, end_off) = if c.has_selection() {
+                    let r = c.selection_range();
+                    (r.start, r.end)
+                } else {
+                    (c.head, c.head)
+                };
+                let p1 = doc.buffer.char_to_position(start_off);
+                let p2 = doc.buffer.char_to_position(end_off);
+                let start_line = p1.line;
+                let end_line = if p2.line > p1.line && p2.col == 0 {
+                    p2.line - 1
+                } else {
+                    p2.line
+                };
+                line_ranges.push((start_line, end_line));
+            }
+            (line_ranges, total)
+        };
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        let mut sorted = ranges;
+        sorted.sort_by_key(|&(s, _)| s);
+        for (s, e) in sorted {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        if let Some(&(first_s, _)) = merged.first() {
+            if first_s == 0 {
+                return;
+            }
+        }
+
+        let doc = self.doc_mut();
+        let cursors_before = doc.cursors.cursors().to_vec();
+        let mut tx = Transaction::new(cursors_before.clone());
+
+        for &(start_line, end_line) in &merged {
+            let above_line_idx = start_line - 1;
+            let above_text = doc.buffer.line(above_line_idx).unwrap_or_default();
+            let mut block_lines: Vec<String> = Vec::new();
+            for l in start_line..=end_line {
+                block_lines.push(doc.buffer.line(l).unwrap_or_default());
+            }
+
+            let start_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(above_line_idx, 0));
+            let (end_char, had_trailing_newline) = if end_line + 1 < doc.buffer.len_lines() {
+                (doc.buffer.position_to_char(crate::core::buffer::Position::new(end_line + 1, 0)), true)
+            } else {
+                let len = doc.buffer.len_chars();
+                let ends_nl = doc.buffer.char_at(len.saturating_sub(1)) == Some('\n');
+                (len, ends_nl)
+            };
+
+            let old_text = doc.buffer.get_text_range(start_char, end_char);
+            doc.buffer.delete_range(start_char, end_char);
+            tx.ops.push(EditOp::Delete { offset: start_char, text: old_text });
+
+            let mut new_text = block_lines.join("\n");
+            new_text.push('\n');
+            new_text.push_str(&above_text);
+            if had_trailing_newline {
+                new_text.push('\n');
+            }
+
+            doc.buffer.insert(start_char, &new_text);
+            tx.ops.push(EditOp::Insert { offset: start_char, text: new_text });
+        }
+
+        let mut new_cursors = Vec::with_capacity(cursors_before.len());
+        for c in &cursors_before {
+            let p_head = doc.buffer.char_to_position(c.head);
+            let p_anc = doc.buffer.char_to_position(c.anchor);
+            let new_head_line = p_head.line.saturating_sub(1);
+            let new_anc_line = p_anc.line.saturating_sub(1);
+            let h_len = doc.buffer.line_len(new_head_line);
+            let a_len = doc.buffer.line_len(new_anc_line);
+            let new_h_col = p_head.col.min(h_len);
+            let new_a_col = p_anc.col.min(a_len);
+            let h_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_head_line, new_h_col));
+            let a_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_anc_line, new_a_col));
+            let mut nc = crate::core::cursor::Cursor::new(h_off);
+            nc.anchor = a_off;
+            new_cursors.push(nc);
+        }
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Moves the current line or selected line range(s) down by one row (Alt+Down).
+    pub fn move_lines_down(&mut self) {
+        let (ranges, total_lines) = {
+            let doc = self.doc();
+            let total = doc.buffer.len_lines();
+            if total <= 1 {
+                return;
+            }
+            let mut line_ranges = Vec::new();
+            for c in doc.cursors.cursors() {
+                let (start_off, end_off) = if c.has_selection() {
+                    let r = c.selection_range();
+                    (r.start, r.end)
+                } else {
+                    (c.head, c.head)
+                };
+                let p1 = doc.buffer.char_to_position(start_off);
+                let p2 = doc.buffer.char_to_position(end_off);
+                let start_line = p1.line;
+                let end_line = if p2.line > p1.line && p2.col == 0 {
+                    p2.line - 1
+                } else {
+                    p2.line
+                };
+                line_ranges.push((start_line, end_line));
+            }
+            (line_ranges, total)
+        };
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        let mut sorted = ranges;
+        sorted.sort_by_key(|&(s, _)| s);
+        for (s, e) in sorted {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        if let Some(&(_, last_e)) = merged.last() {
+            if last_e + 1 >= total_lines {
+                return;
+            }
+        }
+
+        let doc = self.doc_mut();
+        let cursors_before = doc.cursors.cursors().to_vec();
+        let mut tx = Transaction::new(cursors_before.clone());
+
+        for &(start_line, end_line) in merged.iter().rev() {
+            let below_line_idx = end_line + 1;
+            let below_text = doc.buffer.line(below_line_idx).unwrap_or_default();
+            let mut block_lines: Vec<String> = Vec::new();
+            for l in start_line..=end_line {
+                block_lines.push(doc.buffer.line(l).unwrap_or_default());
+            }
+
+            let start_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(start_line, 0));
+            let (end_char, had_trailing_newline) = if below_line_idx + 1 < doc.buffer.len_lines() {
+                (doc.buffer.position_to_char(crate::core::buffer::Position::new(below_line_idx + 1, 0)), true)
+            } else {
+                let len = doc.buffer.len_chars();
+                let ends_nl = doc.buffer.char_at(len.saturating_sub(1)) == Some('\n');
+                (len, ends_nl)
+            };
+
+            let old_text = doc.buffer.get_text_range(start_char, end_char);
+            doc.buffer.delete_range(start_char, end_char);
+            tx.ops.push(EditOp::Delete { offset: start_char, text: old_text });
+
+            let mut new_text = below_text;
+            new_text.push('\n');
+            new_text.push_str(&block_lines.join("\n"));
+            if had_trailing_newline {
+                new_text.push('\n');
+            }
+
+            doc.buffer.insert(start_char, &new_text);
+            tx.ops.push(EditOp::Insert { offset: start_char, text: new_text });
+        }
+
+        let mut new_cursors = Vec::with_capacity(cursors_before.len());
+        for c in &cursors_before {
+            let p_head = doc.buffer.char_to_position(c.head);
+            let p_anc = doc.buffer.char_to_position(c.anchor);
+            let new_head_line = (p_head.line + 1).min(doc.buffer.len_lines().saturating_sub(1));
+            let new_anc_line = (p_anc.line + 1).min(doc.buffer.len_lines().saturating_sub(1));
+            let h_len = doc.buffer.line_len(new_head_line);
+            let a_len = doc.buffer.line_len(new_anc_line);
+            let new_h_col = p_head.col.min(h_len);
+            let new_a_col = p_anc.col.min(a_len);
+            let h_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_head_line, new_h_col));
+            let a_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_anc_line, new_a_col));
+            let mut nc = crate::core::cursor::Cursor::new(h_off);
+            nc.anchor = a_off;
+            new_cursors.push(nc);
+        }
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Duplicates current line(s) immediately below (Shift+Alt+Down / Ctrl+Shift+D).
+    pub fn duplicate_lines_down(&mut self) {
+        let ranges = {
+            let doc = self.doc();
+            let mut line_ranges = Vec::new();
+            for c in doc.cursors.cursors() {
+                let (start_off, end_off) = if c.has_selection() {
+                    let r = c.selection_range();
+                    (r.start, r.end)
+                } else {
+                    (c.head, c.head)
+                };
+                let p1 = doc.buffer.char_to_position(start_off);
+                let p2 = doc.buffer.char_to_position(end_off);
+                let start_line = p1.line;
+                let end_line = if p2.line > p1.line && p2.col == 0 {
+                    p2.line - 1
+                } else {
+                    p2.line
+                };
+                line_ranges.push((start_line, end_line));
+            }
+            line_ranges
+        };
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        let mut sorted = ranges;
+        sorted.sort_by_key(|&(s, _)| s);
+        for (s, e) in sorted {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        let doc = self.doc_mut();
+        let cursors_before = doc.cursors.cursors().to_vec();
+        let mut tx = Transaction::new(cursors_before.clone());
+
+        let mut line_shift: usize = 0;
+        for &(start_line, end_line) in merged.iter().rev() {
+            let mut block_lines: Vec<String> = Vec::new();
+            for l in start_line..=end_line {
+                block_lines.push(doc.buffer.line(l).unwrap_or_default());
+            }
+            let block_text = block_lines.join("\n");
+            let count_lines = end_line - start_line + 1;
+            line_shift += count_lines;
+
+            if end_line + 1 < doc.buffer.len_lines() {
+                let insert_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(end_line + 1, 0));
+                let insert_str = format!("{}\n", block_text);
+                doc.buffer.insert(insert_char, &insert_str);
+                tx.ops.push(EditOp::Insert { offset: insert_char, text: insert_str });
+            } else {
+                let insert_char = doc.buffer.len_chars();
+                let insert_str = format!("\n{}", block_text);
+                doc.buffer.insert(insert_char, &insert_str);
+                tx.ops.push(EditOp::Insert { offset: insert_char, text: insert_str });
+            }
+        }
+
+        let mut new_cursors = Vec::with_capacity(cursors_before.len());
+        for c in &cursors_before {
+            let p_head = doc.buffer.char_to_position(c.head);
+            let p_anc = doc.buffer.char_to_position(c.anchor);
+            let new_h_line = (p_head.line + line_shift).min(doc.buffer.len_lines().saturating_sub(1));
+            let new_a_line = (p_anc.line + line_shift).min(doc.buffer.len_lines().saturating_sub(1));
+            let h_len = doc.buffer.line_len(new_h_line);
+            let a_len = doc.buffer.line_len(new_a_line);
+            let new_h_col = p_head.col.min(h_len);
+            let new_a_col = p_anc.col.min(a_len);
+            let h_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_h_line, new_h_col));
+            let a_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(new_a_line, new_a_col));
+            let mut nc = crate::core::cursor::Cursor::new(h_off);
+            nc.anchor = a_off;
+            new_cursors.push(nc);
+        }
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Returns comment tokens `(prefix, suffix)` for the specified language.
+    pub fn comment_tokens_for_language(lang: crate::core::syntax::Language) -> (&'static str, Option<&'static str>) {
+        match lang {
+            crate::core::syntax::Language::Python
+            | crate::core::syntax::Language::Yaml
+            | crate::core::syntax::Language::Toml
+            | crate::core::syntax::Language::Shell => ("# ", None),
+            crate::core::syntax::Language::Sql => ("-- ", None),
+            crate::core::syntax::Language::Html
+            | crate::core::syntax::Language::Markdown => ("<!-- ", Some(" -->")),
+            crate::core::syntax::Language::Css => ("/* ", Some(" */")),
+            _ => ("// ", None),
+        }
+    }
+
+    /// Toggles line comments on the current line or selection(s) (Ctrl+/ / Ctrl+_).
+    pub fn toggle_comment(&mut self) {
+        let lang = self.doc().language;
+        let (prefix, suffix) = Self::comment_tokens_for_language(lang);
+        let prefix_trimmed = prefix.trim();
+        let suffix_trimmed = suffix.map(|s| s.trim());
+
+        let ranges = {
+            let doc = self.doc();
+            let mut line_ranges = Vec::new();
+            for c in doc.cursors.cursors() {
+                let (start_off, end_off) = if c.has_selection() {
+                    let r = c.selection_range();
+                    (r.start, r.end)
+                } else {
+                    (c.head, c.head)
+                };
+                let p1 = doc.buffer.char_to_position(start_off);
+                let p2 = doc.buffer.char_to_position(end_off);
+                let start_line = p1.line;
+                let end_line = if p2.line > p1.line && p2.col == 0 {
+                    p2.line - 1
+                } else {
+                    p2.line
+                };
+                line_ranges.push((start_line, end_line));
+            }
+            line_ranges
+        };
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        let mut sorted = ranges;
+        sorted.sort_by_key(|&(s, _)| s);
+        for (s, e) in sorted {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        let doc = self.doc_mut();
+        let cursors_before = doc.cursors.cursors().to_vec();
+        let mut tx = Transaction::new(cursors_before.clone());
+
+        for &(start_line, end_line) in merged.iter().rev() {
+            let mut lines: Vec<String> = Vec::new();
+            for l in start_line..=end_line {
+                lines.push(doc.buffer.line(l).unwrap_or_default());
+            }
+
+            let non_empty_lines: Vec<&String> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
+            let all_commented = !non_empty_lines.is_empty() && non_empty_lines.iter().all(|l| {
+                let tr = l.trim_start();
+                let starts = tr.starts_with(prefix_trimmed);
+                let ends = match suffix_trimmed {
+                    Some(suf) => l.trim_end().ends_with(suf),
+                    None => true,
+                };
+                starts && ends
+            });
+
+            let mut new_lines = Vec::with_capacity(lines.len());
+            if all_commented {
+                for line in &lines {
+                    let mut s = line.clone();
+                    if s.trim().is_empty() {
+                        new_lines.push(s);
+                        continue;
+                    }
+                    if let Some(pos) = s.find(prefix) {
+                        s.replace_range(pos..pos + prefix.len(), "");
+                    } else if let Some(pos) = s.find(prefix_trimmed) {
+                        s.replace_range(pos..pos + prefix_trimmed.len(), "");
+                    }
+                    if let Some(suf) = suffix {
+                        if let Some(pos) = s.rfind(suf) {
+                            s.replace_range(pos..pos + suf.len(), "");
+                        } else if let Some(suf_tr) = suffix_trimmed {
+                            if let Some(pos) = s.rfind(suf_tr) {
+                                s.replace_range(pos..pos + suf_tr.len(), "");
+                            }
+                        }
+                    }
+                    new_lines.push(s);
+                }
+            } else {
+                let min_indent = non_empty_lines
+                    .iter()
+                    .map(|l| l.chars().take_while(|c| c.is_whitespace()).count())
+                    .min()
+                    .unwrap_or(0);
+
+                for line in &lines {
+                    if line.trim().is_empty() {
+                        new_lines.push(line.clone());
+                        continue;
+                    }
+                    let indent = line.chars().take(min_indent).collect::<String>();
+                    let rest = line.chars().skip(min_indent).collect::<String>();
+                    let mut commented_line = format!("{}{}{}", indent, prefix, rest);
+                    if let Some(suf) = suffix {
+                        commented_line.push_str(suf);
+                    }
+                    new_lines.push(commented_line);
+                }
+            }
+
+            let start_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(start_line, 0));
+            let (end_char, had_trailing_newline) = if end_line + 1 < doc.buffer.len_lines() {
+                (doc.buffer.position_to_char(crate::core::buffer::Position::new(end_line + 1, 0)), true)
+            } else {
+                let len = doc.buffer.len_chars();
+                let ends_nl = doc.buffer.char_at(len.saturating_sub(1)) == Some('\n');
+                (len, ends_nl)
+            };
+
+            let old_text = doc.buffer.get_text_range(start_char, end_char);
+            doc.buffer.delete_range(start_char, end_char);
+            tx.ops.push(EditOp::Delete { offset: start_char, text: old_text });
+
+            let mut new_text = new_lines.join("\n");
+            if had_trailing_newline {
+                new_text.push('\n');
+            }
+            doc.buffer.insert(start_char, &new_text);
+            tx.ops.push(EditOp::Insert { offset: start_char, text: new_text });
+        }
+
+        let mut new_cursors = Vec::with_capacity(cursors_before.len());
+        for c in &cursors_before {
+            let p_head = doc.buffer.char_to_position(c.head);
+            let p_anc = doc.buffer.char_to_position(c.anchor);
+            let h_len = doc.buffer.line_len(p_head.line);
+            let a_len = doc.buffer.line_len(p_anc.line);
+            let h_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(p_head.line, p_head.col.min(h_len)));
+            let a_off = doc.buffer.position_to_char(crate::core::buffer::Position::new(p_anc.line, p_anc.col.min(a_len)));
+            let mut nc = crate::core::cursor::Cursor::new(h_off);
+            nc.anchor = a_off;
+            new_cursors.push(nc);
+        }
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Returns the current cursor location as a JumpLocation.
+    pub fn current_jump_location(&self) -> crate::editor::jump_list::JumpLocation {
+        let doc = self.doc();
+        let head = doc.cursors.primary().head;
+        let pos = doc.buffer.char_to_position(head);
+        crate::editor::jump_list::JumpLocation::new(
+            doc.buffer.file_path().map(|p| p.to_path_buf()),
+            head,
+            pos.line,
+            pos.col,
+        )
+    }
+
+    /// Records current position before a major jump.
+    pub fn record_jump_location(&mut self) {
+        let loc = self.current_jump_location();
+        self.jump_list.record(loc);
+    }
+
+    /// Navigates to a JumpLocation safely.
+    pub fn navigate_to_jump_location(&mut self, target: &crate::editor::jump_list::JumpLocation) {
+        if let Some(ref path) = target.file_path {
+            self.open_file_internal(path, false);
+        }
+        let doc = self.doc_mut();
+        let total_lines = doc.buffer.len_lines();
+        let line = target.line.min(total_lines.saturating_sub(1));
+        let line_len = doc.buffer.line_len(line);
+        let col = target.col.min(line_len);
+        let offset = doc.buffer.position_to_char(crate::core::buffer::Position::new(line, col));
+        doc.cursors.set_single(offset);
+    }
+
+    /// Jumps back in navigation history (Alt+Left).
+    pub fn jump_back(&mut self) {
+        let current = self.current_jump_location();
+        if let Some(target) = self.jump_list.jump_back(current) {
+            self.navigate_to_jump_location(&target);
+            self.set_status("Navegado hacia atrás en la pila de saltos");
+        } else {
+            self.set_status("No hay saltos anteriores en la pila");
+        }
+    }
+
+    /// Jumps forward in navigation history (Alt+Right).
+    pub fn jump_forward(&mut self) {
+        let current = self.current_jump_location();
+        if let Some(target) = self.jump_list.jump_forward(current) {
+            self.navigate_to_jump_location(&target);
+            self.set_status("Navegado hacia adelante en la pila de saltos");
+        } else {
+            self.set_status("No hay saltos posteriores en la pila");
         }
     }
 
@@ -1617,6 +2186,7 @@ impl Editor {
 
     /// Jumps the primary cursor to the next diagnostic line.
     pub fn jump_to_next_diagnostic(&mut self) {
+        self.record_jump_location();
         let current_line = {
             let doc = self.doc();
             let pos = doc.buffer.char_to_position(doc.cursors.primary().head);
@@ -1639,6 +2209,7 @@ impl Editor {
 
     /// Jumps the primary cursor to the previous diagnostic line.
     pub fn jump_to_prev_diagnostic(&mut self) {
+        self.record_jump_location();
         let current_line = {
             let doc = self.doc();
             let pos = doc.buffer.char_to_position(doc.cursors.primary().head);
@@ -1759,6 +2330,7 @@ impl Editor {
             self.lsp_ensure_server_for_doc();
             return;
         }
+        self.record_jump_location();
         let (path, line, col) = {
             let doc = self.doc();
             let path = match doc.buffer.file_path() {
@@ -1802,6 +2374,37 @@ impl Editor {
         self.set_status("LSP: Consultando tipo e información...");
     }
 
+    /// Requests LSP Signature Help at the primary cursor position.
+    pub fn trigger_signature_help(&mut self, force: bool) {
+        if !self.config.lsp.enabled {
+            return;
+        }
+        if !self.lsp.is_running() {
+            if force {
+                self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+                self.lsp_ensure_server_for_doc();
+            }
+            return;
+        }
+        let (path, line, col) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    if force {
+                        self.set_status("LSP: Guarde el archivo para consultar firma");
+                    }
+                    return;
+                }
+            };
+            let head = doc.cursors.primary().head;
+            let pos = doc.buffer.char_to_position(head);
+            (path, pos.line, pos.col)
+        };
+
+        self.lsp.request_signature_help(&path, line, col);
+    }
+
     /// Restarts the LSP server.
     pub fn lsp_restart(&mut self) {
         self.lsp.stop();
@@ -1842,11 +2445,24 @@ impl Editor {
                     if !items.is_empty() {
                         let comp_items: Vec<crate::editor::autocomplete::CompletionItem> = items
                             .into_iter()
-                            .map(|it| crate::editor::autocomplete::CompletionItem::new(it.label, it.detail, it.kind))
+                            .map(|it| {
+                                let mut item = crate::editor::autocomplete::CompletionItem::new(it.label, it.detail, it.kind);
+                                if !it.documentation.is_empty() {
+                                    item = item.with_doc(it.documentation);
+                                }
+                                if let Some(ins) = it.insert_text {
+                                    item = item.with_insert_text(ins);
+                                }
+                                item
+                            })
                             .collect();
                         self.autocomplete.merge_items(comp_items);
                         needs_redraw = true;
                     }
+                }
+                crate::editor::lsp::LspEvent::SignatureHelpResponse { signature_help, .. } => {
+                    self.signature_help = signature_help;
+                    needs_redraw = true;
                 }
                 crate::editor::lsp::LspEvent::HoverResponse { hover, .. } => {
                     if let Some(h) = hover {
@@ -2443,6 +3059,14 @@ impl Editor {
 
     /// Opens a file into a tab, or switches to it if already open.
     pub fn open_file(&mut self, path: &Path) {
+        self.open_file_internal(path, true);
+    }
+
+    /// Opens a file into a tab, optionally recording current position in the jump list.
+    pub fn open_file_internal(&mut self, path: &Path, record_jump: bool) {
+        if record_jump {
+            self.record_jump_location();
+        }
         self.add_recent_file(path.to_path_buf());
         if let Some(pos) = self.documents.iter().position(|d| d.buffer.file_path() == Some(path)) {
             self.active_doc_idx = pos;
@@ -3299,6 +3923,7 @@ impl Editor {
 
         let prefix_len = self.autocomplete.prefix.chars().count();
         let is_snippet = selected.kind == crate::editor::autocomplete::CompletionKind::Snippet;
+        let insert_text = selected.insert_text.clone().unwrap_or_else(|| selected.label.clone());
         let label = selected.label.clone();
         self.autocomplete.close();
 
@@ -3321,14 +3946,14 @@ impl Editor {
             }
             self.expand_snippet_trigger(&label);
         } else {
-            // Multicursor-aware completion: replace prefix before each cursor head with item label
+            // Multicursor-aware completion: replace prefix before each cursor head with item insert_text
             let doc = self.doc_mut();
             let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
             doc.cursors.normalize();
             let cursors_snapshot = doc.cursors.cursors().to_vec();
             let mut new_cursors = Vec::with_capacity(cursors_snapshot.len());
             let mut offset_shift: isize = 0;
-            let label_len = label.chars().count();
+            let text_len = insert_text.chars().count();
 
             for cursor in cursors_snapshot {
                 let adj_head = (cursor.head as isize + offset_shift).max(0) as usize;
@@ -3344,13 +3969,13 @@ impl Editor {
                     offset_shift -= prefix_len as isize;
                 }
 
-                doc.buffer.insert(start, &label);
+                doc.buffer.insert(start, &insert_text);
                 tx.ops.push(EditOp::Insert {
                     offset: start,
-                    text: label.clone(),
+                    text: insert_text.clone(),
                 });
-                offset_shift += label_len as isize;
-                new_cursors.push(Cursor::new(start + label_len));
+                offset_shift += text_len as isize;
+                new_cursors.push(Cursor::new(start + text_len));
             }
 
             Self::notify_snippet_ops(&mut self.snippet_session, &tx.ops);
@@ -3359,6 +3984,10 @@ impl Editor {
             doc.cursors.set_cursors(new_cursors);
             tx.cursors_after = doc.cursors.cursors().to_vec();
             doc.history.record(tx);
+        }
+
+        if insert_text.contains('(') {
+            self.trigger_signature_help(false);
         }
 
         self.lsp_notify_change_active_doc();
@@ -5408,6 +6037,7 @@ impl Editor {
             renderer.git_statuses = cached_git_statuses.clone();
             renderer.git_gutter_enabled = self.config.gui.git_gutter;
             renderer.terminal_inset = term_inset;
+            renderer.signature_help = self.signature_help.clone();
 
             renderer.render_full_frame_with_split(
                 &mut fb,

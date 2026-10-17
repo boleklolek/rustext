@@ -46,8 +46,10 @@ impl CompletionKind {
 pub struct CompletionItem {
     pub label: String,
     pub detail: String,
+    pub documentation: String,
     pub kind: CompletionKind,
     pub score: i32,
+    pub insert_text: Option<String>,
 }
 
 impl CompletionItem {
@@ -55,9 +57,21 @@ impl CompletionItem {
         Self {
             label: label.into(),
             detail: detail.into(),
+            documentation: String::new(),
             kind,
             score: 0,
+            insert_text: None,
         }
+    }
+
+    pub fn with_doc(mut self, doc: impl Into<String>) -> Self {
+        self.documentation = doc.into();
+        self
+    }
+
+    pub fn with_insert_text(mut self, text: impl Into<String>) -> Self {
+        self.insert_text = Some(text.into());
+        self
     }
 }
 

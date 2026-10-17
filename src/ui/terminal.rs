@@ -25,6 +25,12 @@ pub enum Key {
     PageUp,
     PageDown,
     Delete,
+    AltUp,
+    AltDown,
+    AltLeft,
+    AltRight,
+    ShiftAltUp,
+    ShiftAltDown,
     F(u8),
     Unknown,
 }
@@ -137,6 +143,7 @@ impl TerminalGuard {
             0x09 => Ok(Key::Tab),
             0x0a | 0x0d => Ok(Key::Enter),
             0x7f | 0x08 => Ok(Key::Backspace),
+            0x1f => Ok(Key::Ctrl('/')),
             1..=26 => {
                 let ch = ((b - 1) + b'a') as char;
                 Ok(Key::Ctrl(ch))

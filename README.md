@@ -196,11 +196,20 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Resaltador léxico especializado con clasificación de tags y atributos HTML, selectores y propiedades CSS, variables de entorno y parámetros `$VAR` en Shell, y palabras clave SQL insensibles a mayúsculas/minúsculas.
   - Resaltado jerárquico de Markdown para encabezados (`#`), citas (`>`), listas (`-`, `*`) y bloques de código inline (`` `código` ``).
 
-- **Autocompletado Contextual Inteligente (`Ctrl + Espacio`)**:
+- **Autocompletado Contextual Inteligente (`Ctrl + Espacio`) y Cliente LSP**:
   - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
   - Palabras clave nativas y tipos primitivos de todos los lenguajes soportados más identificadores extraídos en vivo de todos los búferes abiertos.
+  - **Integración con Servidores LSP (`rust-analyzer`, `pylsp`, `clangd`, etc.)**: Autocompletado semántico enriquecido con documentación Markdown, inserción inteligente de texto y diagnóstico en tiempo real.
+  - **Firma de Métodos y Parámetros Flotante (`Signature Help`, `Ctrl + Shift + Espacio`)**: Muestra en tiempo real la firma del método o función que se está invocando con resaltado en negrita del parámetro activo y previsualización de su documentación. Se activa automáticamente al escribir `(` o `,`.
+  - **Navegación Semántica LSP**: Salto directo a la definición de símbolos con `F12` y consulta de tipos flotante (*Hover*) con `Shift + F1` / `F2`.
   - Compatibilidad total con edición multicursor (aplica la palabra seleccionada en todos los cursores activos al mismo tiempo).
   - Navegación fluida por teclado (`↑`/`↓`, `Tab`/`Enter`, `Esc`) y ratón (hover y clic).
+
+- **Ergonomía de Edición Élite y Pila de Navegación (Jump List)**:
+  - **Mover Líneas Arriba / Abajo (`Alt + Up` / `Alt + Down`)**: Desplaza líneas individuales o bloques seleccionados verticalmente manteniendo intactos los cursores y selecciones relativas.
+  - **Duplicar Líneas Abajo (`Shift + Alt + Down` / `Ctrl + Shift + D`)**: Clona la línea o bloque actual inmediatamente debajo en una única operación atómica con historial de deshacer.
+  - **Alternar Comentarios Multi-lenguaje (`Ctrl + /` / `Ctrl + _`)**: Comenta y descomenta inteligentemente líneas según la sintaxis del lenguaje (`//` en Rust/C/JS, `#` en Python/Shell/YAML/TOML, `<!-- -->` en HTML/Markdown, `/* */` en CSS, `--` en SQL) preservando los niveles de indentación.
+  - **Pila de Saltos Histórica (`Alt + Left` / `Alt + Right`)**: Registra automáticamente la ubicación del cursor antes de saltos mayores (ir a definición, diagnósticos, abrir archivos, búsquedas) permitiendo retroceder y avanzar de forma instantánea al estilo VS Code y Vim.
 
 - **Diagnósticos del Compilador y Linter en Vivo**:
   - Integración nativa con `cargo check --message-format=json`, `pyflakes`, `clang` y `bash -n`.
@@ -351,6 +360,17 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Ctrl + -` | **Disminuir tamaño de fuente (Zoom Out)** |
 | `Ctrl + 0` | **Restablecer tamaño de fuente (Reset Zoom a 12 pt)** |
 | `PageUp` / `PageDown` | Cambiar de pestaña (Anterior / Siguiente) |
+| `Alt + Up` / `Alt + Down` | **Mover línea(s) arriba / abajo** |
+| `Shift + Alt + Down` / `Ctrl + Shift + D` | **Duplicar línea(s) abajo** |
+| `Ctrl + /` / `Ctrl + _` | **Alternar comentario de línea (Toggle Comment)** |
+| `Alt + Left` / `Alt + Right` | **Pila de navegación: saltar atrás / adelante (Jump List)** |
+| `Ctrl + Shift + Espacio` | **LSP: Firma de métodos y parámetros (Signature Help)** |
+| `F12` | **LSP: Ir a la definición del símbolo** |
+| `F2` / `Shift + F1` | **LSP: Información de tipo flotante (Hover)** |
+| `Alt + Z` | **Alternar ajuste de línea (Word Wrap)** |
+| `Alt + I` | **Alternar guías visuales de indentación** |
+| `Alt + [` / `F9` | **Plegar / desplegar bloque de código (Fold)** |
+| `Alt + 0` / `Alt + J` | **Plegar todo / Desplegar todo** |
 | `Tab` | Indentación o expandir snippet (`fn`, `struct`, etc.) |
 | `Ctrl + Shift + I` | **Formatear documento con herramienta del sistema** |
 | `F7` | **Comprobar errores (Lint / Check)** |
