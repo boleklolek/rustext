@@ -25,6 +25,7 @@ pub enum EditorAction {
     OpenSearchPrompt,
     OpenReplacePrompt,
     OpenGlobalSearchPrompt,
+    OpenFileFinderPrompt,
     OpenCommandPalette,
     OpenSaveAsPrompt,
     OpenOpenFilePrompt,
@@ -175,7 +176,8 @@ impl Keymap {
             Key::CtrlShift('f') | Key::CtrlShift('F') => EditorAction::OpenGlobalSearchPrompt,
             Key::Ctrl('h') => EditorAction::OpenReplacePrompt,
             Key::Ctrl('r') => EditorAction::OpenRecentFilesPrompt,
-            Key::Ctrl('p') => EditorAction::OpenCommandPalette,
+            Key::Ctrl('p') => EditorAction::OpenFileFinderPrompt,
+            Key::CtrlShift('p') | Key::CtrlShift('P') => EditorAction::OpenCommandPalette,
             Key::Ctrl('q') => EditorAction::Quit,
 
             // Tools & Diagnostics

@@ -285,7 +285,7 @@ Para garantizar nitidez visual y proporciones perfectas en pantallas 4K y pantal
   - **Menú y Pestañas**: Altura de cabeceras, márgenes, padding y anchos de columna.
   - **Barra de Estado y Terminal**: Altura del panel, tamaño del splitter de redimensionamiento y botones `[Limpiar]` / `[x]`.
   - **Scrollbars y Minimapas**: Ancho de banda de desplazamiento (`scrollbar_width`), ancho del minimapa (`minimap_width`) y pulgares deslizantes.
-  - **Márgenes y Diálogos Flotantes**: Búsqueda Global (`Ctrl+Shift+F`), Buscar y Reemplazar (`Ctrl+H`), Paleta de Comandos (`Ctrl+P`), Selector de Archivos Recientes (`Ctrl+R`), Diálogo de confirmación de cambios no guardados y Ventanas de Extensiones y Acerca de.
+  - **Márgenes y Diálogos Flotantes**: Búsqueda Rápida de Archivos (`Ctrl+P`), Paleta de Comandos (`Ctrl+Shift+P`), Búsqueda Global (`Ctrl+Shift+F`), Buscar y Reemplazar (`Ctrl+H`), Selector de Archivos Recientes (`Ctrl+R`), Diálogo de confirmación de cambios no guardados y Ventanas de Extensiones y Acerca de.
   - **Tipografía y Cursores**: Tamaño del glifo tipográfico (`char_width = 8 * font_scale`, `char_height = 16 * font_scale`), separación interlineal (`line_spacing`) y grosor del cursor.
 
 #### 3. Mapeo Bidireccional de Coordenadas de Entrada (Hit-Testing)
@@ -611,7 +611,7 @@ El sistema de **Split Editor** permite dividir el lienzo de trabajo en dos panel
    - **Cursores y Selecciones Aisladas**: Las operaciones multicursor, selecciones de texto y búsquedas locales se ejecutan en el panel que tiene el foco.
    - **Rueda del Ratón**: El scroll vertical con la rueda del ratón afecta automáticamente al panel que se encuentra bajo el cursor del ratón.
 5. **Cierre y Reversión**:
-   - Puede cerrar la vista dividida en cualquier momento con el menú **Ver > Cerrar División**, desde la Paleta de Comandos (`Ctrl + P`), o pulsando nuevamente el atajo de la división activa (`Ctrl + \` o `Ctrl + Shift + \`).
+   - Puede cerrar la vista dividida en cualquier momento con el menú **Ver > Cerrar División**, desde la Paleta de Comandos (`Ctrl + Shift + P`), o pulsando nuevamente el atajo de la división activa (`Ctrl + \` o `Ctrl + Shift + \`).
    - Al cerrar la división, todas las modificaciones permanecen seguras en memoria y las pestañas se sincronizan sin pérdidas.
 
 ---
@@ -839,14 +839,19 @@ Configure en `config.ini` `format_on_save = true` o `check_on_save = true` para 
 
 ---
 
-## 12. Paleta de Comandos y Atajos de Teclado
+## 12. Búsqueda Rápida de Archivos, Paleta de Comandos y Atajos de Teclado
 
-Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite buscar y ejecutar cualquier acción del editor mediante filtrado difuso.
+Rustext ofrece un sistema dual de navegación y productividad instantánea:
+- **Búsqueda Rápida de Archivos (Fuzzy File Finder, `Ctrl + P`)**: Permite localizar y abrir cualquier archivo en el espacio de trabajo de manera inmediata mediante un motor difuso multialineamiento. Muestra insignias de tipo de archivo (`[RS]`, `[MD]`, `[TOML]`, etc.), resalta en color dorado los caracteres coincidentes en el nombre y en la ruta de directorios, y prioriza pestañas actualmente abiertas e historial de archivos recientes.
+- **Paleta de Comandos (`Ctrl + Shift + P`)**: Permite buscar y ejecutar cualquier acción interna o comando de extensión mediante filtrado difuso.
+- **Transición Dinámica**: Al presionar `Ctrl + P`, escribir el prefijo `>` transforma al instante el modal en la Paleta de Comandos sin cerrar la ventana.
 
 ### Tabla Completa de Atajos de Teclado:
 
 | Atajo de Teclado | Acción | Menú Correspondiente |
 | :--- | :--- | :--- |
+| `Ctrl + P` | **Ir a Archivo (Fuzzy File Finder)** | Ver > Ir a Archivo... |
+| `Ctrl + Shift + P`| **Abrir Paleta de Comandos** | Ver > Paleta de Comandos... |
 | `Ctrl + S` | Guardar archivo actual | Archivo > Guardar |
 | `Ctrl + O` | Abrir diálogo de archivo | Archivo > Abrir Archivo... |
 | `Ctrl + R` | **Abrir Archivo Reciente...** | Archivo > Abrir Archivo Reciente... |
@@ -874,7 +879,6 @@ Presione `Ctrl + P` para abrir la **Paleta de Comandos Flotante**. Permite busca
 | `Alt + \` | **Cambiar Foco de Panel Dividido** | Ver > Cambiar Foco de Panel |
 | `PageUp` | Cambiar a pestaña anterior | Ver > Pestaña Anterior |
 | `PageDown` | Cambiar a pestaña siguiente | Ver > Pestaña Siguiente |
-| `Ctrl + P` | Abrir Paleta de Comandos | Ver > Paleta de Comandos... |
 | `Ctrl + Shift + T`| **Selector de Fuentes y Tipografía (Modal con Vista Previa)** | Preferencias > Tipografía... |
 | `Ctrl + +` / `Ctrl + =` | **Aumentar Tamaño de Fuente (Zoom In)** | Preferencias > Aumentar Tamaño |
 | `Ctrl + -` | **Disminuir Tamaño de Fuente (Zoom Out)** | Preferencias > Disminuir Tamaño |
@@ -978,7 +982,7 @@ title = Contar Palabras del Documento
 executable = wc
 args = -w
 ```
-Al presionar `Ctrl + P`, el comando estará disponible instantáneamente en la Paleta de Comandos.
+Al presionar `Ctrl + Shift + P` (o escribir `>` en `Ctrl + P`), el comando estará disponible instantáneamente en la Paleta de Comandos.
 
 ---
 

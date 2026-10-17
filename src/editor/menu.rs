@@ -117,7 +117,8 @@ impl MenuBar {
                     MenuItem::action("Pestaña Siguiente", "PageDown", EditorAction::NextTab),
                     MenuItem::action("Pestaña Anterior", "PageUp", EditorAction::PrevTab),
                     MenuItem::separator(),
-                    MenuItem::action("Paleta de Comandos...", "Ctrl+P", EditorAction::OpenCommandPalette),
+                    MenuItem::action("Ir a Archivo...", "Ctrl+P", EditorAction::OpenFileFinderPrompt),
+                    MenuItem::action("Paleta de Comandos...", "Ctrl+Shift+P", EditorAction::OpenCommandPalette),
                 ],
             },
             MenuCategory {
@@ -170,7 +171,7 @@ impl MenuBar {
             MenuCategory {
                 name: "Ayuda",
                 items: vec![
-                    MenuItem::action("Paleta de Comandos", "Ctrl+P", EditorAction::OpenCommandPalette),
+                    MenuItem::action("Paleta de Comandos", "Ctrl+Shift+P", EditorAction::OpenCommandPalette),
                     MenuItem::separator(),
                     MenuItem::action("Acerca de Rustext", "F1", EditorAction::OpenAboutDialog),
                 ],

@@ -400,6 +400,22 @@ impl Editor {
                             return;
                         }
                     }
+                    if modal.kind == PromptKind::FileFinder {
+                        if modal.is_command_mode() {
+                            let matches = modal.matching_commands();
+                            if let Some(cmd) = matches.get(modal.selected_idx) {
+                                let action = cmd.action.clone();
+                                self.mode = EditorMode::Normal;
+                                self.execute_action(action);
+                                return;
+                            }
+                        } else if !modal.file_finder_results.is_empty() && modal.selected_idx < modal.file_finder_results.len() {
+                            let target_path = modal.file_finder_results[modal.selected_idx].file.path.clone();
+                            self.mode = EditorMode::Normal;
+                            self.open_file(&target_path);
+                            return;
+                        }
+                    }
                     if modal.is_file_dialog() {
                         let resolved = modal.resolve_full_path();
                         if resolved.is_dir() {
@@ -456,6 +472,8 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::FileFinder {
+                        modal.select_next_file_result(9);
                     } else if modal.is_file_dialog() {
                         modal.select_next_entry(10);
                     } else if modal.kind == PromptKind::GlobalSearch {
@@ -469,6 +487,8 @@ impl Editor {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::FileFinder {
+                        modal.select_prev_file_result();
                     } else if modal.is_file_dialog() {
                         modal.select_prev_entry();
                     } else if modal.kind == PromptKind::GlobalSearch {
@@ -485,6 +505,10 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::FileFinder {
+                        for _ in 0..6 {
+                            modal.select_next_file_result(9);
+                        }
                     } else if modal.kind == PromptKind::GlobalSearch {
                         for _ in 0..8 {
                             modal.select_next_global_result(12);
@@ -498,6 +522,10 @@ impl Editor {
                         }
                     } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(6);
+                    } else if modal.kind == PromptKind::FileFinder {
+                        for _ in 0..6 {
+                            modal.select_prev_file_result();
+                        }
                     } else if modal.kind == PromptKind::GlobalSearch {
                         for _ in 0..8 {
                             modal.select_prev_global_result();
@@ -553,6 +581,12 @@ impl Editor {
                                 let query = modal.input.clone();
                                 self.find_next_match(&query);
                             }
+                            _ => {}
+                        }
+                    } else if modal.kind == PromptKind::FileFinder {
+                        match c.to_ascii_lowercase() {
+                            'p' | 'k' => modal.select_prev_file_result(),
+                            'n' | 'j' => modal.select_next_file_result(9),
                             _ => {}
                         }
                     }
@@ -889,6 +923,13 @@ impl Editor {
             }
             EditorAction::OpenAboutDialog => {
                 self.mode = EditorMode::AboutDialog;
+            }
+            EditorAction::OpenFileFinderPrompt => {
+                let root = self.sidebar.root_dir.clone();
+                let open_paths: Vec<PathBuf> = self.documents.iter().filter_map(|d| d.buffer.file_path().map(|p| p.to_path_buf())).collect();
+                let mut modal = PromptModal::new_file_finder(root, &open_paths, &self.recent_files);
+                modal.custom_commands = self.extension_manager.get_active_commands();
+                self.mode = EditorMode::ModalPrompt(modal);
             }
             EditorAction::OpenCommandPalette => {
                 let mut modal = PromptModal::new(PromptKind::CommandPalette);
@@ -2184,6 +2225,23 @@ impl Editor {
                 let matching = modal.matching_recent_files();
                 if !matching.is_empty() && modal.selected_idx < matching.len() {
                     let target_path = matching[modal.selected_idx].clone();
+                    self.open_file(&target_path);
+                } else {
+                    let direct_path = modal.resolve_full_path();
+                    if direct_path.exists() && direct_path.is_file() {
+                        self.open_file(&direct_path);
+                    }
+                }
+            }
+            PromptKind::FileFinder => {
+                if modal.is_command_mode() {
+                    let matches = modal.matching_commands();
+                    if let Some(cmd) = matches.get(modal.selected_idx) {
+                        let action = cmd.action.clone();
+                        self.execute_action(action);
+                    }
+                } else if !modal.file_finder_results.is_empty() && modal.selected_idx < modal.file_finder_results.len() {
+                    let target_path = modal.file_finder_results[modal.selected_idx].file.path.clone();
                     self.open_file(&target_path);
                 } else {
                     let direct_path = modal.resolve_full_path();
@@ -4043,6 +4101,50 @@ impl Editor {
                                             }
                                         }
                                     }
+                                } else if modal.kind == PromptKind::FileFinder {
+                                    let box_w = fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400));
+                                    let box_h = renderer.scale_coord(340);
+                                    let box_x = (fb.width.saturating_sub(box_w)) / 2;
+                                    let box_y = renderer.scale_coord(28);
+                                    let header_h = renderer.scale_coord(24);
+                                    let close_w = renderer.scale_coord(30);
+                                    let close_x = box_x + box_w - close_w;
+
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
+                                    let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
+
+                                    if hit_close || hit_outside {
+                                        self.mode = EditorMode::Normal;
+                                    } else if modal.is_command_mode() {
+                                        let body_y = box_y + header_h + 1;
+                                        let input_margin = renderer.scale_coord(12);
+                                        let input_y = body_y + renderer.scale_coord(8);
+                                        let item_start_y = input_y + renderer.scale_coord(24) + renderer.scale_coord(8);
+                                        let item_h = (renderer.char_height() + renderer.scale_coord(8)).max(renderer.scale_coord(24));
+                                        let matching = modal.matching_commands();
+                                        if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= item_start_y {
+                                            let row_idx = (y - item_start_y) / item_h;
+                                            if row_idx < matching.len().min(9) {
+                                                let action = matching[row_idx].action.clone();
+                                                self.mode = EditorMode::Normal;
+                                                self.execute_action(action);
+                                            }
+                                        }
+                                    } else {
+                                        let input_margin = renderer.scale_coord(12);
+                                        let item_start_y = box_y + header_h + 1 + renderer.scale_coord(8) + renderer.scale_coord(24) + renderer.scale_coord(8);
+                                        let item_h = (renderer.char_height() + renderer.scale_coord(10)).max(renderer.scale_coord(26));
+                                        let matching = &modal.file_finder_results;
+                                        if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= item_start_y {
+                                            let row_idx = (y - item_start_y) / item_h;
+                                            let item_idx = modal.scroll_offset + row_idx;
+                                            if item_idx < matching.len() && row_idx < 9 {
+                                                let target_path = matching[item_idx].file.path.clone();
+                                                self.mode = EditorMode::Normal;
+                                                self.open_file(&target_path);
+                                            }
+                                        }
+                                    }
                                 } else {
                                     let is_palette = modal.kind == PromptKind::CommandPalette;
                                     let box_w = fb.width.min(renderer.scale_coord(580)).max(renderer.scale_coord(340));
@@ -4607,6 +4709,10 @@ impl Editor {
                                     for _ in 0..3 {
                                         modal.select_prev_global_result();
                                     }
+                                } else if modal.kind == PromptKind::FileFinder {
+                                    for _ in 0..3 {
+                                        modal.select_prev_file_result();
+                                    }
                                 }
                             } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
                                 dialog.select_next_size();
@@ -4678,6 +4784,10 @@ impl Editor {
                                 } else if modal.kind == PromptKind::GlobalSearch {
                                     for _ in 0..3 {
                                         modal.select_next_global_result(12);
+                                    }
+                                } else if modal.kind == PromptKind::FileFinder {
+                                    for _ in 0..3 {
+                                        modal.select_next_file_result(9);
                                     }
                                 }
                             } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
@@ -5018,7 +5128,7 @@ impl Editor {
             if let EditorMode::ModalPrompt(modal) = &self.mode {
                 let box_w = if modal.kind == PromptKind::GlobalSearch {
                     fb.width.min(renderer.scale_coord(740)).max(renderer.scale_coord(460))
-                } else if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles {
+                } else if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::FileFinder {
                     fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400))
                 } else if modal.kind == PromptKind::Replace {
                     fb.width.min(renderer.scale_coord(540)).max(renderer.scale_coord(380))
@@ -5029,7 +5139,7 @@ impl Editor {
                     fb.height.min(renderer.scale_coord(500)).max(renderer.scale_coord(360))
                 } else if modal.is_file_dialog() {
                     fb.height.min(renderer.scale_coord(480)).max(renderer.scale_coord(360))
-                } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles {
+                } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::FileFinder {
                     renderer.scale_coord(340)
                 } else if modal.kind == PromptKind::Replace {
                     renderer.scale_coord(168)

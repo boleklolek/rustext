@@ -13,6 +13,7 @@ pub enum PromptKind {
     RecentFiles,
     CommandPalette,
     GlobalSearch,
+    FileFinder,
 }
 
 impl PromptKind {
@@ -25,6 +26,7 @@ impl PromptKind {
             PromptKind::RecentFiles => "Reciente: ",
             PromptKind::CommandPalette => "Comando: ",
             PromptKind::GlobalSearch => "Buscar en Proyecto: ",
+            PromptKind::FileFinder => "Archivo: ",
         }
     }
 
@@ -35,8 +37,9 @@ impl PromptKind {
             PromptKind::SaveAs => "Guardar Archivo Como",
             PromptKind::OpenFile => "Abrir Archivo",
             PromptKind::RecentFiles => "Archivos Recientes (Ctrl+R)",
-            PromptKind::CommandPalette => "Paleta de Comandos",
+            PromptKind::CommandPalette => "Paleta de Comandos (Ctrl+Shift+P)",
             PromptKind::GlobalSearch => "Búsqueda Global en el Proyecto (Ctrl+Shift+F)",
+            PromptKind::FileFinder => "Ir a Archivo (Fuzzy File Finder) [Ctrl+P]",
         }
     }
 }
@@ -51,6 +54,8 @@ pub struct CommandItem {
 pub fn standard_commands() -> Vec<CommandItem> {
     use crate::editor::keymap::EditorAction;
     vec![
+        CommandItem { name: "Ir a Archivo... (Fuzzy File Finder)", shortcut: "Ctrl+P", action: EditorAction::OpenFileFinderPrompt },
+        CommandItem { name: "Paleta de Comandos...", shortcut: "Ctrl+Shift+P", action: EditorAction::OpenCommandPalette },
         CommandItem { name: "Nueva Pestaña", shortcut: "Ctrl+T", action: EditorAction::NewTab },
         CommandItem { name: "Abrir Archivo...", shortcut: "Ctrl+O", action: EditorAction::OpenOpenFilePrompt },
         CommandItem { name: "Abrir Archivo Reciente...", shortcut: "Ctrl+R", action: EditorAction::OpenRecentFilesPrompt },
@@ -252,6 +257,9 @@ pub struct PromptModal {
     pub case_sensitive: bool,
     pub root_dir: PathBuf,
     pub recent_files: Vec<PathBuf>,
+    // Fuzzy File Finder fields for PromptKind::FileFinder
+    pub project_files: Vec<crate::core::ProjectFile>,
+    pub file_finder_results: Vec<crate::core::FileFinderMatch>,
 }
 
 impl PromptModal {
@@ -277,6 +285,8 @@ impl PromptModal {
             case_sensitive: false,
             root_dir: current_dir,
             recent_files: Vec::new(),
+            project_files: Vec::new(),
+            file_finder_results: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -320,6 +330,8 @@ impl PromptModal {
             case_sensitive: false,
             root_dir: dir,
             recent_files: Vec::new(),
+            project_files: Vec::new(),
+            file_finder_results: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -350,11 +362,47 @@ impl PromptModal {
             case_sensitive: false,
             root_dir,
             recent_files: Vec::new(),
+            project_files: Vec::new(),
+            file_finder_results: Vec::new(),
         };
         if !modal.input.trim().is_empty() {
             modal.update_global_search();
         }
         modal
+    }
+
+    /// Creates a prompt modal for workspace fuzzy file finding (Ctrl+P).
+    pub fn new_file_finder(
+        root_dir: PathBuf,
+        open_paths: &[PathBuf],
+        recent_paths: &[PathBuf],
+    ) -> Self {
+        let project_files = crate::core::FileFinder::scan_workspace(&root_dir, open_paths, recent_paths);
+        let file_finder_results = crate::core::FileFinder::filter_and_rank(&project_files, "", 40);
+
+        Self {
+            kind: PromptKind::FileFinder,
+            input: String::new(),
+            cursor_col: 0,
+            selected_idx: 0,
+            replace_input: String::new(),
+            replace_cursor_col: 0,
+            active_field: 0,
+            current_dir: root_dir.clone(),
+            dir_entries: Vec::new(),
+            selected_entry_idx: 0,
+            scroll_offset: 0,
+            custom_commands: Vec::new(),
+            global_results: Vec::new(),
+            global_total_files: 0,
+            global_matching_files: 0,
+            global_truncated: false,
+            case_sensitive: false,
+            root_dir,
+            recent_files: recent_paths.to_vec(),
+            project_files,
+            file_finder_results,
+        }
     }
 
     /// Creates a prompt modal for selecting and filtering recent files.
@@ -548,6 +596,8 @@ impl PromptModal {
         self.selected_idx = 0;
         if self.kind == PromptKind::GlobalSearch {
             self.update_global_search();
+        } else if self.kind == PromptKind::FileFinder {
+            self.update_file_finder();
         }
     }
 
@@ -587,6 +637,8 @@ impl PromptModal {
         self.selected_idx = 0;
         if self.kind == PromptKind::GlobalSearch {
             self.update_global_search();
+        } else if self.kind == PromptKind::FileFinder {
+            self.update_file_finder();
         }
     }
 
@@ -685,6 +737,44 @@ impl PromptModal {
         }
     }
 
+    pub fn is_command_mode(&self) -> bool {
+        self.kind == PromptKind::FileFinder && self.input.starts_with('>')
+    }
+
+    pub fn update_file_finder(&mut self) {
+        if self.is_command_mode() {
+            self.selected_idx = 0;
+            self.scroll_offset = 0;
+            return;
+        }
+        self.file_finder_results = crate::core::FileFinder::filter_and_rank(&self.project_files, &self.input, 40);
+        self.selected_idx = 0;
+        self.scroll_offset = 0;
+    }
+
+    pub fn select_next_file_result(&mut self, max_visible: usize) {
+        let count = if self.is_command_mode() {
+            self.matching_commands().len()
+        } else {
+            self.file_finder_results.len()
+        };
+        if count > 0 && self.selected_idx + 1 < count {
+            self.selected_idx += 1;
+            if self.selected_idx >= self.scroll_offset + max_visible {
+                self.scroll_offset = self.selected_idx + 1 - max_visible;
+            }
+        }
+    }
+
+    pub fn select_prev_file_result(&mut self) {
+        if self.selected_idx > 0 {
+            self.selected_idx -= 1;
+            if self.selected_idx < self.scroll_offset {
+                self.scroll_offset = self.selected_idx;
+            }
+        }
+    }
+
     pub fn formatted_display(&self) -> String {
         if self.is_file_dialog() {
             format!("{}[{}] {}", self.kind.label(), self.current_dir.display(), self.input)
@@ -697,16 +787,29 @@ impl PromptModal {
         } else if self.kind == PromptKind::RecentFiles {
             let count = self.matching_recent_files().len();
             format!("Archivos Recientes: {} │ ({} archivos) [↑/↓: Seleccionar] [Enter: Abrir] [Esc: Cancelar]", self.input, count)
+        } else if self.kind == PromptKind::FileFinder {
+            if self.is_command_mode() {
+                let count = self.matching_commands().len();
+                format!("Comando: {} │ ({} comandos) [↑/↓: Seleccionar] [Enter: Ejecutar] [Esc: Cancelar]", self.input, count)
+            } else {
+                let count = self.file_finder_results.len();
+                format!("Ir a Archivo: {} │ ({} archivos) [↑/↓: Seleccionar] [Enter: Abrir] [>: Comandos] [Esc: Cancelar]", self.input, count)
+            }
         } else {
             format!("{}{}", self.kind.label(), self.input)
         }
     }
 
     pub fn matching_commands(&self) -> Vec<CommandItem> {
-        if self.kind != PromptKind::CommandPalette {
+        if self.kind != PromptKind::CommandPalette && !self.is_command_mode() {
             return Vec::new();
         }
-        let term = self.input.trim().to_lowercase();
+        let raw_query = if self.is_command_mode() {
+            self.input.strip_prefix('>').unwrap_or(&self.input)
+        } else {
+            &self.input
+        };
+        let term = raw_query.trim().to_lowercase();
         let mut all = standard_commands();
         all.extend(self.custom_commands.clone());
         if term.is_empty() {

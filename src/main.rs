@@ -95,7 +95,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "//   Ctrl+O : Abrir archivo\n",
             "//   Ctrl+Z : Deshacer (Undo)\n",
             "//   Ctrl+Y : Rehacer (Redo)\n",
-            "//   Ctrl+P : Paleta de comandos\n",
+            "//   Ctrl+P : Ir a archivo (Fuzzy File Finder)\n",
+            "//   Ctrl+Shift+P : Paleta de comandos\n",
             "//   Esc    : Colapsar a un solo cursor / Cancelar prompt\n",
             "//   Ctrl+Q : Salir\n"
         );

@@ -3964,10 +3964,20 @@ impl GfxRenderer {
             return;
         }
 
-        let is_palette = modal.kind == crate::ui::prompt::PromptKind::CommandPalette;
+        let is_command_mode = modal.kind == crate::ui::prompt::PromptKind::FileFinder && modal.is_command_mode();
+        let is_palette = modal.kind == crate::ui::prompt::PromptKind::CommandPalette || is_command_mode;
+        let is_finder = modal.kind == crate::ui::prompt::PromptKind::FileFinder && !is_command_mode;
         let is_recent = modal.kind == crate::ui::prompt::PromptKind::RecentFiles;
-        let box_w = if is_recent { fb.width.min(self.scale_coord(680)).max(self.scale_coord(400)) } else { fb.width.min(self.scale_coord(580)).max(self.scale_coord(340)) };
-        let box_h = if is_palette || is_recent { self.scale_coord(340) } else { self.scale_coord(120) };
+        let box_w = if is_recent || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+            fb.width.min(self.scale_coord(680)).max(self.scale_coord(400))
+        } else {
+            fb.width.min(self.scale_coord(580)).max(self.scale_coord(340))
+        };
+        let box_h = if is_palette || is_recent || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+            self.scale_coord(340)
+        } else {
+            self.scale_coord(120)
+        };
         let box_x = (fb.width.saturating_sub(box_w)) / 2;
         let box_y: usize = self.scale_coord(28);
 
@@ -3995,7 +4005,12 @@ impl GfxRenderer {
             fb.draw_rounded_outline(box_x, box_y, box_w, box_h, 6, self.colors.modal_border);
         }
 
-        fb.draw_text(modal.kind.window_title(), box_x + self.scale_coord(10), box_y + self.scale_coord(4), 0x00FFFFFF, None);
+        let title = if is_command_mode {
+            "Paleta de Comandos (Ctrl+Shift+P)"
+        } else {
+            modal.kind.window_title()
+        };
+        fb.draw_text(title, box_x + self.scale_coord(10), box_y + self.scale_coord(4), 0x00FFFFFF, None);
 
         // Header close button [×]
         let close_w = self.scale_coord(30);
@@ -4027,15 +4042,30 @@ impl GfxRenderer {
         }
 
         // Prompt label & input text
-        let label = modal.kind.label();
+        let label = if is_command_mode {
+            "> "
+        } else {
+            modal.kind.label()
+        };
         let text_y = input_y + (input_h.saturating_sub(self.char_height())) / 2;
         fb.draw_text(label, input_x + self.scale_coord(6), text_y, self.colors.accent, None);
 
+        let display_input = if is_command_mode {
+            modal.input.strip_prefix('>').unwrap_or(&modal.input)
+        } else {
+            &modal.input
+        };
+
         let input_text_x = input_x + self.scale_coord(6) + label.chars().count() * self.char_width();
-        fb.draw_text(&modal.input, input_text_x, text_y, 0x00FFFFFF, None);
+        fb.draw_text(display_input, input_text_x, text_y, 0x00FFFFFF, None);
 
         // Caret bar
-        let cursor_x = input_text_x + modal.cursor_col * self.char_width();
+        let display_cursor_col = if is_command_mode {
+            modal.cursor_col.saturating_sub(1)
+        } else {
+            modal.cursor_col
+        };
+        let cursor_x = input_text_x + display_cursor_col * self.char_width();
         if cursor_x < input_x + input_w - self.scale_coord(4) {
             fb.fill_rect(cursor_x, text_y, self.scale_coord(2).max(1), self.char_height(), self.colors.cursor);
         }
@@ -4047,34 +4077,47 @@ impl GfxRenderer {
             let item_h = (self.char_height() + self.scale_coord(8)).max(self.scale_coord(24));
             let max_visible = 9;
 
-            for (idx, cmd) in matching.iter().take(max_visible).enumerate() {
-                let is_sel = idx == modal.selected_idx;
-                let (row_bg, row_fg, sc_fg) = if is_sel {
-                    (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
+            if matching.is_empty() {
+                fb.draw_text("(No hay comandos coincidentes)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                let scroll_off = if modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+                    modal.scroll_offset
+                } else if modal.selected_idx >= max_visible {
+                    modal.selected_idx + 1 - max_visible
                 } else {
-                    (self.colors.modal_bg, 0x00D4D4D4, 0x00858585)
+                    0
                 };
 
-                if is_sel && self.rounded_corners {
-                    fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
-                } else {
-                    fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                for (row_idx, cmd) in matching.iter().skip(scroll_off).take(max_visible).enumerate() {
+                    let item_idx = scroll_off + row_idx;
+                    let is_sel = item_idx == modal.selected_idx;
+                    let (row_bg, row_fg, sc_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
+                    } else {
+                        (self.colors.modal_bg, 0x00D4D4D4, 0x00858585)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    if !cmd.shortcut.is_empty() {
+                        let sc_w = cmd.shortcut.chars().count() * self.char_width();
+                        let sc_x = input_x + input_w - sc_w - self.scale_coord(8);
+                        fb.draw_text_clipped(cmd.shortcut, sc_x, row_text_y, input_x + input_w - self.scale_coord(4), sc_fg, None);
+                        let name_max_x = sc_x.saturating_sub(self.scale_coord(8));
+                        fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
+                    } else {
+                        let name_max_x = input_x + input_w - self.scale_coord(8);
+                        fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
+                    }
+
+                    item_y += item_h;
                 }
-
-                let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
-
-                if !cmd.shortcut.is_empty() {
-                    let sc_w = cmd.shortcut.chars().count() * self.char_width();
-                    let sc_x = input_x + input_w - sc_w - self.scale_coord(8);
-                    fb.draw_text_clipped(cmd.shortcut, sc_x, row_text_y, input_x + input_w - self.scale_coord(4), sc_fg, None);
-                    let name_max_x = sc_x.saturating_sub(self.scale_coord(8));
-                    fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
-                } else {
-                    let name_max_x = input_x + input_w - self.scale_coord(8);
-                    fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
-                }
-
-                item_y += item_h;
             }
 
             // Footer hint
@@ -4083,6 +4126,135 @@ impl GfxRenderer {
             let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
             let hint_y = box_y + box_h - self.scale_coord(18);
             fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
+        } else if is_finder {
+            let matching = &modal.file_finder_results;
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No se encontraron archivos coincidentes)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                for (row_idx, item) in matching.iter().skip(modal.scroll_offset).take(max_visible).enumerate() {
+                    let item_idx = modal.scroll_offset + row_idx;
+                    let is_sel = item_idx == modal.selected_idx;
+                    let (row_bg, row_fg, dir_fg, hl_color) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0, 0x00FFFF70)
+                    } else {
+                        (self.colors.modal_bg, 0x00FFFFFF, 0x00858585, 0x00FFD700)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    // 1. Extension badge
+                    let ext_str = item.file.extension.to_uppercase();
+                    let badge_text = if ext_str.is_empty() {
+                        "[FILE]".to_string()
+                    } else if ext_str.len() > 4 {
+                        format!("[{}]", &ext_str[..4])
+                    } else {
+                        format!("[{}]", ext_str)
+                    };
+
+                    let ext_color = match item.file.extension.as_str() {
+                        "rs" => self.colors.syntax_number,
+                        "toml" | "ini" | "json" | "yaml" | "yml" => self.colors.syntax_type,
+                        "md" | "txt" => self.colors.syntax_string,
+                        "c" | "cpp" | "h" | "hpp" | "sql" => self.colors.syntax_keyword,
+                        "sh" | "bash" | "zsh" => self.colors.bracket_1,
+                        "py" => self.colors.syntax_string,
+                        "html" | "css" | "js" | "ts" => self.colors.accent,
+                        _ => 0x00858585,
+                    };
+
+                    let badge_fg = if is_sel { 0x00E0E0E0 } else { ext_color };
+                    let badge_x = input_x + self.scale_coord(8);
+                    fb.draw_text(&badge_text, badge_x, row_text_y, badge_fg, None);
+
+                    let fn_x = badge_x + self.scale_coord(52);
+
+                    // 2. Status badge at right edge (Abierto / Reciente)
+                    let status_badge_info = if item.file.is_open {
+                        Some(("• Abierto", if is_sel { 0x00A6E3A1 } else { self.colors.syntax_string }))
+                    } else if item.file.is_recent {
+                        Some(("• Reciente", if is_sel { 0x00B0D0FF } else { 0x00858585 }))
+                    } else {
+                        None
+                    };
+
+                    let max_row_x = if let Some((tag, color)) = status_badge_info {
+                        let tag_w = tag.chars().count() * self.char_width();
+                        let tag_x = input_x + input_w - tag_w - self.scale_coord(8);
+                        fb.draw_text(tag, tag_x, row_text_y, color, None);
+                        tag_x.saturating_sub(self.scale_coord(10))
+                    } else {
+                        input_x + input_w - self.scale_coord(8)
+                    };
+
+                    // 3. Highlighted filename
+                    let rel_chars: Vec<char> = item.file.relative_path.chars().collect();
+                    let fn_start_char = rel_chars
+                        .iter()
+                        .rposition(|&c| c == '/' || c == '\\')
+                        .map(|idx| idx + 1)
+                        .unwrap_or(0);
+
+                    let mut cur_fn_x = fn_x;
+                    for (c_idx, ch) in item.file.file_name.chars().enumerate() {
+                        if cur_fn_x + self.char_width() > max_row_x {
+                            break;
+                        }
+                        let is_matched = item.matched_indices.contains(&(fn_start_char + c_idx));
+                        let ch_color = if is_matched { hl_color } else { row_fg };
+                        fb.draw_char(ch, cur_fn_x, row_text_y, ch_color, None);
+                        cur_fn_x += self.char_width();
+                    }
+
+                    // 4. Directory path with matched letters highlighted
+                    let parent_str = if fn_start_char > 0 {
+                        &item.file.relative_path[..fn_start_char.saturating_sub(1)]
+                    } else {
+                        ""
+                    };
+
+                    if !parent_str.is_empty() {
+                        let dir_x = cur_fn_x + self.scale_coord(12);
+                        if dir_x < max_row_x {
+                            let mut cur_dir_x = dir_x;
+                            for (p_idx, p_ch) in parent_str.chars().enumerate() {
+                                if cur_dir_x + self.char_width() > max_row_x {
+                                    break;
+                                }
+                                let is_matched = item.matched_indices.contains(&p_idx);
+                                let p_color = if is_matched { hl_color } else { dir_fg };
+                                fb.draw_char(p_ch, cur_dir_x, row_text_y, p_color, None);
+                                cur_dir_x += self.char_width();
+                            }
+                        }
+                    }
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let total_files = modal.project_files.len();
+            let match_count = modal.file_finder_results.len();
+            let hint = if modal.input.is_empty() {
+                format!("{} archivos  •  ↑/↓: Seleccionar  •  Enter: Abrir  •  >: Comandos  •  Esc: Cerrar", total_files)
+            } else {
+                format!("{}/{} archivos  •  ↑/↓: Seleccionar  •  Enter: Abrir  •  Esc: Cerrar", match_count, total_files)
+            };
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(&hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
         } else if is_recent {
             let matching = modal.matching_recent_files();
             let mut item_y = input_y + input_h + self.scale_coord(8);
@@ -4458,7 +4630,7 @@ impl GfxRenderer {
         cur_y += self.scale_coord(8);
 
         // Essential shortcuts reference
-        let sc_str = "Ctrl+T: Pestaña  •  Ctrl+S: Guardar  •  Ctrl+F: Buscar  •  Ctrl+P: Comandos";
+        let sc_str = "Ctrl+P: Archivos  •  Ctrl+Shift+P: Comandos  •  Ctrl+S: Guardar  •  Ctrl+F: Buscar";
         let sc_w = sc_str.chars().count() * self.char_width();
         let sc_x = win_x + (win_w.saturating_sub(sc_w)) / 2;
         let max_sc_x = win_x + win_w - self.scale_coord(16);

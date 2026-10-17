@@ -2183,6 +2183,109 @@ fn test_recent_files_modal_navigation_and_open() {
 }
 
 #[test]
+fn test_file_finder_modal_navigation_fuzzy_and_command_palette_switch() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, EditorMode};
+    use rustext::ui::prompt::PromptKind;
+    use rustext::ui::terminal::Key;
+    use std::fs;
+
+    let test_dir = std::env::temp_dir().join(format!("rustext_finder_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let src_dir = test_dir.join("src");
+    let _ = fs::create_dir_all(&src_dir);
+
+    let main_rs = src_dir.join("main.rs");
+    let lib_rs = src_dir.join("lib.rs");
+    let cargo_toml = test_dir.join("Cargo.toml");
+    fs::write(&main_rs, "fn main() {}\n").unwrap();
+    fs::write(&lib_rs, "pub fn run() {}\n").unwrap();
+    fs::write(&cargo_toml, "[package]\nname = \"test\"\n").unwrap();
+
+    let mut editor = Editor::new(TextBuffer::new());
+    editor.sidebar.root_dir = test_dir.clone();
+
+    // 1. Open with Ctrl+P keymap
+    editor.handle_key(Key::Ctrl('p'));
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::FileFinder);
+            assert!(!modal.is_command_mode());
+            assert!(!modal.project_files.is_empty());
+        }
+        _ => panic!("Expected FileFinder modal on Ctrl+P"),
+    }
+
+    // 2. Type "main" to filter
+    editor.handle_key(Key::Char('m'));
+    editor.handle_key(Key::Char('a'));
+    editor.handle_key(Key::Char('i'));
+    editor.handle_key(Key::Char('n'));
+
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        assert_eq!(modal.input, "main");
+        assert!(!modal.file_finder_results.is_empty());
+        assert_eq!(modal.file_finder_results[0].file.file_name, "main.rs");
+        assert!(!modal.file_finder_results[0].matched_indices.is_empty());
+    }
+
+    // 3. Render frame to verify visual rendering of finder without error
+    let mut fb = rustext::gfx::Framebuffer::new(800, 600);
+    let renderer = rustext::gfx::GfxRenderer::new();
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        renderer.render_prompt_overlay_with_hover(&mut fb, modal, false);
+    }
+
+    // 4. Press Enter to open main.rs
+    editor.handle_key(Key::Enter);
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.doc().buffer.file_path(), Some(main_rs.as_path()));
+
+    // 5. Open Ctrl+P again and test dynamic switch to Command Palette using '>'
+    editor.handle_key(Key::Ctrl('p'));
+    editor.handle_key(Key::Char('>'));
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        assert!(modal.is_command_mode());
+        let cmds = modal.matching_commands();
+        assert!(!cmds.is_empty());
+    }
+
+    // Render frame in command mode to verify prompt and command list rendering
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        renderer.render_prompt_overlay_with_hover(&mut fb, modal, false);
+    }
+
+    // Type ">Nueva" to match "Nueva Pestaña"
+    for ch in "Nueva".chars() {
+        editor.handle_key(Key::Char(ch));
+    }
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        assert!(modal.is_command_mode());
+        let cmds = modal.matching_commands();
+        assert!(!cmds.is_empty());
+        assert_eq!(cmds[0].action, EditorAction::NewTab);
+    }
+
+    // Press Enter to execute command
+    let tab_count_before = editor.documents.len();
+    editor.handle_key(Key::Enter);
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.documents.len(), tab_count_before + 1);
+
+    // 6. Test direct Command Palette shortcut (Ctrl+Shift+P)
+    editor.handle_key(Key::CtrlShift('p'));
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::CommandPalette);
+        }
+        _ => panic!("Expected CommandPalette modal on Ctrl+Shift+P"),
+    }
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
 fn test_integrated_terminal_actions_and_keymap() {
     use rustext::editor::app::Editor;
     use rustext::editor::keymap::{EditorAction, Keymap};
