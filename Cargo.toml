@@ -2,5 +2,11 @@
 name = "rustext"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Native, zero-dependency text and code editor written in pure Rust (std only)"
+repository = "https://github.com/boleklolek/rustext"
+readme = "README.md"
+keywords = ["editor", "text-editor", "wayland", "lsp", "piece-table"]
+categories = ["development-tools", "gui", "text-editors"]
 
 [dependencies]

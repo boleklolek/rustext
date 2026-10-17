@@ -4691,11 +4691,11 @@ impl GfxRenderer {
         // Project and Author Details
         let details = [
             ("• Desarrollador: ", "boleklolek <bolek.lolek@gmail.com>"),
-            ("• Licencia:      ", "MIT License (Código Abierto)"),
+            ("• Licencia:      ", "GNU AGPLv3 (Código Abierto Copyleft)"),
             ("• Arquitectura:  ", "100% Rust Estándar (Sin crates ni librerías)"),
             ("• Motor:         ", "Piece Table O(log N) con Multi-Cursor"),
             ("• Renderizado:   ", "Framebuffer RGB32 Nativo por Software"),
-            ("• Plataformas:   ", "Linux (X11) • Windows (Win32) • macOS"),
+            ("• Plataformas:   ", "Linux (Wayland / X11) • Windows • macOS"),
             ("• Repositorio:   ", "https://github.com/boleklolek/rustext"),
         ];
 

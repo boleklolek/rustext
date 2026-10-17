@@ -1,9 +1,12 @@
 # 🦀 Rustext
 
-[![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust)](Cargo.toml)
 [![Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg)](Cargo.toml)
-[![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
+[![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
+[![Tests](https://img.shields.io/badge/Tests-207%20passed-success.svg)](tests/)
+[![Platforms](https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
+[![LSP](https://img.shields.io/badge/LSP-rust--analyzer%20%7C%20pylsp%20%7C%20clangd-blueviolet.svg)](#)
 
 **Rustext** es un editor de código y texto nativo de ultra-baja latencia y alto rendimiento, escrito **100% en Rust puro utilizando exclusivamente la biblioteca estándar (`std`)**, con **cero dependencias de terceros** (`Cargo.toml` completamente vacío).
 
@@ -453,4 +456,5 @@ Para más detalles sobre la arquitectura interna, diseño del Piece Table, proto
 
 ## 📄 Licencia
 
-Este proyecto está bajo la Licencia MIT. Consulte el archivo `LICENSE` para más detalles.
+Este proyecto está licenciado bajo los términos de la **GNU Affero General Public License v3.0 (AGPLv3)**. Consulte el archivo [`LICENSE`](LICENSE) para ver los términos y condiciones completos de redistribución y modificación.
+
