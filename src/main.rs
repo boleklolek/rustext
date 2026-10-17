@@ -7,6 +7,12 @@ use std::path::PathBuf;
 use rustext::core::TextBuffer;
 use rustext::editor::Editor;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn print_version() {
+    println!("rustext {} (GNU AGPLv3 - Copyleft Libre)", VERSION);
+}
+
 fn print_help() {
     println!(
         concat!(
@@ -14,11 +20,13 @@ fn print_help() {
             "USO:\n",
             "    rustext [OPCIONES] [ARCHIVO]\n\n",
             "OPCIONES:\n",
-            "    -g, --gui        Abrir en ventana gráfica nativa (Linux X11 / Win32 / macOS Cocoa)\n",
+            "    -g, --gui        Abrir en ventana gráfica nativa (Linux Wayland/X11, Windows, macOS)\n",
             "    -t, --tui        Abrir en modo terminal TUI (por defecto)\n",
+            "    -v, --version    Mostrar información de versión y licencia\n",
             "    -h, --help       Mostrar esta ayuda\n\n",
             "VARIABLES DE ENTORNO:\n",
-            "    RUSTEXT_MODE=gui Abrir en modo ventana gráfica por defecto\n"
+            "    RUSTEXT_MODE=gui                 Abrir en modo ventana gráfica por defecto\n",
+            "    RUSTEXT_BACKEND=wayland|x11      Forzar backend gráfico específico en Linux\n"
         )
     );
 }
@@ -37,6 +45,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     let raw_args: Vec<String> = env::args().skip(1).collect();
+
+    if raw_args.iter().any(|a| a == "-v" || a == "--version") {
+        print_version();
+        return Ok(());
+    }
 
     if raw_args.iter().any(|a| a == "-h" || a == "--help") {
         print_help();

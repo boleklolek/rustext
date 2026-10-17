@@ -5220,6 +5220,31 @@ fn test_lsp_event_dispatch_and_editor_integration() {
     let _ = std::fs::remove_file(file_b);
 }
 
+#[test]
+fn test_cli_version_and_help_flags() {
+    let bin_path = env!("CARGO_BIN_EXE_rustext");
+    let version_output = std::process::Command::new(bin_path)
+        .arg("--version")
+        .output()
+        .expect("Failed to execute rustext --version");
+    assert!(version_output.status.success());
+    let stdout = String::from_utf8_lossy(&version_output.stdout);
+    assert!(stdout.contains("rustext"));
+    assert!(stdout.contains("0.1.0"));
+    assert!(stdout.contains("AGPLv3"));
+
+    let help_output = std::process::Command::new(bin_path)
+        .arg("--help")
+        .output()
+        .expect("Failed to execute rustext --help");
+    assert!(help_output.status.success());
+    let help_text = String::from_utf8_lossy(&help_output.stdout);
+    assert!(help_text.contains("Wayland"));
+    assert!(help_text.contains("--gui"));
+    assert!(help_text.contains("--version"));
+}
+
+
 
 
 
