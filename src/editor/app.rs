@@ -4796,7 +4796,7 @@ impl Editor {
             }
 
             if !needs_redraw {
-                std::thread::sleep(std::time::Duration::from_millis(15));
+                std::thread::sleep(std::time::Duration::from_millis(5));
                 continue;
             }
 
@@ -5141,7 +5141,7 @@ impl Editor {
             needs_redraw = false;
 
             // Small sleep to yield timeslice
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
 
         let _ = self.save_session();

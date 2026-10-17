@@ -255,6 +255,12 @@ pub struct WaylandWindow {
     alt_pressed: bool,
     shift_pressed: bool,
     temp_payload: Vec<u8>,
+
+    // Keyboard auto-repeat state
+    repeat_rate: u32,
+    repeat_delay: u32,
+    repeating_keycode: Option<u32>,
+    repeat_deadline: Option<std::time::Instant>,
 }
 
 impl WaylandWindow {
@@ -393,7 +399,7 @@ impl WaylandWindow {
         Self::send_bind(&mut stream, shm_global.0, "wl_shm", 1, shm_id)?;
         Self::send_bind(&mut stream, xdg_global.0, "xdg_wm_base", 1, xdg_wm_base_id)?;
         if let Some(seat) = seat_global {
-            Self::send_bind(&mut stream, seat.0, "wl_seat", seat.2.min(2), seat_id)?;
+            Self::send_bind(&mut stream, seat.0, "wl_seat", seat.2.min(7), seat_id)?;
         }
         if let Some(decor) = decor_global {
             Self::send_bind(&mut stream, decor.0, "zxdg_decoration_manager_v1", 1, decor_mgr_id)?;
@@ -598,6 +604,10 @@ impl WaylandWindow {
             alt_pressed: false,
             shift_pressed: false,
             temp_payload: Vec::with_capacity(1024),
+            repeat_rate: 25,
+            repeat_delay: 300,
+            repeating_keycode: None,
+            repeat_deadline: None,
         };
 
         Ok(win)
@@ -803,7 +813,29 @@ impl WaylandWindow {
             self.read_buf.drain(..offset);
         }
 
-        self.event_queue.pop_front().unwrap_or(WindowEvent::None)
+        if let Some(ev) = self.event_queue.pop_front() {
+            return ev;
+        }
+
+        // Keyboard typematic auto-repeat:
+        // Wayland compositors never send repeated key events; client-side repeat is mandated.
+        if let (Some(keycode), Some(deadline)) = (self.repeating_keycode, self.repeat_deadline) {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                if self.repeat_rate > 0 {
+                    let interval_ms = (1000 / self.repeat_rate).max(10) as u64;
+                    self.repeat_deadline = Some(now + std::time::Duration::from_millis(interval_ms));
+                    if let Some(ev) = self.translate_evdev_key(keycode) {
+                        return ev;
+                    }
+                } else {
+                    self.repeating_keycode = None;
+                    self.repeat_deadline = None;
+                }
+            }
+        }
+
+        WindowEvent::None
     }
 
     /// Internal handler for deserialized Wayland protocol events.
@@ -954,6 +986,36 @@ impl WaylandWindow {
         // 8. wl_keyboard events
         if obj_id == self.keyboard_id {
             match opcode {
+                // leave(serial, surface)
+                2 => {
+                    self.repeating_keycode = None;
+                    self.repeat_deadline = None;
+                    self.shift_pressed = false;
+                    self.ctrl_pressed = false;
+                    self.alt_pressed = false;
+                }
+                // key(serial, time, key, state)
+                3 if payload.len() >= 16 => {
+                    let keycode = u32::from_ne_bytes(payload[8..12].try_into().unwrap());
+                    let state = u32::from_ne_bytes(payload[12..16].try_into().unwrap());
+
+                    if state == 1 { // Pressed
+                        if let Some(ev) = self.translate_evdev_key(keycode) {
+                            self.event_queue.push_back(ev);
+                            if Self::is_repeatable_key(keycode) && self.repeat_rate > 0 {
+                                self.repeating_keycode = Some(keycode);
+                                self.repeat_deadline = Some(
+                                    std::time::Instant::now() + std::time::Duration::from_millis(self.repeat_delay as u64)
+                                );
+                            }
+                        }
+                    } else if state == 0 { // Released
+                        if self.repeating_keycode == Some(keycode) {
+                            self.repeating_keycode = None;
+                            self.repeat_deadline = None;
+                        }
+                    }
+                }
                 // modifiers(serial, depressed, latched, locked, group)
                 4 if payload.len() >= 16 => {
                     let mods = u32::from_ne_bytes(payload[4..8].try_into().unwrap());
@@ -961,20 +1023,41 @@ impl WaylandWindow {
                     self.ctrl_pressed = (mods & 0x04) != 0;
                     self.alt_pressed = (mods & 0x08) != 0;
                 }
-                // key(serial, time, key, state)
-                3 if payload.len() >= 16 => {
-                    let keycode = u32::from_ne_bytes(payload[8..12].try_into().unwrap());
-                    let state = u32::from_ne_bytes(payload[12..16].try_into().unwrap());
-
-                    if state == 1 || state == 2 { // Pressed or Repeat
-                        if let Some(ev) = self.translate_evdev_key(keycode) {
-                            self.event_queue.push_back(ev);
-                        }
+                // repeat_info(rate: int, delay: int) - introduced in wl_keyboard v4
+                5 if payload.len() >= 8 => {
+                    let rate = i32::from_ne_bytes(payload[0..4].try_into().unwrap());
+                    let delay = i32::from_ne_bytes(payload[4..8].try_into().unwrap());
+                    if rate > 0 && delay > 0 {
+                        self.repeat_rate = rate as u32;
+                        self.repeat_delay = delay as u32;
+                    } else {
+                        self.repeat_rate = 0;
+                        self.repeating_keycode = None;
+                        self.repeat_deadline = None;
                     }
                 }
                 _ => {}
             }
         }
+    }
+
+    /// Checks whether an evdev scancode should repeat when held down.
+    fn is_repeatable_key(scancode: u32) -> bool {
+        !matches!(
+            scancode,
+            29   // KEY_LEFTCTRL
+            | 97  // KEY_RIGHTCTRL
+            | 42  // KEY_LEFTSHIFT
+            | 54  // KEY_RIGHTSHIFT
+            | 56  // KEY_LEFTALT
+            | 100 // KEY_RIGHTALT
+            | 125 // KEY_LEFTMETA
+            | 126 // KEY_RIGHTMETA
+            | 58  // KEY_CAPSLOCK
+            | 69  // KEY_NUMLOCK
+            | 70  // KEY_SCROLLLOCK
+            | 127 // KEY_COMPOSE
+        )
     }
 
     /// Maps standard Linux evdev input event scancodes to Rustext WindowEvents.
@@ -1197,5 +1280,178 @@ impl Drop for WaylandWindow {
                 let _ = close(self.shm_fd);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::terminal::Key;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn test_is_repeatable_key_filtering() {
+        // Repeatable navigation and editing keys
+        assert!(WaylandWindow::is_repeatable_key(103)); // Up
+        assert!(WaylandWindow::is_repeatable_key(108)); // Down
+        assert!(WaylandWindow::is_repeatable_key(105)); // Left
+        assert!(WaylandWindow::is_repeatable_key(106)); // Right
+        assert!(WaylandWindow::is_repeatable_key(14));  // Backspace
+        assert!(WaylandWindow::is_repeatable_key(111)); // Delete
+        assert!(WaylandWindow::is_repeatable_key(28));  // Enter
+        assert!(WaylandWindow::is_repeatable_key(15));  // Tab
+        assert!(WaylandWindow::is_repeatable_key(30));  // 'a'
+
+        // Non-repeatable modifier and toggle keys
+        assert!(!WaylandWindow::is_repeatable_key(29));  // Left Ctrl
+        assert!(!WaylandWindow::is_repeatable_key(97));  // Right Ctrl
+        assert!(!WaylandWindow::is_repeatable_key(42));  // Left Shift
+        assert!(!WaylandWindow::is_repeatable_key(54));  // Right Shift
+        assert!(!WaylandWindow::is_repeatable_key(56));  // Left Alt
+        assert!(!WaylandWindow::is_repeatable_key(100)); // Right Alt
+        assert!(!WaylandWindow::is_repeatable_key(125)); // Super / Meta
+        assert!(!WaylandWindow::is_repeatable_key(58));  // CapsLock
+        assert!(!WaylandWindow::is_repeatable_key(69));  // NumLock
+        assert!(!WaylandWindow::is_repeatable_key(70));  // ScrollLock
+    }
+
+    fn create_test_window() -> (WaylandWindow, UnixStream) {
+        let (stream, peer) = UnixStream::pair().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let win = WaylandWindow {
+            stream,
+            width: 800,
+            height: 600,
+            buffer_width: 800,
+            buffer_height: 600,
+            scale_factor: 1.0,
+            should_close: false,
+            title: "Test".to_string(),
+            compositor_id: 1,
+            shm_id: 2,
+            xdg_wm_base_id: 3,
+            seat_id: 4,
+            surface_id: 5,
+            xdg_surface_id: 6,
+            xdg_toplevel_id: 7,
+            toplevel_decor_id: 8,
+            decor_mgr_id: 0,
+            cursor_shape_mgr_id: 0,
+            cursor_shape_dev_id: 0,
+            pointer_id: 9,
+            keyboard_id: 10,
+            shm_pool_id: 11,
+            buffer_ids: [12, 13],
+            active_buf_idx: 0,
+            slot_size: 0,
+            shm_fd: -1,
+            shm_ptr: ptr::null_mut(),
+            shm_capacity: 0,
+            event_queue: VecDeque::new(),
+            read_buf: Vec::new(),
+            mouse_x: 0,
+            mouse_y: 0,
+            last_pointer_serial: 0,
+            ctrl_pressed: false,
+            alt_pressed: false,
+            shift_pressed: false,
+            temp_payload: Vec::new(),
+            repeat_rate: 25,
+            repeat_delay: 300,
+            repeating_keycode: None,
+            repeat_deadline: None,
+        };
+        (win, peer)
+    }
+
+    #[test]
+    fn test_repeat_info_opcode_parsing() {
+        let (mut win, _peer) = create_test_window();
+
+        // Construct wl_keyboard.repeat_info payload: rate=30, delay=250
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&30i32.to_ne_bytes());
+        payload.extend_from_slice(&250i32.to_ne_bytes());
+        win.handle_event(10, 5, &payload);
+
+        assert_eq!(win.repeat_rate, 30);
+        assert_eq!(win.repeat_delay, 250);
+
+        // Test repeat_info disabling repeat (rate = 0)
+        let mut disabled_payload = Vec::new();
+        disabled_payload.extend_from_slice(&0i32.to_ne_bytes());
+        disabled_payload.extend_from_slice(&250i32.to_ne_bytes());
+        win.handle_event(10, 5, &disabled_payload);
+        assert_eq!(win.repeat_rate, 0);
+        assert!(win.repeating_keycode.is_none());
+    }
+
+    #[test]
+    fn test_keyboard_press_repeat_and_release_lifecycle() {
+        let (mut win, _peer) = create_test_window();
+        win.repeat_delay = 200;
+
+        // 1. Send wl_keyboard.key event: Down Arrow (keycode 108), state=1 (Pressed)
+        let mut press_payload = Vec::new();
+        press_payload.extend_from_slice(&1u32.to_ne_bytes()); // serial
+        press_payload.extend_from_slice(&100u32.to_ne_bytes()); // time
+        press_payload.extend_from_slice(&108u32.to_ne_bytes()); // key: KEY_DOWN
+        press_payload.extend_from_slice(&1u32.to_ne_bytes()); // state: 1 (pressed)
+        win.handle_event(10, 3, &press_payload);
+
+        assert_eq!(win.repeating_keycode, Some(108));
+        assert!(win.repeat_deadline.is_some());
+        assert_eq!(win.event_queue.len(), 1);
+
+        // First event popped: initial press
+        let ev1 = win.poll_event();
+        assert_eq!(ev1, WindowEvent::Key(Key::Down));
+
+        // Immediately polling again before deadline: should return None
+        let ev2 = win.poll_event();
+        assert_eq!(ev2, WindowEvent::None);
+
+        // Manually elapse deadline to simulate timer expiration
+        win.repeat_deadline = Some(Instant::now() - Duration::from_millis(5));
+
+        // Next poll should yield a repeated Down key event and schedule next deadline
+        let ev_repeat = win.poll_event();
+        assert_eq!(ev_repeat, WindowEvent::Key(Key::Down));
+        assert!(win.repeat_deadline.unwrap() > Instant::now());
+
+        // 2. Send key release event (state = 0)
+        let mut release_payload = Vec::new();
+        release_payload.extend_from_slice(&2u32.to_ne_bytes()); // serial
+        release_payload.extend_from_slice(&350u32.to_ne_bytes()); // time
+        release_payload.extend_from_slice(&108u32.to_ne_bytes()); // key: KEY_DOWN
+        release_payload.extend_from_slice(&0u32.to_ne_bytes()); // state: 0 (released)
+        win.handle_event(10, 3, &release_payload);
+
+        assert_eq!(win.repeating_keycode, None);
+        assert_eq!(win.repeat_deadline, None);
+
+        // After release, no repeat events should fire
+        let ev_after = win.poll_event();
+        assert_eq!(ev_after, WindowEvent::None);
+    }
+
+    #[test]
+    fn test_keyboard_leave_resets_repeat_and_modifiers() {
+        let (mut win, _peer) = create_test_window();
+        win.ctrl_pressed = true;
+        win.alt_pressed = true;
+        win.shift_pressed = true;
+        win.repeating_keycode = Some(103); // Up arrow
+        win.repeat_deadline = Some(Instant::now());
+
+        // Opcode 2 is wl_keyboard.leave
+        win.handle_event(10, 2, &[]);
+
+        assert_eq!(win.repeating_keycode, None);
+        assert_eq!(win.repeat_deadline, None);
+        assert!(!win.shift_pressed);
+        assert!(!win.ctrl_pressed);
+        assert!(!win.alt_pressed);
     }
 }
