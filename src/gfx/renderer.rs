@@ -2579,11 +2579,8 @@ impl GfxRenderer {
     fn render_menu_dropdown(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
         if let Some(cat_idx) = menu_bar.active_category {
             let cat = &menu_bar.categories[cat_idx];
-            let (drop_x, _) = menu_bar.category_bounds(cat_idx, self.char_width());
-            let drop_w = self.scale_coord(260);
+            let (drop_x, drop_y, drop_w, drop_h) = menu_bar.dropdown_rect(cat_idx, self.char_width(), fb.width);
             let item_h = self.scale_coord(22);
-            let drop_h = cat.items.len() * item_h + 4;
-            let drop_y = self.menu_bar_height;
 
             // 1. Soft Drop shadow
             if self.shadows {
@@ -2624,14 +2621,26 @@ impl GfxRenderer {
                     };
 
                     let text_y = iy + (item_h.saturating_sub(self.char_height())) / 2;
-                    // Draw Label
-                    fb.draw_text(item.label, drop_x + 12, text_y, text_color, None);
 
                     // Draw Shortcut right-aligned
-                    if !item.shortcut.is_empty() {
-                        let sc_w = item.shortcut.chars().count() * self.char_width();
-                        let sc_x = drop_x + drop_w - sc_w - 12;
-                        fb.draw_text(item.shortcut, sc_x, text_y, shortcut_color, None);
+                    let has_shortcut = !item.shortcut.is_empty();
+                    let sc_w = if has_shortcut {
+                        item.shortcut.chars().count() * self.char_width()
+                    } else {
+                        0
+                    };
+                    let sc_x = drop_x + drop_w - sc_w - self.scale_coord(12);
+
+                    // Draw Label with clipping before shortcut to guarantee no collision or overflow
+                    let label_max_x = if has_shortcut {
+                        sc_x.saturating_sub(self.scale_coord(10))
+                    } else {
+                        drop_x + drop_w - self.scale_coord(12)
+                    };
+                    fb.draw_text_clipped(item.label, drop_x + self.scale_coord(12), text_y, label_max_x, text_color, None);
+
+                    if has_shortcut {
+                        fb.draw_text_clipped(item.shortcut, sc_x, text_y, drop_x + drop_w - self.scale_coord(6), shortcut_color, None);
                     }
                 }
             }
@@ -3081,8 +3090,10 @@ impl GfxRenderer {
         // 8. Footer hint
         let footer_y = list_y + list_h + self.scale_coord(6);
         let hint = "↑/↓: Seleccionar  •  Enter: Abrir en línea  •  Alt+C: Mayús/Minús  •  Esc: Cerrar";
-        let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
-        fb.draw_text(hint, hint_x, footer_y, 0x00858585, None);
+        let hint_w = hint.chars().count() * self.char_width();
+        let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+        let max_hint_x = box_x + box_w - self.scale_coord(8);
+        fb.draw_text_truncated(hint, hint_x, footer_y, max_hint_x, 0x00858585, None);
     }
 
     pub fn render_find_replace_dialog(
@@ -3338,12 +3349,16 @@ impl GfxRenderer {
                 }
 
                 let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
-                fb.draw_text(cmd.name, input_x + self.scale_coord(8), row_text_y, row_fg, None);
 
                 if !cmd.shortcut.is_empty() {
                     let sc_w = cmd.shortcut.chars().count() * self.char_width();
                     let sc_x = input_x + input_w - sc_w - self.scale_coord(8);
-                    fb.draw_text(cmd.shortcut, sc_x, row_text_y, sc_fg, None);
+                    fb.draw_text_clipped(cmd.shortcut, sc_x, row_text_y, input_x + input_w - self.scale_coord(4), sc_fg, None);
+                    let name_max_x = sc_x.saturating_sub(self.scale_coord(8));
+                    fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
+                } else {
+                    let name_max_x = input_x + input_w - self.scale_coord(8);
+                    fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
                 }
 
                 item_y += item_h;
@@ -3351,9 +3366,10 @@ impl GfxRenderer {
 
             // Footer hint
             let hint = "↑/↓: Seleccionar  •  Enter: Ejecutar  •  Esc: Cerrar";
-            let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
             let hint_y = box_y + box_h - self.scale_coord(18);
-            fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
         } else if is_recent {
             let matching = modal.matching_recent_files();
             let mut item_y = input_y + input_h + self.scale_coord(8);
@@ -3714,11 +3730,12 @@ impl GfxRenderer {
         ];
 
         let left_margin = win_x + self.scale_coord(24);
+        let max_val_x = win_x + win_w - self.scale_coord(24);
         for (lbl, val) in &details {
             fb.draw_text(lbl, left_margin, cur_y, 0x00858585, None);
             let val_x = left_margin + lbl.chars().count() * self.char_width();
             let val_color = if lbl.contains("Repositorio") { self.colors.accent } else { 0x00D4D4D4 };
-            fb.draw_text(val, val_x, cur_y, val_color, None);
+            fb.draw_text_truncated(val, val_x, cur_y, max_val_x, val_color, None);
             cur_y += self.char_height() + self.scale_coord(3);
         }
 
@@ -3729,8 +3746,10 @@ impl GfxRenderer {
 
         // Essential shortcuts reference
         let sc_str = "Ctrl+T: Pestaña  •  Ctrl+S: Guardar  •  Ctrl+F: Buscar  •  Ctrl+P: Comandos";
-        let sc_x = win_x + (win_w.saturating_sub(sc_str.chars().count() * self.char_width())) / 2;
-        fb.draw_text(sc_str, sc_x, cur_y, 0x00858585, None);
+        let sc_w = sc_str.chars().count() * self.char_width();
+        let sc_x = win_x + (win_w.saturating_sub(sc_w)) / 2;
+        let max_sc_x = win_x + win_w - self.scale_coord(16);
+        fb.draw_text_truncated(sc_str, sc_x, cur_y, max_sc_x, 0x00858585, None);
 
         // 8. Bottom Button: [ Aceptar ]
         let btn_w = self.scale_coord(130);
@@ -3928,12 +3947,13 @@ impl GfxRenderer {
 
         // Footer hints & Close button
         let footer_y = win_y + win_h - self.scale_coord(34);
-        let hint_text = "Enter / Espacio: Alternar  •  'n': Nueva  •  'r': Recargar  •  Esc: Salir";
-        fb.draw_text(hint_text, list_x, footer_y + self.scale_coord(6), 0x00858585, None);
-
         let close_btn_w = self.scale_coord(80);
         let close_btn_h = self.scale_coord(24);
         let close_btn_x = win_x + win_w - close_btn_w - self.scale_coord(12);
+
+        let max_hint_x = close_btn_x.saturating_sub(self.scale_coord(10));
+        let hint_text = "Enter / Espacio: Alternar  •  'n': Nueva  •  'r': Recargar  •  Esc: Salir";
+        fb.draw_text_truncated(hint_text, list_x, footer_y + self.scale_coord(6), max_hint_x, 0x00858585, None);
         if self.rounded_corners {
             fb.fill_rounded_rect(close_btn_x, footer_y, close_btn_w, close_btn_h, 4, self.colors.chip_bg);
             fb.draw_rounded_outline(close_btn_x, footer_y, close_btn_w, close_btn_h, 4, self.colors.scrollbar_border);
@@ -4232,7 +4252,7 @@ impl GfxRenderer {
 
         let chip_lig_text = format!("Ligaduras: {}", if dialog.ligatures { "ON" } else { "OFF" });
         let chip_aa_text = format!("Anti-alias: {}", if dialog.antialiasing { "ON" } else { "OFF" });
-        let chip_sp_text = format!("Interlínea: {}px", dialog.line_spacing);
+        let chip_sp_text = format!("s: {}px", dialog.line_spacing);
 
         let chip_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
         let c0_x = left_x;
@@ -4250,7 +4270,7 @@ impl GfxRenderer {
                 fb.fill_rect(cx, cy, cw, pill_h, bg);
             }
             let tx = cx + (cw.saturating_sub(text.chars().count() * self.char_width())) / 2;
-            fb.draw_text(text, tx, cy + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
+            fb.draw_text_clipped(text, tx, cy + (pill_h.saturating_sub(self.char_height())) / 2, cx + cw.saturating_sub(2), fg, None);
         };
 
         draw_opt_chip(fb, c0_x, opts_chips_y, chip_w, &chip_lig_text, dialog.ligatures);
@@ -4263,9 +4283,9 @@ impl GfxRenderer {
         let r2_c1_x = r2_c0_x + chip2_w + self.scale_coord(8);
         let r2_c2_x = r2_c1_x + chip2_w + self.scale_coord(8);
 
-        let chip_let_text = format!("Esp: +{}px", dialog.letter_spacing);
-        let chip_asp_text = format!("Asp: {:.2}", dialog.font_aspect_ratio);
-        let chip_dark_text = if dialog.stem_darkening { "Engrosado" } else { "Estándar" };
+        let chip_let_text = format!("e: +{}px", dialog.letter_spacing);
+        let chip_asp_text = format!("p: {:.2}", dialog.font_aspect_ratio);
+        let chip_dark_text = if dialog.stem_darkening { "d: Engrosar" } else { "d: Estándar" };
 
         draw_opt_chip(fb, r2_c0_x, opts_row2_y, chip2_w, &chip_let_text, dialog.letter_spacing > 0);
         draw_opt_chip(fb, r2_c1_x, opts_row2_y, chip2_w, &chip_asp_text, (dialog.font_aspect_ratio - 0.50).abs() > 0.001);
@@ -4277,9 +4297,9 @@ impl GfxRenderer {
         let r3_c1_x = r3_c0_x + chip3_w + self.scale_coord(8);
         let r3_c2_x = r3_c1_x + chip3_w + self.scale_coord(8);
 
-        let chip_sdf_text = format!("SDF: {}", if dialog.sdf_rendering { "ON" } else { "OFF" });
-        let chip_opt_text = format!("Óptico: {}", if dialog.optical_spacing { "ON" } else { "OFF" });
-        let chip_ttf_text = format!("TTF: {}", if dialog.use_ttf { "ON" } else { "OFF" });
+        let chip_sdf_text = format!("f: SDF {}", if dialog.sdf_rendering { "ON" } else { "OFF" });
+        let chip_opt_text = format!("o: Óptico {}", if dialog.optical_spacing { "ON" } else { "OFF" });
+        let chip_ttf_text = format!("t: TTF {}", if dialog.use_ttf { "ON" } else { "OFF" });
 
         draw_opt_chip(fb, r3_c0_x, opts_row3_y, chip3_w, &chip_sdf_text, dialog.sdf_rendering);
         draw_opt_chip(fb, r3_c1_x, opts_row3_y, chip3_w, &chip_opt_text, dialog.optical_spacing);
@@ -4567,52 +4587,47 @@ impl GfxRenderer {
         }
 
         let pad_x = right_x + self.scale_coord(10);
+        let max_card_x = right_x + col_w - self.scale_coord(8);
         let l1_y = iso_card_y + self.scale_coord(6);
         let l2_y = l1_y + self.scale_coord(16);
         let l3_y = l2_y + self.scale_coord(16);
         let l4_y = l3_y + self.scale_coord(16);
 
-        // Line 1: Header + Rating badge
-        fb.draw_text("ERGONOMÍA VISUAL (ISO 9241-303)", pad_x, l1_y, self.colors.accent, None);
-        let badge_str = format!("Ángulo: {:.1}' [{}]", legibility.visual_angle_arcmin, legibility.rating.badge_label());
+        // Line 1: Header + Rating badge cleanly separated
+        fb.draw_text("ERGONOMÍA VISUAL", pad_x, l1_y, self.colors.accent, None);
+        let badge_str = format!("{:.1}' [{}]", legibility.visual_angle_arcmin, legibility.rating.badge_label());
         let badge_char_w = self.char_width().max(1);
         let badge_w = badge_str.chars().count() * badge_char_w;
-        let badge_x = if col_w > badge_w + self.scale_coord(14) {
-            right_x + col_w - self.scale_coord(10) - badge_w
-        } else {
-            pad_x
-        };
-        fb.draw_text(&badge_str, badge_x, l1_y, legibility.rating.badge_color(), None);
+        let badge_x = right_x + col_w - self.scale_coord(10) - badge_w;
+        let min_badge_x = pad_x + 18 * badge_char_w;
+        if badge_x >= min_badge_x {
+            fb.draw_text_clipped(&badge_str, badge_x, l1_y, max_card_x, legibility.rating.badge_color(), None);
+        }
 
         // Line 2: Display Density & Active Scale
         let l2_str = format!(
-            "Pantalla: {:.1} DPI ({:.1}\")  •  HiDPI: {} (i)",
+            "Pantalla: {:.0} DPI ({:.1}\") • HiDPI: {}",
             metrics.dpi,
             metrics.diagonal_inches,
             dialog.scale_label()
         );
-        fb.draw_text(&l2_str, pad_x, l2_y, 0x00CCCCCC, None);
+        fb.draw_text_truncated(&l2_str, pad_x, l2_y, max_card_x, 0x00CCCCCC, None);
 
         // Line 3: Physical character size & viewing distance
         let l3_str = format!(
-            "Altura física: {:.2} mm  •  Distancia: {} cm  •  Óptima: {:.2}x",
+            "Física: {:.2}mm • Dist: {}cm • Óptima: {:.2}x",
             legibility.physical_height_mm,
             (metrics.default_viewing_distance_mm / 10.0).round() as usize,
             legibility.recommended_scale
         );
-        fb.draw_text(&l3_str, pad_x, l3_y, 0x00999999, None);
+        fb.draw_text_truncated(&l3_str, pad_x, l3_y, max_card_x, 0x00999999, None);
 
         // Line 4: Ergonomic recommendation
-        let desc_max_chars = (col_w.saturating_sub(self.scale_coord(20))) / self.char_width().max(1);
-        let desc_trunc: String = legibility.description.chars().take(desc_max_chars).collect();
-        fb.draw_text(&desc_trunc, pad_x, l4_y, legibility.rating.badge_color(), None);
+        fb.draw_text_truncated(legibility.description, pad_x, l4_y, max_card_x, legibility.rating.badge_color(), None);
 
         // === FOOTER BAR: Buttons & Key Hints ===
         let footer_y = win_y + win_h - footer_h;
         fb.fill_rect(win_x, footer_y, win_w, 1, self.colors.scrollbar_border);
-
-        let hint = "Tab: Sección  •  +/-: Zoom  •  s: Interlínea  •  e: Espaciado  •  p: Aspecto  •  d: Engrosado  •  f: SDF  •  o: Óptico  •  t: TTF  •  i: HiDPI ISO  •  Enter: Aplicar  •  Esc: Cancelar";
-        fb.draw_text(hint, win_x + self.scale_coord(14), footer_y + self.scale_coord(14), self.colors.gutter_fg, None);
 
         let btn_cancel_w = self.scale_coord(95);
         let btn_apply_w = self.scale_coord(145);
@@ -4621,6 +4636,10 @@ impl GfxRenderer {
 
         let btn_apply_x = win_x + win_w - btn_apply_w - self.scale_coord(14);
         let btn_cancel_x = btn_apply_x - btn_cancel_w - self.scale_coord(10);
+
+        let max_hint_x = btn_cancel_x.saturating_sub(self.scale_coord(12));
+        let hint = "Tab: Sección  •  +/-: Zoom  •  Enter: Guardar  •  Esc: Salir";
+        fb.draw_text_truncated(hint, win_x + self.scale_coord(14), footer_y + (footer_h.saturating_sub(self.char_height())) / 2, max_hint_x, self.colors.gutter_fg, None);
 
         let is_cancel_focused = dialog.focus_section == 4 && dialog.selected_button == 1;
         let is_apply_focused = dialog.focus_section == 4 && dialog.selected_button == 0;

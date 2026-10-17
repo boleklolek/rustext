@@ -4172,3 +4172,112 @@ fn test_word_wrap_renderer_and_sublines() {
     assert!(non_zero_pixels2 > 500);
 }
 
+#[test]
+fn test_framebuffer_draw_text_clipped_and_truncated() {
+    let mut fb = Framebuffer::new(300, 100);
+    fb.clear(0x00000000);
+
+    let text = "Texto largo que no debe desbordarse jamás";
+    // Clip strictly at max_x = 100
+    fb.draw_text_clipped(text, 10, 20, 100, 0x00FFFFFF, None);
+
+    // Any pixel at x >= 100 on row 20..36 must remain 0
+    for y in 20..36 {
+        for x in 100..300 {
+            assert_eq!(fb.get_pixel(x, y), 0x00000000, "Pixel at ({}, {}) should be clipped", x, y);
+        }
+    }
+    // Pixels before x=100 should be drawn
+    let drawn_clipped = fb.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(drawn_clipped > 0);
+
+    // Test draw_text_truncated
+    fb.clear(0x00000000);
+    fb.draw_text_truncated(text, 10, 40, 120, 0x00FFFFFF, None);
+    for y in 40..56 {
+        for x in 120..300 {
+            assert_eq!(fb.get_pixel(x, y), 0x00000000, "Pixel at ({}, {}) should be truncated", x, y);
+        }
+    }
+    let drawn_truncated = fb.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(drawn_truncated > 0);
+}
+
+#[test]
+fn test_menu_bar_dropdown_dynamic_width_and_clamping() {
+    use rustext::editor::MenuBar;
+
+    let mut menu = MenuBar::new();
+    let font_width = 8;
+
+    // "Extensiones" has "Administrador de Extensiones..." (31) + "Ctrl+Shift+X" (12)
+    // Category 5 is "Extensiones"
+    let ext_w = menu.dropdown_width(5, font_width);
+    assert!(ext_w >= 380, "Dropdown for Extensiones must expand dynamically to fit long label and shortcut (got {})", ext_w);
+
+    // Clamping to screen width:
+    // With window width 800, rightmost category "Ayuda" (index 7) or "Herramientas" (index 6)
+    let max_w = 600;
+    menu.set_window_width(max_w);
+    let (drop_x, _, drop_w, _) = menu.dropdown_rect(6, font_width, max_w);
+    assert!(drop_x + drop_w <= max_w, "Dropdown rect must be clamped within window width (x={}, w={}, max={})", drop_x, drop_w, max_w);
+}
+
+#[test]
+fn test_font_selector_dialog_no_text_overflow() {
+    use rustext::editor::font_selector::FontSelectorDialog;
+    use rustext::gfx::font::{FontFamily, FontWeight};
+    use rustext::gfx::HintingLevel;
+
+    // Simulate 1024x640 window
+    let mut fb = Framebuffer::new(1024, 640);
+    let bg_color = 0x001A1B26;
+    fb.clear(bg_color);
+
+    let renderer = GfxRenderer::new();
+    let dialog = FontSelectorDialog::new(
+        FontFamily::Standard,
+        12,
+        FontWeight::Normal,
+        3,
+        true,
+        true,
+        HintingLevel::Medium,
+        0,
+        0.50,
+        false,
+        1.0,
+        false,
+        false,
+        false,
+        false,
+    );
+
+    renderer.render_font_selector_dialog(&mut fb, &dialog, false);
+
+    let win_w = 760;
+    let win_h = 520;
+    let win_x = (1024 - win_w) / 2; // 132
+    let win_y = (640 - win_h) / 2;  // 60
+    let right_edge = win_x + win_w; // 892
+
+    // Check that at the footer line (y = win_y + win_h - 20 = 560),
+    // pixels to the right of the dialog and its drop shadow (x > right_edge + 24) are uniform dimmed backdrop,
+    // and definitely not text foreground colors (0x00858585, 0x00FFFFFF, or cyan accent)
+    let footer_y = win_y + win_h - 20;
+    let expected_backdrop = fb.get_pixel(1000, footer_y);
+    for x in (right_edge + 24)..1024 {
+        let p = fb.get_pixel(x, footer_y);
+        assert_eq!(
+            p,
+            expected_backdrop,
+            "Footer shortcut text must not overflow outside the modal dialog at x={}, y={}",
+            x,
+            footer_y
+        );
+        assert_ne!(p, 0x00858585, "Pixel must not contain text foreground color");
+        assert_ne!(p, 0x00FFFFFF, "Pixel must not contain button text foreground color");
+    }
+}
+
+

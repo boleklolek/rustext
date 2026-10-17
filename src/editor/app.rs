@@ -3071,6 +3071,7 @@ impl Editor {
         let mut renderer = crate::gfx::GfxRenderer::new();
         renderer.set_scale_factor(effective_scale);
         self.menu_bar.set_scale_factor(effective_scale);
+        self.menu_bar.set_window_width(fb.width);
         if self.config.gui.font_scale > 1 {
             renderer.font_scale = self.config.gui.font_scale;
         }
@@ -3240,6 +3241,7 @@ impl Editor {
                     }
                     crate::window::WindowEvent::Resize { width, height } => {
                         fb.resize(width, height);
+                        self.menu_bar.set_window_width(width);
                         needs_redraw = true;
                     }
                     crate::window::WindowEvent::MouseDown { x, y, button } => {

@@ -46,6 +46,7 @@ pub struct MenuBar {
     pub hovered_item: Option<usize>,
     pub height: usize,
     pub scale_factor: f64,
+    pub window_width: usize,
 }
 
 impl MenuBar {
@@ -175,7 +176,54 @@ impl MenuBar {
             hovered_item: None,
             height: 24,
             scale_factor: 1.0,
+            window_width: 0,
         }
+    }
+
+    /// Sets the host window width to ensure dropdowns never render off-screen.
+    pub fn set_window_width(&mut self, width: usize) {
+        self.window_width = width;
+    }
+
+    /// Calculates dynamic dropdown width based on contents to prevent label/shortcut truncation.
+    pub fn dropdown_width(&self, cat_idx: usize, font_width: usize) -> usize {
+        let cat = match self.categories.get(cat_idx) {
+            Some(c) => c,
+            None => return (260.0 * self.scale_factor).round() as usize,
+        };
+        let base_min = (260.0 * self.scale_factor).round() as usize;
+        let mut max_chars = 0;
+        for item in &cat.items {
+            if item.is_separator {
+                continue;
+            }
+            let l_len = item.label.chars().count();
+            let s_len = item.shortcut.chars().count();
+            let total = l_len + if s_len > 0 { s_len + 4 } else { 0 };
+            if total > max_chars {
+                max_chars = total;
+            }
+        }
+        let calculated = max_chars * font_width + (32.0 * self.scale_factor).round() as usize;
+        base_min.max(calculated)
+    }
+
+    /// Computes the bounding rectangle (x, y, width, height) of a category's dropdown menu,
+    /// clamping `x` so the dropdown never overflows `max_width`.
+    pub fn dropdown_rect(&self, cat_idx: usize, font_width: usize, max_width: usize) -> (usize, usize, usize, usize) {
+        let cat = match self.categories.get(cat_idx) {
+            Some(c) => c,
+            None => return (0, self.height, (260.0 * self.scale_factor).round() as usize, 0),
+        };
+        let drop_w = self.dropdown_width(cat_idx, font_width);
+        let (mut drop_x, _) = self.category_bounds(cat_idx, font_width);
+        if max_width > 0 && drop_x + drop_w > max_width {
+            drop_x = max_width.saturating_sub(drop_w);
+        }
+        let item_h = (22.0 * self.scale_factor).round() as usize;
+        let drop_h = cat.items.len() * item_h + 4;
+        let drop_y = self.height;
+        (drop_x, drop_y, drop_w, drop_h)
     }
 
     /// Sets the UI scale factor and updates logical height.
@@ -227,13 +275,10 @@ impl MenuBar {
 
         // 2. Click inside open dropdown menu
         if let Some(cat_idx) = self.active_category {
-            let (drop_x, _) = self.category_bounds(cat_idx, font_width);
-            let drop_w = (260.0 * self.scale_factor).round() as usize;
+            let (drop_x, drop_y, drop_w, drop_h) = self.dropdown_rect(cat_idx, font_width, self.window_width);
             let cat = &self.categories[cat_idx];
             let item_h = (22.0 * self.scale_factor).round() as usize;
-            let drop_h = cat.items.len() * item_h + 4;
 
-            let drop_y = self.height;
             if x >= drop_x && x < drop_x + drop_w && y >= drop_y && y < drop_y + drop_h {
                 let items_start_y = drop_y + 2;
                 if y >= items_start_y {
@@ -287,12 +332,9 @@ impl MenuBar {
 
         // Update hovered item inside open dropdown
         if let Some(cat_idx) = self.active_category {
-            let (drop_x, _) = self.category_bounds(cat_idx, font_width);
-            let drop_w = (260.0 * self.scale_factor).round() as usize;
+            let (drop_x, drop_y, drop_w, drop_h) = self.dropdown_rect(cat_idx, font_width, self.window_width);
             let cat = &self.categories[cat_idx];
             let item_h = (22.0 * self.scale_factor).round() as usize;
-            let drop_h = cat.items.len() * item_h + 4;
-            let drop_y = self.height;
 
             if x >= drop_x && x < drop_x + drop_w && y >= drop_y && y < drop_y + drop_h {
                 let items_start_y = drop_y + 2;

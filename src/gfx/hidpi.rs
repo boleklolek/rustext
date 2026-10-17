@@ -474,27 +474,27 @@ impl HiDpiDetector {
         let (rating, description) = if visual_angle < 16.0 {
             (
                 IsoComplianceRating::BelowMinimum,
-                "Deficiente (< 16') — Viola ISO 9241-303. Causa fatiga y estrés visual.",
+                "Deficiente (< 16') - Viola ISO 9241-303. Causa fatiga y estrés visual.",
             )
         } else if visual_angle < 20.0 {
             (
                 IsoComplianceRating::Acceptable,
-                "Aceptable (16'-20') — Cumple el mínimo ISO 9241-303; fatigante en sesiones largas.",
+                "Aceptable (16'-20') - Cumple el mínimo ISO 9241-303; fatigante en sesiones largas.",
             )
         } else if visual_angle <= 24.0 {
             (
                 IsoComplianceRating::Optimal,
-                "Óptimo (20'-24') — Rango ergonómico recomendado por ISO 9241-303 para lectura continua.",
+                "Óptimo (20'-24') - Rango ergonómico recomendado por ISO 9241-303 para lectura continua.",
             )
         } else if visual_angle <= 28.0 {
             (
                 IsoComplianceRating::Relaxed,
-                "Relajado (24'-28') — Excelente legibilidad y confort visual accesible.",
+                "Relajado (24'-28') - Excelente legibilidad y confort visual accesible.",
             )
         } else {
             (
                 IsoComplianceRating::Oversized,
-                "Grande (> 28') — Caracteres muy grandes; reduce la densidad de información.",
+                "Grande (> 28') - Caracteres muy grandes; reduce la densidad de información.",
             )
         };
 

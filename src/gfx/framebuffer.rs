@@ -638,6 +638,46 @@ impl Framebuffer {
         }
     }
 
+    /// Draws a string of text starting at pixel coordinates (x, y) with hard boundary clipping at `max_x`.
+    pub fn draw_text_clipped(&mut self, text: &str, x: usize, y: usize, max_x: usize, fg: u32, bg: Option<u32>) {
+        let (char_w, char_h) = self.char_cell_size();
+        let mut cur_x = x;
+        for ch in text.chars() {
+            if cur_x + char_w > max_x || cur_x + char_w > self.width {
+                break;
+            }
+            if self.subpixel_antialiasing {
+                self.draw_char_subpixel(ch, cur_x, y, fg, bg, char_w, char_h);
+            } else if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.sdf_font_rendering || self.use_ttf_font {
+                self.draw_char_sized(ch, cur_x, y, fg, bg, char_w, char_h);
+            } else {
+                self.draw_char(ch, cur_x, y, fg, bg);
+            }
+            cur_x += char_w;
+        }
+    }
+
+    /// Draws a string of text starting at pixel coordinates (x, y) truncated with ellipsis ("...") if it exceeds `max_x`.
+    pub fn draw_text_truncated(&mut self, text: &str, x: usize, y: usize, max_x: usize, fg: u32, bg: Option<u32>) {
+        if x >= max_x || x >= self.width {
+            return;
+        }
+        let (char_w, _) = self.char_cell_size();
+        let avail_w = (max_x.min(self.width)).saturating_sub(x);
+        let max_chars = avail_w / char_w.max(1);
+        let char_count = text.chars().count();
+        if char_count <= max_chars {
+            self.draw_text_clipped(text, x, y, max_x, fg, bg);
+        } else if max_chars > 3 {
+            let mut s: String = text.chars().take(max_chars - 3).collect();
+            s.push_str("...");
+            self.draw_text_clipped(&s, x, y, max_x, fg, bg);
+        } else {
+            let s: String = text.chars().take(max_chars).collect();
+            self.draw_text_clipped(&s, x, y, max_x, fg, bg);
+        }
+    }
+
     /// Draws a single character glyph with integer scaling factor (1 = 1x, 2 = 2x HiDPI)
     /// using smooth continuous bilinear supersampling and gamma correction.
     pub fn draw_char_scaled(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>, scale: usize) {
