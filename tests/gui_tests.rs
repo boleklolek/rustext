@@ -4595,5 +4595,90 @@ fn test_indent_guides_rendering_and_active_highlight() {
     assert!(wrap_has_guide, "Indent guide must render correctly in word wrap mode");
 }
 
+#[test]
+fn test_current_line_highlight_and_column_rulers() {
+    use rustext::core::TextBuffer;
+    use rustext::core::cursor::CursorSet;
+    use rustext::editor::Document;
+    use rustext::editor::config::EditorConfig;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    // Test Config persistence
+    let mut config = EditorConfig::default();
+    assert!(config.editor.highlight_current_line);
+    assert_eq!(config.editor.rulers, vec![80, 120]);
+
+    config.editor.highlight_current_line = false;
+    config.editor.rulers = vec![80, 100];
+    let ini = config.to_ini_string();
+    assert!(ini.contains("highlight_current_line = false"));
+    assert!(ini.contains("rulers = 80, 100"));
+
+    let loaded = EditorConfig::parse(&ini);
+    assert!(!loaded.editor.highlight_current_line);
+    assert_eq!(loaded.editor.rulers, vec![80, 100]);
+
+    // Test GfxRenderer current line highlight and column rulers rendering
+    let content = "fn first() {\n    let val = 123;\n}\n";
+    let mut doc = Document::new(TextBuffer::from_str(content));
+    // Cursor on line 1 ("    let val = 123;")
+    doc.cursors = CursorSet::single(15);
+
+    let mut renderer = GfxRenderer::new();
+    renderer.highlight_current_line = true;
+    renderer.rulers = vec![20]; // ruler at col 20 for test canvas
+
+    let mut fb = Framebuffer::new(300, 200);
+    let tabs = vec!["main.rs".to_string()];
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, None);
+
+    let char_w = renderer.char_width();
+    let line_h = renderer.line_height();
+    let tab_h = 24; // logical tab bar height
+    let gutter_cols = doc.buffer.len_lines().to_string().len().max(3);
+    let gutter_w = (gutter_cols + 2) * char_w;
+    let text_start_x = gutter_w + char_w;
+
+    // Check line 1 background has current_line_bg
+    // Check an empty column on line 1 (e.g. col 25, after "let val = 123;")
+    let check_x = text_start_x + 25 * char_w;
+    let line1_y = tab_h + line_h + line_h / 2;
+    let p_line1 = fb.get_pixel(check_x, line1_y);
+    assert_eq!(p_line1, renderer.colors.current_line_bg, "Line 1 background must have current_line_bg");
+
+    // Check line 0 does NOT have current_line_bg (should have background)
+    let line0_y = tab_h + line_h / 2;
+    let p_line0 = fb.get_pixel(check_x, line0_y);
+    assert_eq!(p_line0, renderer.colors.background, "Line 0 background must not have current_line_bg");
+
+    // Check ruler at col 20 is rendered with ruler_color
+    let ruler_x = text_start_x + 20 * char_w;
+    let p_ruler = fb.get_pixel(ruler_x, line0_y);
+    assert_eq!(p_ruler, renderer.colors.ruler_color, "Column ruler must be rendered with ruler_color");
+
+    // Test with highlight_current_line disabled
+    renderer.highlight_current_line = false;
+    let mut fb_no_hl = Framebuffer::new(300, 200);
+    renderer.render(&mut fb_no_hl, &doc, &tabs, 0, None, None, None);
+    let p_line1_no_hl = fb_no_hl.get_pixel(check_x, line1_y);
+    assert_eq!(p_line1_no_hl, renderer.colors.background, "When highlight_current_line is disabled, background remains normal");
+
+    // Test Editor actions
+    use rustext::editor::keymap::EditorAction;
+    use rustext::editor::app::Editor;
+    let mut app = Editor::new(TextBuffer::new());
+    assert!(app.config.editor.highlight_current_line);
+    app.execute_action(EditorAction::ToggleHighlightCurrentLine);
+    assert!(!app.config.editor.highlight_current_line);
+    app.execute_action(EditorAction::ToggleHighlightCurrentLine);
+    assert!(app.config.editor.highlight_current_line);
+
+    assert_eq!(app.config.editor.rulers, vec![80, 120]);
+    app.execute_action(EditorAction::ToggleRulers);
+    assert!(app.config.editor.rulers.is_empty());
+    app.execute_action(EditorAction::ToggleRulers);
+    assert_eq!(app.config.editor.rulers, vec![80, 120]);
+}
+
 
 

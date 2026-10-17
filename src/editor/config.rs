@@ -62,6 +62,8 @@ pub struct EditorSettings {
     pub code_folding: bool,
     pub indent_guides: bool,
     pub highlight_active_indent_guide: bool,
+    pub highlight_current_line: bool,
+    pub rulers: Vec<usize>,
 }
 
 impl Default for EditorSettings {
@@ -84,6 +86,8 @@ impl Default for EditorSettings {
             code_folding: true,
             indent_guides: true,
             highlight_active_indent_guide: true,
+            highlight_current_line: true,
+            rulers: vec![80, 120],
         }
     }
 }
@@ -265,6 +269,12 @@ indent_guides = true
 ; Resaltar la guía de indentación del bloque activo bajo el cursor
 highlight_active_indent_guide = true
 
+; Resaltar la línea activa donde se encuentra el cursor (Current Line Highlight)
+highlight_current_line = true
+
+; Columnas con líneas guía de límite de código (separadas por comas, e.g. 80, 120)
+rulers = 80, 120
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -395,6 +405,8 @@ word_wrap = {}
 code_folding = {}
 indent_guides = {}
 highlight_active_indent_guide = {}
+highlight_current_line = {}
+rulers = {}
 
 [theme]
 name = {}
@@ -459,6 +471,8 @@ ttf_font_path = {}
             self.editor.code_folding,
             self.editor.indent_guides,
             self.editor.highlight_active_indent_guide,
+            self.editor.highlight_current_line,
+            self.editor.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -628,6 +642,18 @@ ttf_font_path = {}
                             if let Some(b) = as_bool {
                                 config.editor.highlight_active_indent_guide = b;
                             }
+                        }
+                        "highlight_current_line" => {
+                            if let Some(b) = as_bool {
+                                config.editor.highlight_current_line = b;
+                            }
+                        }
+                        "rulers" => {
+                            let list: Vec<usize> = val_unquoted
+                                .split(',')
+                                .filter_map(|s| s.trim().parse::<usize>().ok())
+                                .collect();
+                            config.editor.rulers = list;
                         }
                         _ => {}
                     },

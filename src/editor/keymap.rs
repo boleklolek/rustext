@@ -86,6 +86,9 @@ pub enum EditorAction {
     ToggleWordWrap,
     // Indent Guides
     ToggleIndentGuides,
+    // Ergonomic Visual Guides
+    ToggleHighlightCurrentLine,
+    ToggleRulers,
     // Code Folding
     ToggleFold,
     FoldAll,

@@ -57,6 +57,9 @@ pub struct ThemeColors {
     pub bracket_0: u32,
     pub bracket_1: u32,
     pub bracket_2: u32,
+    // Ergonomic Visual Editing
+    pub current_line_bg: u32,
+    pub ruler_color: u32,
 }
 
 impl ThemeColors {
@@ -102,6 +105,8 @@ impl ThemeColors {
             bracket_0: 0x00FFD700,
             bracket_1: 0x00BB9AF7,
             bracket_2: 0x007DCFFF,
+            current_line_bg: 0x001F2335,
+            ruler_color: 0x0024283B,
         }
     }
 
@@ -147,6 +152,8 @@ impl ThemeColors {
             bracket_0: 0x00F9E2AF,
             bracket_1: 0x00CBA6F7,
             bracket_2: 0x0089DCEB,
+            current_line_bg: 0x0026283D,
+            ruler_color: 0x00313244,
         }
     }
 
@@ -192,6 +199,8 @@ impl ThemeColors {
             bracket_0: 0x00E5C07B,
             bracket_1: 0x00C678DD,
             bracket_2: 0x0061AFEF,
+            current_line_bg: 0x002C313C,
+            ruler_color: 0x003E4451,
         }
     }
 
@@ -237,6 +246,8 @@ impl ThemeColors {
             bracket_0: 0x00FFD700,
             bracket_1: 0x00DA70D6,
             bracket_2: 0x00179FFF,
+            current_line_bg: 0x00282828,
+            ruler_color: 0x00333333,
         }
     }
 
@@ -282,6 +293,8 @@ impl ThemeColors {
             bracket_0: 0x00E6DB74,
             bracket_1: 0x00AE81FF,
             bracket_2: 0x0066D9EF,
+            current_line_bg: 0x003E3D32,
+            ruler_color: 0x003E3D32,
         }
     }
 
@@ -327,6 +340,8 @@ impl ThemeColors {
             bracket_0: 0x00B58900,
             bracket_1: 0x006C71C4,
             bracket_2: 0x002AA198,
+            current_line_bg: 0x00073642,
+            ruler_color: 0x00073642,
         }
     }
 
@@ -372,6 +387,8 @@ impl ThemeColors {
             bracket_0: 0x00B8860B,
             bracket_1: 0x008B008B,
             bracket_2: 0x00008B8B,
+            current_line_bg: 0x00F0F2F5,
+            ruler_color: 0x00E5E7EB,
         }
     }
 
@@ -589,6 +606,8 @@ pub struct GfxRenderer {
     pub tab_size: usize,
     pub indent_guides: bool,
     pub highlight_active_indent_guide: bool,
+    pub highlight_current_line: bool,
+    pub rulers: Vec<usize>,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -647,6 +666,8 @@ impl GfxRenderer {
             tab_size: 4,
             indent_guides: true,
             highlight_active_indent_guide: true,
+            highlight_current_line: true,
+            rulers: vec![80, 120],
         }
     }
 
@@ -1781,8 +1802,16 @@ impl GfxRenderer {
                             (self.colors.gutter_fg, None)
                         };
 
+                        let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
                         let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                        fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
+                        let line_num_fg = if diag.is_some() {
+                            fg_col
+                        } else if is_cur_line && is_active {
+                            self.colors.tab_active_fg
+                        } else {
+                            fg_col
+                        };
+                        fb.draw_text(&num_str, pane_x + self.char_width(), text_y, line_num_fg, None);
 
                         if let Some(b) = badge {
                             fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
@@ -1830,6 +1859,23 @@ impl GfxRenderer {
                     // Line Content
                     let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
                     let line_text: &str = &line_cow;
+
+                    // Current Line Highlight
+                    let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
+                    if self.highlight_current_line && is_active && is_cur_line {
+                        let highlight_w = max_code_x.saturating_sub(text_start_x);
+                        fb.fill_rect(text_start_x, py, highlight_w, line_height, self.colors.current_line_bg);
+                    }
+
+                    // Column Rulers
+                    for &ruler_col in &self.rulers {
+                        if ruler_col >= doc.scroll_col {
+                            let rx = text_start_x + (ruler_col - doc.scroll_col) * self.char_width();
+                            if rx >= text_start_x && rx < max_code_x {
+                                fb.fill_rect(rx, py, 1, line_height, self.colors.ruler_color);
+                            }
+                        }
+                    }
 
                     // Selections
                     for &(start, end) in &selections {
@@ -1960,8 +2006,16 @@ impl GfxRenderer {
                                 (self.colors.gutter_fg, None)
                             };
 
+                            let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
                             let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                            fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
+                            let line_num_fg = if diag.is_some() {
+                                fg_col
+                            } else if is_cur_line && is_active {
+                                self.colors.tab_active_fg
+                            } else {
+                                fg_col
+                            };
+                            fb.draw_text(&num_str, pane_x + self.char_width(), text_y, line_num_fg, None);
 
                             if let Some(b) = badge {
                                 fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
@@ -2006,6 +2060,30 @@ impl GfxRenderer {
                         } else {
                             let wrap_glyph_x = pane_x + gutter_w.saturating_sub(self.char_width() * 2);
                             fb.draw_char('↳', wrap_glyph_x, text_y, self.colors.gutter_fg, None);
+                        }
+                    }
+
+                    // Current Line Highlight in Word Wrap
+                    let is_cur_subline = is_active && cursor_positions.iter().any(|p| {
+                        if p.line != line_idx {
+                            return false;
+                        }
+                        if sub_idx + 1 == sublines.len() {
+                            p.col >= sub.char_start && p.col <= sub.char_end
+                        } else {
+                            p.col >= sub.char_start && p.col < sub.char_end
+                        }
+                    });
+                    if self.highlight_current_line && is_cur_subline {
+                        let highlight_w = max_code_x.saturating_sub(text_start_x);
+                        fb.fill_rect(text_start_x, py, highlight_w, line_height, self.colors.current_line_bg);
+                    }
+
+                    // Column Rulers
+                    for &ruler_col in &self.rulers {
+                        let rx = text_start_x + ruler_col * self.char_width();
+                        if rx >= text_start_x && rx < max_code_x {
+                            fb.fill_rect(rx, py, 1, line_height, self.colors.ruler_color);
                         }
                     }
 
@@ -2329,8 +2407,16 @@ impl GfxRenderer {
                                 (self.colors.gutter_fg, None)
                             };
 
+                            let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
                             let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                            fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
+                            let line_num_fg = if diag.is_some() {
+                                fg_col
+                            } else if is_cur_line {
+                                self.colors.tab_active_fg
+                            } else {
+                                fg_col
+                            };
+                            fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, line_num_fg, None);
 
                             if let Some(b) = badge {
                                 fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
@@ -2372,6 +2458,23 @@ impl GfxRenderer {
 
                         let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
                         let line_text: &str = &line_cow;
+
+                        // Current Line Highlight
+                        let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
+                        if self.highlight_current_line && is_cur_line {
+                            let highlight_w = max_code_x.saturating_sub(text_start_x);
+                            fb.fill_rect(text_start_x, py, highlight_w, line_height, self.colors.current_line_bg);
+                        }
+
+                        // Column Rulers
+                        for &ruler_col in &self.rulers {
+                            if ruler_col >= doc.scroll_col {
+                                let rx = text_start_x + (ruler_col - doc.scroll_col) * self.char_width();
+                                if rx >= text_start_x && rx < max_code_x {
+                                    fb.fill_rect(rx, py, 1, line_height, self.colors.ruler_color);
+                                }
+                            }
+                        }
 
                         for &(start, end) in &selections {
                             if line_idx >= start.line && line_idx <= end.line {
@@ -2501,8 +2604,16 @@ impl GfxRenderer {
                                     (self.colors.gutter_fg, None)
                                 };
 
+                                let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
                                 let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                                fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
+                                let line_num_fg = if diag.is_some() {
+                                    fg_col
+                                } else if is_cur_line {
+                                    self.colors.tab_active_fg
+                                } else {
+                                    fg_col
+                                };
+                                fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, line_num_fg, None);
 
                                 if let Some(b) = badge {
                                     fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
@@ -2542,6 +2653,30 @@ impl GfxRenderer {
                             } else {
                                 let wrap_glyph_x = canvas_x_start + gutter_width.saturating_sub(self.char_width() * 2);
                                 fb.draw_char('↳', wrap_glyph_x, text_y, self.colors.gutter_fg, None);
+                            }
+                        }
+
+                        // Current Line Highlight in Word Wrap
+                        let is_cur_subline = cursor_positions.iter().any(|p| {
+                            if p.line != line_idx {
+                                return false;
+                            }
+                            if sub_idx + 1 == sublines.len() {
+                                p.col >= sub.char_start && p.col <= sub.char_end
+                            } else {
+                                p.col >= sub.char_start && p.col < sub.char_end
+                            }
+                        });
+                        if self.highlight_current_line && is_cur_subline {
+                            let highlight_w = max_code_x.saturating_sub(text_start_x);
+                            fb.fill_rect(text_start_x, py, highlight_w, line_height, self.colors.current_line_bg);
+                        }
+
+                        // Column Rulers
+                        for &ruler_col in &self.rulers {
+                            let rx = text_start_x + ruler_col * self.char_width();
+                            if rx >= text_start_x && rx < max_code_x {
+                                fb.fill_rect(rx, py, 1, line_height, self.colors.ruler_color);
                             }
                         }
 

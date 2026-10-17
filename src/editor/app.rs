@@ -1072,6 +1072,12 @@ impl Editor {
             EditorAction::ToggleIndentGuides => {
                 self.toggle_indent_guides();
             }
+            EditorAction::ToggleHighlightCurrentLine => {
+                self.toggle_highlight_current_line();
+            }
+            EditorAction::ToggleRulers => {
+                self.toggle_rulers();
+            }
 
             EditorAction::ToggleMinimap => {
                 self.toggle_minimap();
@@ -1198,6 +1204,30 @@ impl Editor {
         self.set_status(format!(
             "Guías de indentación: {}",
             if self.config.editor.indent_guides { "ACTIVADAS [Alt+I]" } else { "DESACTIVADAS [Alt+I]" }
+        ));
+    }
+
+    /// Toggles current line highlight on/off and persists the preference.
+    pub fn toggle_highlight_current_line(&mut self) {
+        self.config.editor.highlight_current_line = !self.config.editor.highlight_current_line;
+        let _ = self.config.save();
+        self.set_status(format!(
+            "Resaltado de línea actual: {}",
+            if self.config.editor.highlight_current_line { "ACTIVADO" } else { "DESACTIVADO" }
+        ));
+    }
+
+    /// Toggles column limit rulers on/off and persists the preference.
+    pub fn toggle_rulers(&mut self) {
+        if self.config.editor.rulers.is_empty() {
+            self.config.editor.rulers = vec![80, 120];
+        } else {
+            self.config.editor.rulers.clear();
+        }
+        let _ = self.config.save();
+        self.set_status(format!(
+            "Líneas guía de columnas (Rulers): {}",
+            if self.config.editor.rulers.is_empty() { "DESACTIVADAS" } else { "ACTIVADAS (80, 120)" }
         ));
     }
 
@@ -3288,6 +3318,8 @@ impl Editor {
         renderer.tab_size = self.config.editor.tab_size;
         renderer.indent_guides = self.config.editor.indent_guides;
         renderer.highlight_active_indent_guide = self.config.editor.highlight_active_indent_guide;
+        renderer.highlight_current_line = self.config.editor.highlight_current_line;
+        renderer.rulers = self.config.editor.rulers.clone();
         fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
         fb.use_ttf_font = self.config.gui.use_ttf_font;
         if !self.config.gui.ttf_font_path.trim().is_empty() {
@@ -3354,6 +3386,14 @@ impl Editor {
             }
             if renderer.tab_size != self.config.editor.tab_size {
                 renderer.tab_size = self.config.editor.tab_size;
+                needs_redraw = true;
+            }
+            if renderer.highlight_current_line != self.config.editor.highlight_current_line {
+                renderer.highlight_current_line = self.config.editor.highlight_current_line;
+                needs_redraw = true;
+            }
+            if renderer.rulers != self.config.editor.rulers {
+                renderer.rulers = self.config.editor.rulers.clone();
                 needs_redraw = true;
             }
             if self.config.gui != active_gui_settings {
