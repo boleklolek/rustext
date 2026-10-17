@@ -44,7 +44,7 @@ impl FoldingManager {
     /// Preserves existing folded states across edits whenever possible.
     pub fn recompute_regions(&mut self, buffer: &TextBuffer, language: Language) {
         let current_version = buffer.version();
-        if current_version == self.last_version && !self.regions.is_empty() {
+        if current_version == self.last_version {
             return;
         }
 
@@ -130,41 +130,46 @@ impl FoldingManager {
                 }
             }
 
+            // O(N) Stack-based indentation folding
+            // Stack entries: (parent_line, parent_indent, last_child_line)
+            let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+
             for line_idx in 0..total_lines {
-                if let Some(base_indent) = line_indents[line_idx] {
-                    // Look ahead for lines with deeper indentation
-                    let mut end_line = line_idx;
-                    let mut has_child = false;
-
-                    for (next_idx, indent_opt) in line_indents.iter().enumerate().take(total_lines).skip(line_idx + 1) {
-                        match *indent_opt {
-                            Some(next_indent) => {
-                                if next_indent > base_indent {
-                                    end_line = next_idx;
-                                    has_child = true;
-                                } else {
-                                    break;
-                                }
+                if let Some(indent) = line_indents[line_idx] {
+                    // While current line has less or equal indentation than stack top:
+                    while let Some(&(start_line, stack_indent, last_child)) = stack.last() {
+                        if indent <= stack_indent {
+                            stack.pop();
+                            if last_child > start_line {
+                                candidate_regions.push(FoldRegion {
+                                    start_line,
+                                    end_line: last_child,
+                                    is_folded: previously_folded.contains(&start_line),
+                                });
                             }
-                            None => {
-                                // Skip blank lines in between
-                            }
+                        } else {
+                            break;
                         }
                     }
 
-                    if has_child && end_line > line_idx {
-                        // Don't include trailing blank lines in fold end
-                        while end_line > line_idx && line_indents[end_line].is_none() {
-                            end_line -= 1;
-                        }
-                        if end_line > line_idx {
-                            candidate_regions.push(FoldRegion {
-                                start_line: line_idx,
-                                end_line,
-                                is_folded: previously_folded.contains(&line_idx),
-                            });
-                        }
+                    // Update last_child of all enclosing parent scopes
+                    for parent in stack.iter_mut() {
+                        parent.2 = line_idx;
                     }
+
+                    // Push current line as potential parent for lines with deeper indentation
+                    stack.push((line_idx, indent, line_idx));
+                }
+            }
+
+            // Close remaining open regions at EOF
+            while let Some((start_line, _, last_child)) = stack.pop() {
+                if last_child > start_line {
+                    candidate_regions.push(FoldRegion {
+                        start_line,
+                        end_line: last_child,
+                        is_folded: previously_folded.contains(&start_line),
+                    });
                 }
             }
         }

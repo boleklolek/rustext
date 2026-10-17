@@ -1,6 +1,9 @@
 //! Graphical renderer translating editor state into framebuffer pixels.
 //! Zero third-party dependencies, purely standard library Rust.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock, RwLock};
+
 use super::edge_perception::EdgePerception;
 use super::font::{FontFamily, FontRasterizer, FontWeight, FONT_HEIGHT, FONT_WIDTH};
 use super::framebuffer::Framebuffer;
@@ -552,6 +555,25 @@ impl MinimapGeometry {
     }
 }
 
+/// Cache key for rendered minimap background and syntax lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct MinimapCacheKey {
+    buffer_id: u64,
+    buffer_version: u64,
+    total_lines: usize,
+    width: usize,
+    height: usize,
+    gutter_bg: u32,
+    gutter_border: u32,
+    gutter_fg: u32,
+    syntax_keyword: u32,
+    syntax_type: u32,
+    syntax_plain: u32,
+    language: crate::core::syntax::Language,
+}
+
+static MINIMAP_SURFACE_CACHE: OnceLock<RwLock<BTreeMap<MinimapCacheKey, Arc<Vec<u32>>>>> = OnceLock::new();
+
 /// Geometry and coordinates for a split editor pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaneGeometry {
@@ -787,7 +809,7 @@ impl GfxRenderer {
                             let max_h = glyph.height.min(fb.height.saturating_sub(text_y));
                             if self.subpixel_antialiasing && !glyph.is_ligature {
                                 let ttf_sub;
-                                let sdf_sub;
+                                let sdf_sub_arc;
                                 let font_sub;
                                 let subpixel_cov: &[[u8; 3]] = if self.use_ttf_font && !is_box {
                                     let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
@@ -795,7 +817,7 @@ impl GfxRenderer {
                                     ttf_sub = sub;
                                     &ttf_sub
                                 } else if self.sdf_font_rendering && !is_box {
-                                    sdf_sub = SdfFontRasterizer::rasterize_glyph_sdf_subpixel(
+                                    sdf_sub_arc = SdfFontRasterizer::get_cached_glyph_sdf_subpixel(
                                         ch,
                                         self.font_family,
                                         draw_w,
@@ -803,7 +825,7 @@ impl GfxRenderer {
                                         self.font_weight,
                                         0.0,
                                     );
-                                    &sdf_sub.2
+                                    &sdf_sub_arc
                                 } else {
                                     font_sub = FontRasterizer::rasterize_glyph_subpixel(
                                         ch,
@@ -856,7 +878,7 @@ impl GfxRenderer {
                                         &ttf_cov
                                     }
                                 } else if self.sdf_font_rendering && !glyph.is_ligature {
-                                    sdf_cov = SdfFontRasterizer::rasterize_glyph_sdf(
+                                    let sdf_cov_arc = SdfFontRasterizer::get_cached_glyph_sdf(
                                         ch,
                                         self.font_family,
                                         draw_w,
@@ -865,10 +887,11 @@ impl GfxRenderer {
                                         0.0,
                                     );
                                     if dark_factor > 0.001 {
-                                        darkened_sdf = StemDarkener::darken_coverage_mask(&sdf_cov.2, draw_w, glyph.height, dark_factor);
+                                        darkened_sdf = StemDarkener::darken_coverage_mask(&sdf_cov_arc, draw_w, glyph.height, dark_factor);
                                         &darkened_sdf
                                     } else {
-                                        &sdf_cov.2
+                                        sdf_cov = sdf_cov_arc;
+                                        &sdf_cov
                                     }
                                 } else if self.font_hinting != HintingLevel::None {
                                     hinted_cov = FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting);
@@ -1240,65 +1263,122 @@ impl GfxRenderer {
             return;
         }
 
-        // 1. Background & subtle left border
-        fb.fill_rect(geom.x, geom.y, geom.width, geom.height, self.colors.gutter_bg);
-        fb.fill_rect(geom.x, geom.y, 1, geom.height, self.colors.gutter_border);
-
-        // 2. Draw miniature code lines
         let total_lines = doc.buffer.len_lines();
-        let draw_x = geom.x + 3;
-        let max_draw_w = geom.width.saturating_sub(6);
+        let key = MinimapCacheKey {
+            buffer_id: doc.buffer.id(),
+            buffer_version: doc.buffer.version(),
+            total_lines,
+            width: geom.width,
+            height: geom.height,
+            gutter_bg: self.colors.gutter_bg,
+            gutter_border: self.colors.gutter_border,
+            gutter_fg: self.colors.gutter_fg,
+            syntax_keyword: self.colors.syntax_keyword,
+            syntax_type: self.colors.syntax_type,
+            syntax_plain: self.colors.syntax_plain,
+            language: doc.language,
+        };
 
-        if total_lines > 0 && max_draw_w > 0 {
-            let lines_step = if total_lines * 2 <= geom.height {
-                1
-            } else {
-                ((total_lines + geom.height - 1) / geom.height).max(1)
-            };
+        let cache = MINIMAP_SURFACE_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()));
+        let cached_surface = if let Ok(guard) = cache.read() {
+            guard.get(&key).cloned()
+        } else {
+            None
+        };
 
-            let mut line_idx = 0;
-            let use_fast_density = total_lines > 1500;
+        let surface_arc = if let Some(arc) = cached_surface {
+            arc
+        } else {
+            // Render the miniature code lines and background offscreen
+            let mut surface = vec![self.colors.gutter_bg; geom.width * geom.height];
 
-            while line_idx < total_lines {
-                let my = if total_lines * 2 <= geom.height {
-                    geom.y + line_idx * 2
+            // 1. Subtle left border
+            for y in 0..geom.height {
+                surface[y * geom.width] = self.colors.gutter_border;
+            }
+
+            // 2. Miniature code lines
+            let draw_x = 3;
+            let max_draw_w = geom.width.saturating_sub(6);
+
+            if total_lines > 0 && max_draw_w > 0 {
+                let lines_step = if total_lines * 2 <= geom.height {
+                    1
                 } else {
-                    geom.y + (line_idx * (geom.height.saturating_sub(2))) / total_lines
+                    ((total_lines + geom.height - 1) / geom.height).max(1)
                 };
 
-                if my >= geom.y + geom.height {
-                    break;
-                }
+                let mut line_idx = 0;
+                let use_fast_density = total_lines > 1500;
 
-                if use_fast_density {
-                    let line_len = doc.buffer.line_len_chars(line_idx);
-                    if line_len > 0 {
-                        let draw_w = (line_len * 2).min(max_draw_w).max(2);
-                        fb.fill_rect(draw_x, my, draw_w, 1, self.colors.gutter_fg);
+                while line_idx < total_lines {
+                    let my = if total_lines * 2 <= geom.height {
+                        line_idx * 2
+                    } else {
+                        (line_idx * (geom.height.saturating_sub(2))) / total_lines
+                    };
+
+                    if my >= geom.height {
+                        break;
                     }
-                } else if let Some(line_text) = doc.buffer.line(line_idx) {
-                    let trimmed_left = line_text.trim_start();
-                    let indent_chars = line_text.len().saturating_sub(trimmed_left.len());
-                    let indent_px = (indent_chars / 2).min(max_draw_w / 3);
 
-                    let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
-                    let mut cur_x = draw_x + indent_px;
+                    let row_offset = my * geom.width;
 
-                    for token in tokens {
-                        let token_chars = token.text.chars().count();
-                        let token_w = (token_chars * 2).max(1);
-                        if cur_x >= draw_x + max_draw_w {
-                            break;
+                    if use_fast_density {
+                        let line_len = doc.buffer.line_len_chars(line_idx);
+                        if line_len > 0 {
+                            let draw_w = (line_len * 2).min(max_draw_w).max(2);
+                            let end_x = (draw_x + draw_w).min(geom.width);
+                            for px in draw_x..end_x {
+                                surface[row_offset + px] = self.colors.gutter_fg;
+                            }
                         }
-                        let draw_w = token_w.min(draw_x + max_draw_w - cur_x);
-                        let color = self.colors.token_color(token.token_type);
-                        fb.fill_rect(cur_x, my, draw_w, 1, color);
-                        cur_x += draw_w + 1;
-                    }
-                }
+                    } else if let Some(line_text) = doc.buffer.line(line_idx) {
+                        let trimmed_left = line_text.trim_start();
+                        let indent_chars = line_text.len().saturating_sub(trimmed_left.len());
+                        let indent_px = (indent_chars / 2).min(max_draw_w / 3);
 
-                line_idx += lines_step;
+                        let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                        let mut cur_x = draw_x + indent_px;
+
+                        for token in tokens {
+                            let token_chars = token.text.chars().count();
+                            let token_w = (token_chars * 2).max(1);
+                            if cur_x >= draw_x + max_draw_w {
+                                break;
+                            }
+                            let draw_w = token_w.min(draw_x + max_draw_w - cur_x);
+                            let color = self.colors.token_color(token.token_type);
+                            let end_x = (cur_x + draw_w).min(geom.width);
+                            for px in cur_x..end_x {
+                                surface[row_offset + px] = color;
+                            }
+                            cur_x += draw_w + 1;
+                        }
+                    }
+
+                    line_idx += lines_step;
+                }
             }
+
+            let arc = Arc::new(surface);
+            if let Ok(mut guard) = cache.write() {
+                if guard.len() >= 8 {
+                    guard.clear();
+                }
+                guard.insert(key, Arc::clone(&arc));
+            }
+            arc
+        };
+
+        // Blit cached miniature code lines and background into framebuffer
+        let copy_w = geom.width.min(fb.width.saturating_sub(geom.x));
+        let copy_h = geom.height.min(fb.height.saturating_sub(geom.y));
+        for row in 0..copy_h {
+            let dst_start = (geom.y + row) * fb.width + geom.x;
+            let src_start = row * geom.width;
+            fb.pixels[dst_start..dst_start + copy_w]
+                .copy_from_slice(&surface_arc[src_start..src_start + copy_w]);
         }
 
         // 3. Viewport highlight rectangle (slider)

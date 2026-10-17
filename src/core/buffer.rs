@@ -4,8 +4,11 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::piece_table::PieceTable;
+
+static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Represents a 0-indexed line and column position in the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -23,8 +26,9 @@ impl Position {
 }
 
 /// A text document buffer backed by a PieceTable with fast line caching.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TextBuffer {
+    id: u64,
     table: PieceTable,
     /// Character offset for the beginning of each line (0-indexed).
     line_starts: Vec<usize>,
@@ -33,11 +37,25 @@ pub struct TextBuffer {
     version: u64,
 }
 
+impl Clone for TextBuffer {
+    fn clone(&self) -> Self {
+        Self {
+            id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
+            table: self.table.clone(),
+            line_starts: self.line_starts.clone(),
+            file_path: self.file_path.clone(),
+            is_dirty: self.is_dirty,
+            version: self.version,
+        }
+    }
+}
+
 impl TextBuffer {
     /// Creates a new empty text buffer.
     pub fn new() -> Self {
         let table = PieceTable::new();
         let mut buf = Self {
+            id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
             table,
             line_starts: vec![0],
             file_path: None,
@@ -52,6 +70,7 @@ impl TextBuffer {
     pub fn from_str(text: &str) -> Self {
         let table = PieceTable::from_str(text);
         let mut buf = Self {
+            id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
             table,
             line_starts: vec![0],
             file_path: None,
@@ -164,6 +183,11 @@ impl TextBuffer {
     /// Returns the monotonic mutation version of this buffer.
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// Returns the globally unique ID of this buffer instance.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// Character length of line (excluding trailing newline), in O(1) time without allocating.

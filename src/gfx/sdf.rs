@@ -5,7 +5,7 @@
 //! Pure standard-library Rust with zero external crates.
 
 use std::collections::BTreeMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use super::font::{FontFamily, FontWeight, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
 
 /// A 2D Signed Distance Field representation of a glyph silhouette.
@@ -299,6 +299,13 @@ fn get_sdf_cache() -> &'static RwLock<BTreeMap<(char, FontFamily, FontWeight), S
     SDF_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()))
 }
 
+/// Key for rasterized SDF glyph cache: (ch, family, weight, target_w, target_h, weight_offset_bits)
+type SdfSubpixelKey = (char, FontFamily, FontWeight, usize, usize, u32);
+type SdfSizedKey = (char, FontFamily, FontWeight, usize, usize, u32);
+
+static SDF_RASTER_SUBPIXEL_CACHE: OnceLock<RwLock<BTreeMap<SdfSubpixelKey, Arc<Vec<[u8; 3]>>>>> = OnceLock::new();
+static SDF_RASTER_SIZED_CACHE: OnceLock<RwLock<BTreeMap<SdfSizedKey, Arc<Vec<u8>>>>> = OnceLock::new();
+
 /// High-level Signed Distance Field font manager.
 pub struct SdfFontRasterizer;
 
@@ -323,6 +330,74 @@ impl SdfFontRasterizer {
         sdf
     }
 
+    /// Returns a cached, reference-counted subpixel coverage buffer for `ch`.
+    /// Zero allocations and O(1) time on cache hit.
+    pub fn get_cached_glyph_sdf_subpixel(
+        ch: char,
+        family: FontFamily,
+        target_w: usize,
+        target_h: usize,
+        weight: FontWeight,
+        weight_offset: f32,
+    ) -> Arc<Vec<[u8; 3]>> {
+        if FontRasterizer::is_box_drawing(ch) {
+            let (_, _, sub) = FontRasterizer::rasterize_glyph_subpixel(ch, family, target_w, target_h, weight);
+            return Arc::new(sub);
+        }
+
+        let key = (ch, family, weight, target_w, target_h, weight_offset.to_bits());
+        let cache = SDF_RASTER_SUBPIXEL_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()));
+        if let Ok(guard) = cache.read() {
+            if let Some(arc) = guard.get(&key) {
+                return Arc::clone(arc);
+            }
+        }
+
+        let sdf = Self::get_or_create_sdf(ch, family, weight);
+        let (_, _, sub) = sdf.render_subpixel(target_w, target_h, weight_offset);
+        let arc = Arc::new(sub);
+
+        if let Ok(mut guard) = cache.write() {
+            guard.insert(key, Arc::clone(&arc));
+        }
+
+        arc
+    }
+
+    /// Returns a cached, reference-counted grayscale coverage buffer for `ch`.
+    /// Zero allocations and O(1) time on cache hit.
+    pub fn get_cached_glyph_sdf(
+        ch: char,
+        family: FontFamily,
+        target_w: usize,
+        target_h: usize,
+        weight: FontWeight,
+        weight_offset: f32,
+    ) -> Arc<Vec<u8>> {
+        if FontRasterizer::is_box_drawing(ch) {
+            let (_, _, cov) = FontRasterizer::rasterize_glyph_sized(ch, family, target_w, target_h, weight);
+            return Arc::new(cov);
+        }
+
+        let key = (ch, family, weight, target_w, target_h, weight_offset.to_bits());
+        let cache = SDF_RASTER_SIZED_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()));
+        if let Ok(guard) = cache.read() {
+            if let Some(arc) = guard.get(&key) {
+                return Arc::clone(arc);
+            }
+        }
+
+        let sdf = Self::get_or_create_sdf(ch, family, weight);
+        let (_, _, cov) = sdf.render_sized(target_w, target_h, weight_offset);
+        let arc = Arc::new(cov);
+
+        if let Ok(mut guard) = cache.write() {
+            guard.insert(key, Arc::clone(&arc));
+        }
+
+        arc
+    }
+
     /// Rasterizes glyph sized to `(target_w x target_h)` using high-resolution Signed Distance Fields.
     pub fn rasterize_glyph_sdf(
         ch: char,
@@ -332,13 +407,8 @@ impl SdfFontRasterizer {
         weight: FontWeight,
         weight_offset: f32,
     ) -> (usize, usize, Vec<u8>) {
-        // Fast-path: box drawing glyphs use analytical straight line rasterization
-        if FontRasterizer::is_box_drawing(ch) {
-            return FontRasterizer::rasterize_glyph_sized(ch, family, target_w, target_h, weight);
-        }
-
-        let sdf = Self::get_or_create_sdf(ch, family, weight);
-        sdf.render_sized(target_w, target_h, weight_offset)
+        let arc = Self::get_cached_glyph_sdf(ch, family, target_w, target_h, weight, weight_offset);
+        (target_w, target_h, (*arc).clone())
     }
 
     /// Rasterizes glyph using Signed Distance Fields with spatial subpixel LCD anti-aliasing.
@@ -350,11 +420,7 @@ impl SdfFontRasterizer {
         weight: FontWeight,
         weight_offset: f32,
     ) -> (usize, usize, Vec<[u8; 3]>) {
-        if FontRasterizer::is_box_drawing(ch) {
-            return FontRasterizer::rasterize_glyph_subpixel(ch, family, target_w, target_h, weight);
-        }
-
-        let sdf = Self::get_or_create_sdf(ch, family, weight);
-        sdf.render_subpixel(target_w, target_h, weight_offset)
+        let arc = Self::get_cached_glyph_sdf_subpixel(ch, family, target_w, target_h, weight, weight_offset);
+        (target_w, target_h, (*arc).clone())
     }
 }
