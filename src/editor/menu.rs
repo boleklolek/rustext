@@ -97,6 +97,7 @@ impl MenuBar {
                 items: vec![
                     MenuItem::action("Explorador Lateral", "Ctrl+B", EditorAction::ToggleSidebar),
                     MenuItem::action("Actualizar Explorador", "", EditorAction::RefreshSidebar),
+                    MenuItem::action("Ajuste de Línea (Word Wrap)", "Alt+Z", EditorAction::ToggleWordWrap),
                     MenuItem::separator(),
                     MenuItem::action("Minimapa", "Ctrl+M", EditorAction::ToggleMinimap),
                     MenuItem::action("Terminal Integrado", "Ctrl+`", EditorAction::ToggleTerminal),

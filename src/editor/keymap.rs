@@ -82,6 +82,8 @@ pub enum EditorAction {
     ToggleTerminal,
     FocusTerminal,
     ClearTerminal,
+    // Word Wrap (Soft Wrap)
+    ToggleWordWrap,
     Quit,
     None,
 }
@@ -92,6 +94,9 @@ impl Keymap {
     /// Maps a raw key event to an editor action in normal editing mode.
     pub fn resolve_key(key: Key) -> EditorAction {
         match key {
+            // Word wrap (Alt+Z)
+            Key::Alt('z') | Key::Alt('Z') => EditorAction::ToggleWordWrap,
+
             // Sidebar shortcut (Sublime / VS Code Ctrl+B)
             Key::Ctrl('b') => EditorAction::ToggleSidebar,
 

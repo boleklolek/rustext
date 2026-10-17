@@ -58,6 +58,7 @@ pub struct EditorSettings {
     pub auto_save_session: bool,
     pub hot_exit: bool,
     pub max_recent_files: usize,
+    pub word_wrap: bool,
 }
 
 impl Default for EditorSettings {
@@ -76,6 +77,7 @@ impl Default for EditorSettings {
             auto_save_session: true,
             hot_exit: false,
             max_recent_files: 20,
+            word_wrap: false,
         }
     }
 }
@@ -245,6 +247,9 @@ hot_exit = false
 ; Número máximo de archivos recientes recordados
 max_recent_files = 20
 
+; Ajuste de línea visual suave (Soft Wrap / Word Wrap) sin alterar el buffer de texto
+word_wrap = false
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -371,6 +376,7 @@ restore_session = {}
 auto_save_session = {}
 hot_exit = {}
 max_recent_files = {}
+word_wrap = {}
 
 [theme]
 name = {}
@@ -431,6 +437,7 @@ ttf_font_path = {}
             self.editor.auto_save_session,
             self.editor.hot_exit,
             self.editor.max_recent_files,
+            self.editor.word_wrap,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -579,6 +586,11 @@ ttf_font_path = {}
                         "max_recent_files" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 config.editor.max_recent_files = n.clamp(1, 100);
+                            }
+                        }
+                        "word_wrap" => {
+                            if let Some(b) = as_bool {
+                                config.editor.word_wrap = b;
                             }
                         }
                         _ => {}

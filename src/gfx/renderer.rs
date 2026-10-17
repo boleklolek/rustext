@@ -585,6 +585,7 @@ pub struct GfxRenderer {
     pub sdf_font_rendering: bool,
     pub optical_punctuation_spacing: bool,
     pub use_ttf_font: bool,
+    pub word_wrap: bool,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -639,6 +640,7 @@ impl GfxRenderer {
             sdf_font_rendering: true,
             optical_punctuation_spacing: true,
             use_ttf_font: false,
+            word_wrap: false,
         }
     }
 
@@ -1647,102 +1649,260 @@ impl GfxRenderer {
             }
         }
 
-        for row in 0..visible_lines {
-            let line_idx = doc.scroll_row + row;
-            let py = content_y + row * line_height;
-            let text_y = py + self.line_spacing / 2;
+        if !self.word_wrap {
+            for row in 0..visible_lines {
+                let line_idx = doc.scroll_row + row;
+                let py = content_y + row * line_height;
+                let text_y = py + self.line_spacing / 2;
 
-            if line_idx < total_lines {
-                // Gutter line number
-                if self.show_line_numbers {
-                    let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
-                    let (fg_col, badge) = if let Some(d) = diag {
-                        (d.severity.color_hex(), Some(d.severity.badge()))
-                    } else {
-                        (self.colors.gutter_fg, None)
-                    };
-
-                    let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                    fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
-
-                    if let Some(b) = badge {
-                        fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
-                    }
-
-                    // Git Gutter diff indicator bar
-                    if self.git_gutter_enabled {
-                        let diff_opt = if is_active {
-                            self.git_diff.as_ref()
+                if line_idx < total_lines {
+                    // Gutter line number
+                    if self.show_line_numbers {
+                        let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                        let (fg_col, badge) = if let Some(d) = diag {
+                            (d.severity.color_hex(), Some(d.severity.badge()))
                         } else {
-                            self.secondary_git_diff.as_ref().or(self.git_diff.as_ref())
+                            (self.colors.gutter_fg, None)
                         };
-                        if let Some(diff) = diff_opt {
-                            let bar_x = pane_x + gutter_w - 3;
-                            match diff.status_for_line(line_idx) {
-                                crate::editor::git::GitLineStatus::Added => {
-                                    fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+
+                        let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                        fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
+
+                        if let Some(b) = badge {
+                            fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
+                        }
+
+                        // Git Gutter diff indicator bar
+                        if self.git_gutter_enabled {
+                            let diff_opt = if is_active {
+                                self.git_diff.as_ref()
+                            } else {
+                                self.secondary_git_diff.as_ref().or(self.git_diff.as_ref())
+                            };
+                            if let Some(diff) = diff_opt {
+                                let bar_x = pane_x + gutter_w - 3;
+                                match diff.status_for_line(line_idx) {
+                                    crate::editor::git::GitLineStatus::Added => {
+                                        fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                    }
+                                    crate::editor::git::GitLineStatus::Modified => {
+                                        fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                    }
+                                    crate::editor::git::GitLineStatus::DeletedAbove => {
+                                        fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                    }
+                                    crate::editor::git::GitLineStatus::None => {}
                                 }
-                                crate::editor::git::GitLineStatus::Modified => {
-                                    fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
-                                }
-                                crate::editor::git::GitLineStatus::DeletedAbove => {
-                                    fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
-                                }
-                                crate::editor::git::GitLineStatus::None => {}
                             }
                         }
                     }
-                }
 
-                // Line Content
+                    // Line Content
+                    let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+                    let line_text: &str = &line_cow;
+
+                    // Selections
+                    for &(start, end) in &selections {
+                        if line_idx >= start.line && line_idx <= end.line {
+                            let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                            let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
+
+                            if sel_col_end > sel_col_start {
+                                let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
+                                if sx < max_code_x {
+                                    let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
+                                    fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                                }
+                            }
+                        }
+                    }
+
+                    // Syntax Highlighted Tokens
+                    let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+                    self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+
+                    // Cursors (only rendered if this pane is active)
+                    if is_active {
+                        for pos in &cursor_positions {
+                            if pos.line == line_idx && pos.col >= doc.scroll_col {
+                                let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
+                                if cx + 2 <= max_code_x {
+                                    match self.cursor_style.as_str() {
+                                        "block" => {
+                                            let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                            fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
+                                        }
+                                        "underline" => {
+                                            let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                            fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
+                                        }
+                                        _ => {
+                                            fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if self.show_line_numbers {
+                    fb.draw_char('~', pane_x + self.char_width(), text_y, self.colors.gutter_fg, None);
+                }
+            }
+        } else {
+            let code_width = max_code_x.saturating_sub(text_start_x);
+            let max_cols = (code_width / self.char_width()).max(10);
+            let mut screen_row = 0;
+            let mut line_idx = doc.scroll_row;
+            let mut start_sub_idx = doc.scroll_subline;
+
+            while screen_row < visible_lines && line_idx < total_lines {
                 let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
                 let line_text: &str = &line_cow;
+                let sublines = crate::editor::wrap::WordWrap::compute_sublines(line_text, max_cols);
 
-                // Selections
-                for &(start, end) in &selections {
-                    if line_idx >= start.line && line_idx <= end.line {
-                        let sel_col_start = if line_idx == start.line { start.col } else { 0 };
-                        let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
+                if start_sub_idx >= sublines.len() {
+                    start_sub_idx = 0;
+                }
 
-                        if sel_col_end > sel_col_start {
-                            let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
-                            if sx < max_code_x {
-                                let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
-                                fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+
+                for sub_idx in start_sub_idx..sublines.len() {
+                    if screen_row >= visible_lines {
+                        break;
+                    }
+                    let sub = &sublines[sub_idx];
+                    let py = content_y + screen_row * line_height;
+                    let text_y = py + self.line_spacing / 2;
+
+                    // Gutter
+                    if self.show_line_numbers {
+                        if !sub.is_continuation {
+                            let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                            let (fg_col, badge) = if let Some(d) = diag {
+                                (d.severity.color_hex(), Some(d.severity.badge()))
+                            } else {
+                                (self.colors.gutter_fg, None)
+                            };
+
+                            let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                            fb.draw_text(&num_str, pane_x + self.char_width(), text_y, fg_col, None);
+
+                            if let Some(b) = badge {
+                                fb.draw_text(b, pane_x + 2, text_y, fg_col, None);
+                            }
+
+                            if self.git_gutter_enabled {
+                                let diff_opt = if is_active {
+                                    self.git_diff.as_ref()
+                                } else {
+                                    self.secondary_git_diff.as_ref().or(self.git_diff.as_ref())
+                                };
+                                if let Some(diff) = diff_opt {
+                                    let bar_x = pane_x + gutter_w - 3;
+                                    match diff.status_for_line(line_idx) {
+                                        crate::editor::git::GitLineStatus::Added => {
+                                            fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                        }
+                                        crate::editor::git::GitLineStatus::Modified => {
+                                            fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                        }
+                                        crate::editor::git::GitLineStatus::DeletedAbove => {
+                                            fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                        }
+                                        crate::editor::git::GitLineStatus::None => {}
+                                    }
+                                }
+                            }
+                        } else {
+                            let wrap_glyph_x = pane_x + gutter_w.saturating_sub(self.char_width() * 2);
+                            fb.draw_char('↳', wrap_glyph_x, text_y, self.colors.gutter_fg, None);
+                        }
+                    }
+
+                    // Selections
+                    for &(start, end) in &selections {
+                        if line_idx >= start.line && line_idx <= end.line {
+                            let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                            let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
+
+                            let overlap_start = sel_col_start.max(sub.char_start);
+                            let overlap_end = sel_col_end.min(sub.char_end);
+                            if overlap_end > overlap_start {
+                                let sx = text_start_x + (overlap_start - sub.char_start) * self.char_width();
+                                if sx < max_code_x {
+                                    let sw = ((overlap_end - overlap_start) * self.char_width()).min(max_code_x - sx);
+                                    fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                                }
                             }
                         }
                     }
-                }
 
-                // Syntax Highlighted Tokens
-                let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
-                self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+                    // Subline Tokens
+                    let mut sub_tokens = Vec::new();
+                    let mut tok_byte_offset = 0;
+                    for tok in &tokens {
+                        let tok_len = tok.text.len();
+                        let tok_end = tok_byte_offset + tok_len;
+                        if tok_end > sub.byte_start && tok_byte_offset < sub.byte_end {
+                            let slice_start = sub.byte_start.saturating_sub(tok_byte_offset);
+                            let slice_end = (sub.byte_end - tok_byte_offset).min(tok_len);
+                            if slice_end > slice_start {
+                                sub_tokens.push(crate::core::syntax::TokenSpan {
+                                    text: &tok.text[slice_start..slice_end],
+                                    token_type: tok.token_type,
+                                });
+                            }
+                        }
+                        tok_byte_offset = tok_end;
+                    }
 
-                // Cursors (only rendered if this pane is active)
-                if is_active {
-                    for pos in &cursor_positions {
-                        if pos.line == line_idx && pos.col >= doc.scroll_col {
-                            let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
-                            if cx + 2 <= max_code_x {
-                                match self.cursor_style.as_str() {
-                                    "block" => {
-                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
-                                    }
-                                    "underline" => {
-                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
-                                    }
-                                    _ => {
-                                        fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                    self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
+
+                    // Cursors
+                    if is_active {
+                        for pos in &cursor_positions {
+                            if pos.line == line_idx {
+                                let is_in_sub = if sub_idx + 1 == sublines.len() {
+                                    pos.col >= sub.char_start && pos.col <= sub.char_end
+                                } else {
+                                    pos.col >= sub.char_start && pos.col < sub.char_end
+                                };
+                                if is_in_sub {
+                                    let cx = text_start_x + (pos.col - sub.char_start) * self.char_width();
+                                    if cx + 2 <= max_code_x {
+                                        match self.cursor_style.as_str() {
+                                            "block" => {
+                                                let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                                fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
+                                            }
+                                            "underline" => {
+                                                let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                                fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
+                                            }
+                                            _ => {
+                                                fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    screen_row += 1;
                 }
-            } else if self.show_line_numbers {
-                fb.draw_char('~', pane_x + self.char_width(), text_y, self.colors.gutter_fg, None);
+
+                line_idx += 1;
+                start_sub_idx = 0;
+            }
+
+            while screen_row < visible_lines {
+                let py = content_y + screen_row * line_height;
+                let text_y = py + self.line_spacing / 2;
+                if self.show_line_numbers {
+                    fb.draw_char('~', pane_x + self.char_width(), text_y, self.colors.gutter_fg, None);
+                }
+                screen_row += 1;
             }
         }
 
@@ -1866,98 +2026,250 @@ impl GfxRenderer {
             }
 
             // 7. Draw Document Lines & Syntax
-            for row in 0..visible_lines {
-                let line_idx = doc.scroll_row + row;
-                let py = content_y_start + row * line_height;
-                let text_y = py + self.line_spacing / 2;
+            let text_start_x = if self.show_line_numbers {
+                canvas_x_start + gutter_width + self.char_width()
+            } else {
+                canvas_x_start + self.scale_coord(8)
+            };
 
-                if line_idx < total_lines {
-                    if self.show_line_numbers {
-                        let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
-                        let (fg_col, badge) = if let Some(d) = diag {
-                            (d.severity.color_hex(), Some(d.severity.badge()))
-                        } else {
-                            (self.colors.gutter_fg, None)
-                        };
+            if !self.word_wrap {
+                for row in 0..visible_lines {
+                    let line_idx = doc.scroll_row + row;
+                    let py = content_y_start + row * line_height;
+                    let text_y = py + self.line_spacing / 2;
 
-                        let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
-                        fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
-
-                        if let Some(b) = badge {
-                            fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
-                        }
-
-                        // Git Gutter diff indicator bar
-                        if self.git_gutter_enabled {
-                            if let Some(diff) = &self.git_diff {
-                                let bar_x = canvas_x_start + gutter_width - 3;
-                                match diff.status_for_line(line_idx) {
-                                    crate::editor::git::GitLineStatus::Added => {
-                                        fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
-                                    }
-                                    crate::editor::git::GitLineStatus::Modified => {
-                                        fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
-                                    }
-                                    crate::editor::git::GitLineStatus::DeletedAbove => {
-                                        fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
-                                    }
-                                    crate::editor::git::GitLineStatus::None => {}
-                                }
-                            }
-                        }
-                    }
-
-                    let line_text = doc.buffer.line(line_idx).unwrap_or_default();
-                    let text_start_x = if self.show_line_numbers {
-                        canvas_x_start + gutter_width + self.char_width()
-                    } else {
-                        canvas_x_start + self.scale_coord(8)
-                    };
-
-                    for &(start, end) in &selections {
-                        if line_idx >= start.line && line_idx <= end.line {
-                            let sel_col_start = if line_idx == start.line { start.col } else { 0 };
-                            let sel_col_end = if line_idx == end.line {
-                                end.col
+                    if line_idx < total_lines {
+                        if self.show_line_numbers {
+                            let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                            let (fg_col, badge) = if let Some(d) = diag {
+                                (d.severity.color_hex(), Some(d.severity.badge()))
                             } else {
-                                line_text.chars().count() + 1
+                                (self.colors.gutter_fg, None)
                             };
 
-                            if sel_col_end > sel_col_start {
-                                let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
-                                if sx < max_code_x {
-                                    let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
-                                    fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
-                                }
+                            let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                            fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
+
+                            if let Some(b) = badge {
+                                fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
                             }
-                        }
-                    }
 
-                    let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
-                    self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
-
-                    for pos in &cursor_positions {
-                        if pos.line == line_idx && pos.col >= doc.scroll_col {
-                            let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
-                            if cx + 2 <= max_code_x {
-                                match self.cursor_style.as_str() {
-                                    "block" => {
-                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
-                                    }
-                                    "underline" => {
-                                        let cw = self.char_width().min(max_code_x.saturating_sub(cx));
-                                        fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
-                                    }
-                                    _ => {
-                                        fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                            // Git Gutter diff indicator bar
+                            if self.git_gutter_enabled {
+                                if let Some(diff) = &self.git_diff {
+                                    let bar_x = canvas_x_start + gutter_width - 3;
+                                    match diff.status_for_line(line_idx) {
+                                        crate::editor::git::GitLineStatus::Added => {
+                                            fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                        }
+                                        crate::editor::git::GitLineStatus::Modified => {
+                                            fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                        }
+                                        crate::editor::git::GitLineStatus::DeletedAbove => {
+                                            fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                        }
+                                        crate::editor::git::GitLineStatus::None => {}
                                     }
                                 }
                             }
                         }
+
+                        let line_text = doc.buffer.line(line_idx).unwrap_or_default();
+
+                        for &(start, end) in &selections {
+                            if line_idx >= start.line && line_idx <= end.line {
+                                let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                                let sel_col_end = if line_idx == end.line {
+                                    end.col
+                                } else {
+                                    line_text.chars().count() + 1
+                                };
+
+                                if sel_col_end > sel_col_start {
+                                    let sx = text_start_x + sel_col_start.saturating_sub(doc.scroll_col) * self.char_width();
+                                    if sx < max_code_x {
+                                        let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
+                                        fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                                    }
+                                }
+                            }
+                        }
+
+                        let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                        self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+
+                        for pos in &cursor_positions {
+                            if pos.line == line_idx && pos.col >= doc.scroll_col {
+                                let cx = text_start_x + (pos.col - doc.scroll_col) * self.char_width();
+                                if cx + 2 <= max_code_x {
+                                    match self.cursor_style.as_str() {
+                                        "block" => {
+                                            let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                            fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
+                                        }
+                                        "underline" => {
+                                            let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                            fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
+                                        }
+                                        _ => {
+                                            fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if self.show_line_numbers {
+                        fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
                     }
-                } else if self.show_line_numbers {
-                    fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
+                }
+            } else {
+                let code_width = max_code_x.saturating_sub(text_start_x);
+                let max_cols = (code_width / self.char_width()).max(10);
+                let mut screen_row = 0;
+                let mut line_idx = doc.scroll_row;
+                let mut start_sub_idx = doc.scroll_subline;
+
+                while screen_row < visible_lines && line_idx < total_lines {
+                    let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+                    let line_text: &str = &line_cow;
+                    let sublines = crate::editor::wrap::WordWrap::compute_sublines(line_text, max_cols);
+
+                    if start_sub_idx >= sublines.len() {
+                        start_sub_idx = 0;
+                    }
+
+                    let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+
+                    for sub_idx in start_sub_idx..sublines.len() {
+                        if screen_row >= visible_lines {
+                            break;
+                        }
+                        let sub = &sublines[sub_idx];
+                        let py = content_y_start + screen_row * line_height;
+                        let text_y = py + self.line_spacing / 2;
+
+                        // Gutter
+                        if self.show_line_numbers {
+                            if !sub.is_continuation {
+                                let diag = self.diagnostics.as_ref().and_then(|dc| dc.for_line(line_idx + 1));
+                                let (fg_col, badge) = if let Some(d) = diag {
+                                    (d.severity.color_hex(), Some(d.severity.badge()))
+                                } else {
+                                    (self.colors.gutter_fg, None)
+                                };
+
+                                let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                                fb.draw_text(&num_str, canvas_x_start + self.char_width(), text_y, fg_col, None);
+
+                                if let Some(b) = badge {
+                                    fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
+                                }
+
+                                if self.git_gutter_enabled {
+                                    if let Some(diff) = &self.git_diff {
+                                        let bar_x = canvas_x_start + gutter_width - 3;
+                                        match diff.status_for_line(line_idx) {
+                                            crate::editor::git::GitLineStatus::Added => {
+                                                fb.fill_rect(bar_x, py, 3, line_height, 0x009ECE6A);
+                                            }
+                                            crate::editor::git::GitLineStatus::Modified => {
+                                                fb.fill_rect(bar_x, py, 3, line_height, 0x007AA2F7);
+                                            }
+                                            crate::editor::git::GitLineStatus::DeletedAbove => {
+                                                fb.fill_rect(bar_x, py, 3, 2, 0x00F7768E);
+                                            }
+                                            crate::editor::git::GitLineStatus::None => {}
+                                        }
+                                    }
+                                }
+                            } else {
+                                let wrap_glyph_x = canvas_x_start + gutter_width.saturating_sub(self.char_width() * 2);
+                                fb.draw_char('↳', wrap_glyph_x, text_y, self.colors.gutter_fg, None);
+                            }
+                        }
+
+                        // Selections
+                        for &(start, end) in &selections {
+                            if line_idx >= start.line && line_idx <= end.line {
+                                let sel_col_start = if line_idx == start.line { start.col } else { 0 };
+                                let sel_col_end = if line_idx == end.line { end.col } else { line_text.chars().count() + 1 };
+
+                                let overlap_start = sel_col_start.max(sub.char_start);
+                                let overlap_end = sel_col_end.min(sub.char_end);
+                                if overlap_end > overlap_start {
+                                    let sx = text_start_x + (overlap_start - sub.char_start) * self.char_width();
+                                    if sx < max_code_x {
+                                        let sw = ((overlap_end - overlap_start) * self.char_width()).min(max_code_x - sx);
+                                        fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Subline Tokens
+                        let mut sub_tokens = Vec::new();
+                        let mut tok_byte_offset = 0;
+                        for tok in &tokens {
+                            let tok_len = tok.text.len();
+                            let tok_end = tok_byte_offset + tok_len;
+                            if tok_end > sub.byte_start && tok_byte_offset < sub.byte_end {
+                                let slice_start = sub.byte_start.saturating_sub(tok_byte_offset);
+                                let slice_end = (sub.byte_end - tok_byte_offset).min(tok_len);
+                                if slice_end > slice_start {
+                                    sub_tokens.push(crate::core::syntax::TokenSpan {
+                                        text: &tok.text[slice_start..slice_end],
+                                        token_type: tok.token_type,
+                                    });
+                                }
+                            }
+                            tok_byte_offset = tok_end;
+                        }
+
+                        self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
+
+                        // Cursors
+                        for pos in &cursor_positions {
+                            if pos.line == line_idx {
+                                let is_in_sub = if sub_idx + 1 == sublines.len() {
+                                    pos.col >= sub.char_start && pos.col <= sub.char_end
+                                } else {
+                                    pos.col >= sub.char_start && pos.col < sub.char_end
+                                };
+                                if is_in_sub {
+                                    let cx = text_start_x + (pos.col - sub.char_start) * self.char_width();
+                                    if cx + 2 <= max_code_x {
+                                        match self.cursor_style.as_str() {
+                                            "block" => {
+                                                let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                                fb.fill_rect_alpha(cx, text_y, cw, self.char_height(), self.colors.cursor, 140);
+                                            }
+                                            "underline" => {
+                                                let cw = self.char_width().min(max_code_x.saturating_sub(cx));
+                                                fb.fill_rect(cx, text_y + self.char_height().saturating_sub(2), cw, 2, self.colors.cursor);
+                                            }
+                                            _ => {
+                                                fb.fill_rect(cx, text_y, 2, self.char_height(), self.colors.cursor);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        screen_row += 1;
+                    }
+
+                    line_idx += 1;
+                    start_sub_idx = 0;
+                }
+
+                while screen_row < visible_lines {
+                    let py = content_y_start + screen_row * line_height;
+                    let text_y = py + self.line_spacing / 2;
+                    if self.show_line_numbers {
+                        fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
+                    }
+                    screen_row += 1;
                 }
             }
 
@@ -2497,6 +2809,20 @@ impl GfxRenderer {
         let utf8_w = utf8_text.chars().count() * self.char_width() + self.scale_coord(4);
 
         let mut right_x = fb.width.saturating_sub(self.scale_coord(6));
+
+        // Wrap Chip
+        if self.word_wrap {
+            let wrap_text = " Wrap ";
+            let wrap_w = wrap_text.chars().count() * self.char_width() + self.scale_coord(4);
+            right_x = right_x.saturating_sub(wrap_w);
+            if self.rounded_corners {
+                fb.fill_rounded_rect(right_x, chip_y, wrap_w, chip_h, 3, self.colors.chip_bg);
+            } else {
+                fb.fill_rect(right_x, chip_y, wrap_w, chip_h, self.colors.chip_bg);
+            }
+            fb.draw_text(wrap_text, right_x + 2, text_y, self.colors.accent, None);
+            right_x = right_x.saturating_sub(self.scale_coord(6));
+        }
 
         // Language Chip
         right_x = right_x.saturating_sub(lang_w);

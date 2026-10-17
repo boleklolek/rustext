@@ -3949,3 +3949,226 @@ fn test_security_global_search_symlink_defense() {
     // Clean up
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_word_wrap_compute_sublines_and_word_boundaries() {
+    use rustext::editor::wrap::WordWrap;
+
+    // 1. Empty string
+    let empty_subs = WordWrap::compute_sublines("", 40);
+    assert_eq!(empty_subs.len(), 1);
+    assert_eq!(empty_subs[0].char_start, 0);
+    assert_eq!(empty_subs[0].char_end, 0);
+    assert!(!empty_subs[0].is_continuation);
+
+    // 2. Short string under max_cols
+    let short_subs = WordWrap::compute_sublines("fn main() {}", 40);
+    assert_eq!(short_subs.len(), 1);
+    assert_eq!(short_subs[0].char_start, 0);
+    assert_eq!(short_subs[0].char_end, 12);
+    assert!(!short_subs[0].is_continuation);
+
+    // 3. Long sentence broken cleanly at space boundary
+    let text = "let message = \"This is a long sentence that should wrap gracefully across boundaries\";";
+    let wrapped = WordWrap::compute_sublines(text, 30);
+    assert!(wrapped.len() >= 3);
+    assert!(!wrapped[0].is_continuation);
+    assert!(wrapped[1].is_continuation);
+    assert!(wrapped[2].is_continuation);
+
+    // Ensure all characters are accounted for without gaps
+    let mut prev_end = 0;
+    for sub in &wrapped {
+        assert_eq!(sub.char_start, prev_end);
+        assert!(sub.char_end > sub.char_start);
+        prev_end = sub.char_end;
+    }
+    assert_eq!(prev_end, text.chars().count());
+
+    // 4. Broken at punctuation boundary (e.g. method chain)
+    let code = "let result = data.filter(|x| x > 0).map(|x| x * 2).collect::<Vec<_>>();";
+    let code_wrapped = WordWrap::compute_sublines(code, 35);
+    assert!(code_wrapped.len() >= 2);
+    assert_eq!(code_wrapped[0].char_start, 0);
+
+    // 5. Unbroken long identifier / URL (hard fallback break)
+    let long_token = "https://subdomain.domain.example.com/very/long/path/with/lots/of/slashes/and_data_token";
+    let token_wrapped = WordWrap::compute_sublines(long_token, 25);
+    assert!(token_wrapped.len() >= 3);
+    for sub in &token_wrapped {
+        assert!(sub.len_chars() <= 25);
+    }
+
+    // 6. Multibyte UTF-8 characters (emojis, accents, kanji)
+    let utf8_text = "🦀 Rust programación 日本語: alta velocidad y cero dependencias!";
+    let utf8_wrapped = WordWrap::compute_sublines(utf8_text, 20);
+    assert!(utf8_wrapped.len() >= 3);
+    for sub in &utf8_wrapped {
+        // Ensure string slicing on byte boundaries does not panic
+        let slice = &utf8_text[sub.byte_start..sub.byte_end];
+        assert_eq!(slice.chars().count(), sub.len_chars());
+    }
+}
+
+#[test]
+fn test_word_wrap_coordinate_mapping() {
+    use rustext::editor::wrap::WordWrap;
+
+    let text = "The quick brown fox jumps over the lazy dog near the river bank";
+    let sublines = WordWrap::compute_sublines(text, 25);
+
+    // First subline
+    let (s0, v0) = WordWrap::col_to_visual(0, &sublines);
+    assert_eq!(s0, 0);
+    assert_eq!(v0, 0);
+    assert_eq!(WordWrap::visual_to_col(s0, v0, &sublines), 0);
+
+    let (s_mid, v_mid) = WordWrap::col_to_visual(10, &sublines);
+    assert_eq!(s_mid, 0);
+    assert_eq!(v_mid, 10);
+    assert_eq!(WordWrap::visual_to_col(s_mid, v_mid, &sublines), 10);
+
+    // Second subline
+    let second_start = sublines[1].char_start;
+    let (s1, v1) = WordWrap::col_to_visual(second_start + 4, &sublines);
+    assert_eq!(s1, 1);
+    assert_eq!(v1, 4);
+    assert_eq!(WordWrap::visual_to_col(s1, v1, &sublines), second_start + 4);
+
+    // Clamping past end
+    let total_len = text.chars().count();
+    let (s_last, v_last) = WordWrap::col_to_visual(total_len + 50, &sublines);
+    assert_eq!(s_last, sublines.len() - 1);
+    assert_eq!(v_last, (total_len + 50) - sublines[sublines.len() - 1].char_start);
+}
+
+#[test]
+fn test_word_wrap_adaptive_cursor_movement() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::cursor::CursorSet;
+    use rustext::editor::wrap::WordWrap;
+
+    let text = "First long line that wraps across multiple visual sublines when max columns is set to thirty\nSecond line";
+    let buffer = TextBuffer::from_str(text);
+    let mut cursors = CursorSet::new();
+
+    // Start at (0, 0)
+    assert_eq!(cursors.primary().head, 0);
+
+    // Move Down into second subline of the first physical line
+    WordWrap::move_down(&mut cursors, &buffer, 30, false);
+    let pos1 = buffer.char_to_position(cursors.primary().head);
+    assert_eq!(pos1.line, 0);
+    assert!(pos1.col > 0, "Cursor should have advanced into subline 1");
+
+    // Move Down again into third subline of the first physical line
+    WordWrap::move_down(&mut cursors, &buffer, 30, false);
+    let pos2 = buffer.char_to_position(cursors.primary().head);
+    assert_eq!(pos2.line, 0);
+    assert!(pos2.col > pos1.col, "Cursor should have advanced into subline 2");
+
+    // Move Down again -> transitions into the second physical line
+    WordWrap::move_down(&mut cursors, &buffer, 30, false);
+    WordWrap::move_down(&mut cursors, &buffer, 30, false);
+    let pos3 = buffer.char_to_position(cursors.primary().head);
+    assert_eq!(pos3.line, 1, "Cursor should have reached physical line 1");
+
+    // Move Up -> transitions back into the last subline of physical line 0
+    WordWrap::move_up(&mut cursors, &buffer, 30, false);
+    let pos_back = buffer.char_to_position(cursors.primary().head);
+    assert_eq!(pos_back.line, 0);
+
+    // Move to visual line end
+    WordWrap::move_to_line_end(&mut cursors, &buffer, 30, false);
+    let pos_end = buffer.char_to_position(cursors.primary().head);
+    assert!(pos_end.col > 0);
+
+    // Move to visual line start
+    WordWrap::move_to_line_start(&mut cursors, &buffer, 30, false);
+    let pos_start = buffer.char_to_position(cursors.primary().head);
+    assert!(pos_start.col <= pos_end.col);
+}
+
+#[test]
+fn test_word_wrap_editor_action_and_keymap() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::{Editor, EditorAction, Keymap};
+    use rustext::ui::terminal::Key;
+
+    // 1. Keymap mapping for Alt+Z and Alt+z
+    assert_eq!(Keymap::resolve_key(Key::Alt('z')), EditorAction::ToggleWordWrap);
+    assert_eq!(Keymap::resolve_key(Key::Alt('Z')), EditorAction::ToggleWordWrap);
+
+    // 2. Editor action execution
+    let mut editor = Editor::new(TextBuffer::from_str("Sample text"));
+    assert!(!editor.word_wrap);
+
+    editor.execute_action(EditorAction::ToggleWordWrap);
+    assert!(editor.word_wrap);
+    assert!(editor.config.editor.word_wrap);
+    let status = editor.status_message.as_ref().map(|(msg, _)| msg.as_str()).unwrap_or("");
+    assert!(status.contains("ACTIVADO"));
+
+    editor.execute_action(EditorAction::ToggleWordWrap);
+    assert!(!editor.word_wrap);
+    assert!(!editor.config.editor.word_wrap);
+    let status2 = editor.status_message.as_ref().map(|(msg, _)| msg.as_str()).unwrap_or("");
+    assert!(status2.contains("DESACTIVADO"));
+}
+
+#[test]
+fn test_word_wrap_renderer_and_sublines() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    let text = "let greeting = \"Hello World! This is a very long line designed to test the soft wrap rendering in GfxRenderer\";\nlet x = 42;\n";
+    let doc = Document::new(TextBuffer::from_str(text));
+
+    let mut renderer = GfxRenderer::new();
+    renderer.word_wrap = true;
+    let mut fb = Framebuffer::new(800, 600);
+
+    // 1. Render in editor pane
+    renderer.render_editor_pane(
+        &mut fb,
+        &doc,
+        0,
+        0,
+        800,
+        600,
+        true,
+        "test.rs",
+        false,
+        false,
+        false,
+        false,
+    );
+
+    // Ensure framebuffer pixels were drawn (not all zeros)
+    let non_zero_pixels = fb.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(non_zero_pixels > 100);
+
+    // 2. Render full frame
+    let mut fb2 = Framebuffer::new(1024, 640);
+    renderer.render_full_frame_with_split(
+        &mut fb2,
+        &doc,
+        None,
+        None,
+        &["test.rs".to_string()],
+        0,
+        Some("Word Wrap active"),
+        None,
+        None,
+        None,
+        false,
+        false,
+        false,
+        false,
+        None,
+    );
+    let non_zero_pixels2 = fb2.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(non_zero_pixels2 > 500);
+}
+

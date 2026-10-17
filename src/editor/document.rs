@@ -14,6 +14,7 @@ pub struct Document {
     pub language: Language,
     pub scroll_row: usize,
     pub scroll_col: usize,
+    pub scroll_subline: usize,
 }
 
 impl Document {
@@ -32,6 +33,7 @@ impl Document {
             language: lang,
             scroll_row: 0,
             scroll_col: 0,
+            scroll_subline: 0,
         }
     }
 

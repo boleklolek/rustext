@@ -130,6 +130,8 @@ pub struct Editor {
     pub session_manager: crate::editor::session::SessionManager,
     pub recent_files: Vec<PathBuf>,
     pub terminal: crate::editor::terminal_panel::TerminalPanel,
+    pub word_wrap: bool,
+    pub last_code_cols: usize,
     pub should_quit: bool,
 }
 
@@ -157,6 +159,7 @@ impl Editor {
         let auto_indent = config.editor.auto_indent;
         let auto_close_brackets = config.editor.auto_close_brackets;
         let auto_surround = config.editor.auto_surround;
+        let word_wrap = config.editor.word_wrap;
 
         let mut screen = Screen::new();
         screen.theme = crate::ui::Theme::by_name(&config.theme.name);
@@ -207,6 +210,8 @@ impl Editor {
             session_manager,
             recent_files,
             terminal,
+            word_wrap,
+            last_code_cols: 80,
             should_quit: false,
         }
     }
@@ -666,20 +671,44 @@ impl Editor {
                 doc.cursors.move_right(&doc.buffer, select);
             }
             EditorAction::MoveUp { select } => {
-                let doc = self.doc_mut();
-                doc.cursors.move_up(&doc.buffer, select);
+                if self.word_wrap {
+                    let max_cols = self.active_max_cols();
+                    let doc = self.doc_mut();
+                    crate::editor::wrap::WordWrap::move_up(&mut doc.cursors, &doc.buffer, max_cols, select);
+                } else {
+                    let doc = self.doc_mut();
+                    doc.cursors.move_up(&doc.buffer, select);
+                }
             }
             EditorAction::MoveDown { select } => {
-                let doc = self.doc_mut();
-                doc.cursors.move_down(&doc.buffer, select);
+                if self.word_wrap {
+                    let max_cols = self.active_max_cols();
+                    let doc = self.doc_mut();
+                    crate::editor::wrap::WordWrap::move_down(&mut doc.cursors, &doc.buffer, max_cols, select);
+                } else {
+                    let doc = self.doc_mut();
+                    doc.cursors.move_down(&doc.buffer, select);
+                }
             }
             EditorAction::MoveLineStart { select } => {
-                let doc = self.doc_mut();
-                doc.cursors.move_to_line_start(&doc.buffer, select);
+                if self.word_wrap {
+                    let max_cols = self.active_max_cols();
+                    let doc = self.doc_mut();
+                    crate::editor::wrap::WordWrap::move_to_line_start(&mut doc.cursors, &doc.buffer, max_cols, select);
+                } else {
+                    let doc = self.doc_mut();
+                    doc.cursors.move_to_line_start(&doc.buffer, select);
+                }
             }
             EditorAction::MoveLineEnd { select } => {
-                let doc = self.doc_mut();
-                doc.cursors.move_to_line_end(&doc.buffer, select);
+                if self.word_wrap {
+                    let max_cols = self.active_max_cols();
+                    let doc = self.doc_mut();
+                    crate::editor::wrap::WordWrap::move_to_line_end(&mut doc.cursors, &doc.buffer, max_cols, select);
+                } else {
+                    let doc = self.doc_mut();
+                    doc.cursors.move_to_line_end(&doc.buffer, select);
+                }
             }
 
             // Multi-cursors
@@ -976,6 +1005,10 @@ impl Editor {
                 self.trigger_autocomplete(true);
             }
 
+            EditorAction::ToggleWordWrap => {
+                self.toggle_word_wrap();
+            }
+
             EditorAction::ToggleMinimap => {
                 self.toggle_minimap();
             }
@@ -1032,6 +1065,75 @@ impl Editor {
     pub fn toggle_git_gutter(&mut self) {
         self.config.gui.git_gutter = !self.config.gui.git_gutter;
         self.set_status(format!("Git Gutter {}", if self.config.gui.git_gutter { "activado" } else { "desactivado" }));
+    }
+
+    /// Returns the active column width available for text wrapping.
+    #[inline]
+    pub fn active_max_cols(&self) -> usize {
+        self.last_code_cols.max(10)
+    }
+
+    /// Toggles visual word wrap on/off and persists the preference.
+    pub fn toggle_word_wrap(&mut self) {
+        self.word_wrap = !self.word_wrap;
+        self.config.editor.word_wrap = self.word_wrap;
+        let _ = self.config.save();
+        self.set_status(format!(
+            "Ajuste de línea (Word Wrap): {}",
+            if self.word_wrap { "ACTIVADO [Alt+Z]" } else { "DESACTIVADO [Alt+Z]" }
+        ));
+    }
+
+    /// Helper to resolve mouse click coordinates to a character offset with or without word wrap.
+    pub fn find_click_position(
+        doc: &Document,
+        row: usize,
+        x: usize,
+        text_start_x: usize,
+        char_w: usize,
+        word_wrap: bool,
+        code_cols: usize,
+    ) -> Option<usize> {
+        let total_lines = doc.buffer.len_lines();
+        if !word_wrap {
+            let target_line = doc.scroll_row + row;
+            if target_line < total_lines {
+                let col = if x >= text_start_x {
+                    (x - text_start_x) / char_w + doc.scroll_col
+                } else {
+                    0
+                };
+                let pos = Position::new(target_line, col);
+                Some(doc.buffer.position_to_char(pos))
+            } else {
+                None
+            }
+        } else {
+            let mut current_vrow = 0;
+            let mut cur_line = doc.scroll_row;
+            let mut cur_sub = doc.scroll_subline;
+
+            while cur_line < total_lines && current_vrow <= row {
+                let line_cow = doc.buffer.line_cow(cur_line).unwrap_or(std::borrow::Cow::Borrowed(""));
+                let sublines = crate::editor::wrap::WordWrap::compute_sublines(&line_cow, code_cols);
+                for s_idx in cur_sub..sublines.len() {
+                    if current_vrow == row {
+                        let vcol = if x >= text_start_x {
+                            (x - text_start_x) / char_w
+                        } else {
+                            0
+                        };
+                        let col = crate::editor::wrap::WordWrap::visual_to_col(s_idx, vcol, &sublines);
+                        let pos = Position::new(cur_line, col);
+                        return Some(doc.buffer.position_to_char(pos));
+                    }
+                    current_vrow += 1;
+                }
+                cur_line += 1;
+                cur_sub = 0;
+            }
+            None
+        }
     }
 
     /// Toggles visibility of the code minimap.
@@ -2995,6 +3097,7 @@ impl Editor {
         renderer.sdf_font_rendering = self.config.gui.sdf_font_rendering;
         renderer.optical_punctuation_spacing = self.config.gui.optical_punctuation_spacing;
         renderer.use_ttf_font = self.config.gui.use_ttf_font;
+        renderer.word_wrap = self.word_wrap;
         fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
         fb.use_ttf_font = self.config.gui.use_ttf_font;
         if !self.config.gui.ttf_font_path.trim().is_empty() {
@@ -3036,6 +3139,11 @@ impl Editor {
 
         while !self.should_quit && !window.should_close() {
             // Check dynamic config changes
+            if renderer.word_wrap != self.word_wrap {
+                renderer.word_wrap = self.word_wrap;
+                needs_redraw = true;
+                adjust_viewport = true;
+            }
             if self.config.theme.name != active_theme_name {
                 renderer.colors = crate::gfx::ThemeColors::by_name(&self.config.theme.name);
                 active_theme_name = self.config.theme.name.clone();
@@ -3848,16 +3956,10 @@ impl Editor {
                                                 };
                                                 let line_height = renderer.line_height();
                                                 let row = (y - content_y_start) / line_height;
-                                                let target_line = self.doc().scroll_row + row;
-                                                if target_line < total_lines {
-                                                    let text_start_x = p0_geom.x + gutter_width + renderer.char_width();
-                                                    let col = if x >= text_start_x {
-                                                        (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
-                                                    } else {
-                                                        0
-                                                    };
-                                                    let pos = Position::new(target_line, col);
-                                                    let char_offset = self.doc().buffer.position_to_char(pos);
+                                                let text_start_x = p0_geom.x + gutter_width + renderer.char_width();
+                                                let code_width = max_code_x.saturating_sub(text_start_x);
+                                                let code_cols = (code_width / renderer.char_width()).max(10);
+                                                if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
                                                     self.doc_mut().cursors.set_single(char_offset);
                                                     adjust_viewport = true;
                                                     needs_redraw = true;
@@ -3902,16 +4004,10 @@ impl Editor {
                                                 };
                                                 let line_height = renderer.line_height();
                                                 let row = (y - content_y_start) / line_height;
-                                                let target_line = self.doc().scroll_row + row;
-                                                if target_line < total_lines {
-                                                    let text_start_x = p1_geom.x + gutter_width + renderer.char_width();
-                                                    let col = if x >= text_start_x {
-                                                        (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
-                                                    } else {
-                                                        0
-                                                    };
-                                                    let pos = Position::new(target_line, col);
-                                                    let char_offset = self.doc().buffer.position_to_char(pos);
+                                                let text_start_x = p1_geom.x + gutter_width + renderer.char_width();
+                                                let code_width = max_code_x.saturating_sub(text_start_x);
+                                                let code_cols = (code_width / renderer.char_width()).max(10);
+                                                if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
                                                     self.doc_mut().cursors.set_single(char_offset);
                                                     adjust_viewport = true;
                                                     needs_redraw = true;
@@ -3994,16 +4090,10 @@ impl Editor {
                                                     self.sidebar.is_focused = false;
                                                     let line_height = renderer.line_height();
                                                     let row = (y - content_y_start) / line_height;
-                                                    let target_line = self.doc().scroll_row + row;
-                                                    if target_line < total_lines {
-                                                        let text_start_x = sidebar_w + gutter_width + renderer.char_width();
-                                                        let col = if x >= text_start_x {
-                                                            (x - text_start_x) / renderer.char_width() + self.doc().scroll_col
-                                                        } else {
-                                                            0
-                                                        };
-                                                        let pos = Position::new(target_line, col);
-                                                        let char_offset = self.doc().buffer.position_to_char(pos);
+                                                    let text_start_x = sidebar_w + gutter_width + renderer.char_width();
+                                                    let code_width = max_code_x.saturating_sub(text_start_x);
+                                                    let code_cols = (code_width / renderer.char_width()).max(10);
+                                                    if let Some(char_offset) = Self::find_click_position(self.doc(), row, x, text_start_x, renderer.char_width(), self.word_wrap, code_cols) {
                                                         self.doc_mut().cursors.set_single(char_offset);
                                                         adjust_viewport = true;
                                                     }
@@ -4267,7 +4357,24 @@ impl Editor {
                                 }
                                 adjust_viewport = false;
                             } else {
-                                self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
+                                if !self.word_wrap {
+                                    self.doc_mut().scroll_row = self.doc().scroll_row.saturating_sub(3);
+                                } else {
+                                    let max_cols = self.last_code_cols.max(10);
+                                    let doc = self.doc_mut();
+                                    for _ in 0..3 {
+                                        if doc.scroll_subline > 0 {
+                                            doc.scroll_subline -= 1;
+                                        } else if doc.scroll_row > 0 {
+                                            doc.scroll_row -= 1;
+                                            let line_cow = doc.buffer.line_cow(doc.scroll_row).unwrap_or(std::borrow::Cow::Borrowed(""));
+                                            let sublines = crate::editor::wrap::WordWrap::compute_sublines(&line_cow, max_cols);
+                                            doc.scroll_subline = sublines.len().saturating_sub(1);
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                }
                                 adjust_viewport = false;
                             }
                         }
@@ -4327,7 +4434,25 @@ impl Editor {
                                 }
                                 adjust_viewport = false;
                             } else {
-                                self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
+                                if !self.word_wrap {
+                                    self.doc_mut().scroll_row = (self.doc().scroll_row + 3).min(self.doc().buffer.len_lines().saturating_sub(1));
+                                } else {
+                                    let max_cols = self.last_code_cols.max(10);
+                                    let total_lines = self.doc().buffer.len_lines();
+                                    let doc = self.doc_mut();
+                                    for _ in 0..3 {
+                                        let line_cow = doc.buffer.line_cow(doc.scroll_row).unwrap_or(std::borrow::Cow::Borrowed(""));
+                                        let sublines = crate::editor::wrap::WordWrap::compute_sublines(&line_cow, max_cols);
+                                        if doc.scroll_subline + 1 < sublines.len() {
+                                            doc.scroll_subline += 1;
+                                        } else if doc.scroll_row + 1 < total_lines {
+                                            doc.scroll_row += 1;
+                                            doc.scroll_subline = 0;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                }
                                 adjust_viewport = false;
                             }
                         }
@@ -4355,7 +4480,7 @@ impl Editor {
                                     's' => self.menu_bar.active_category = Some(2),
                                     'v' => self.menu_bar.active_category = Some(3),
                                     'y' => self.menu_bar.active_category = Some(4),
-                                    _ => {}
+                                    _ => self.handle_key(key),
                                 }
                             }
                             _ => {
@@ -4441,20 +4566,27 @@ impl Editor {
                 (vl, vc)
             };
 
+            self.last_code_cols = visible_cols.max(10);
+
             if adjust_viewport {
                 let doc = &mut self.documents[active_idx];
-                if visible_lines > 0 {
-                    if primary_pos.line < doc.scroll_row {
-                        doc.scroll_row = primary_pos.line;
-                    } else if primary_pos.line >= doc.scroll_row + visible_lines {
-                        doc.scroll_row = primary_pos.line - visible_lines + 1;
+                if self.word_wrap {
+                    doc.scroll_col = 0;
+                    crate::editor::wrap::WordWrap::adjust_viewport(doc, visible_lines, self.last_code_cols);
+                } else {
+                    if visible_lines > 0 {
+                        if primary_pos.line < doc.scroll_row {
+                            doc.scroll_row = primary_pos.line;
+                        } else if primary_pos.line >= doc.scroll_row + visible_lines {
+                            doc.scroll_row = primary_pos.line - visible_lines + 1;
+                        }
                     }
-                }
-                if visible_cols > 0 {
-                    if primary_pos.col < doc.scroll_col {
-                        doc.scroll_col = primary_pos.col;
-                    } else if primary_pos.col >= doc.scroll_col + visible_cols {
-                        doc.scroll_col = primary_pos.col - visible_cols + 1;
+                    if visible_cols > 0 {
+                        if primary_pos.col < doc.scroll_col {
+                            doc.scroll_col = primary_pos.col;
+                        } else if primary_pos.col >= doc.scroll_col + visible_cols {
+                            doc.scroll_col = primary_pos.col - visible_cols + 1;
+                        }
                     }
                 }
                 adjust_viewport = false;

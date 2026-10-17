@@ -13,6 +13,7 @@ pub mod git;
 pub mod session;
 pub mod terminal_panel;
 pub mod font_selector;
+pub mod wrap;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -29,3 +30,4 @@ pub use git::{GitManager, GitFileStatus, GitLineStatus, GitGutterDiff};
 pub use session::{SessionManager, SessionState, TabSession};
 pub use terminal_panel::TerminalPanel;
 pub use font_selector::{FontSelectorDialog, AVAILABLE_SIZES, AVAILABLE_SPACINGS};
+pub use wrap::{WordWrap, SublineInfo};

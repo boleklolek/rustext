@@ -73,6 +73,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Pestaña Anterior", shortcut: "PageUp", action: EditorAction::PrevTab },
         CommandItem { name: "Ver: Alternar Explorador Lateral", shortcut: "Ctrl+B", action: EditorAction::ToggleSidebar },
         CommandItem { name: "Ver: Actualizar Árbol del Explorador", shortcut: "", action: EditorAction::RefreshSidebar },
+        CommandItem { name: "Ver: Alternar Ajuste de Línea (Word Wrap)", shortcut: "Alt+Z", action: EditorAction::ToggleWordWrap },
         CommandItem { name: "Ver: Alternar Minimapa", shortcut: "Ctrl+M", action: EditorAction::ToggleMinimap },
         CommandItem { name: "Ver: Alternar Terminal Integrado", shortcut: "Ctrl+`", action: EditorAction::ToggleTerminal },
         CommandItem { name: "Terminal: Limpiar Pantalla", shortcut: "Ctrl+L", action: EditorAction::ClearTerminal },

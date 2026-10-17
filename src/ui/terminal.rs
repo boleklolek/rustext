@@ -126,6 +126,8 @@ impl TerminalGuard {
                         b'F' => Ok(Key::End),
                         _ => Ok(Key::Esc),
                     }
+                } else if seq[0].is_ascii_alphanumeric() || seq[0] == b'\\' {
+                    Ok(Key::Alt(seq[0] as char))
                 } else {
                     Ok(Key::Esc)
                 }
