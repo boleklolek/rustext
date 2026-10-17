@@ -4680,5 +4680,153 @@ fn test_current_line_highlight_and_column_rulers() {
     assert_eq!(app.config.editor.rulers, vec![80, 120]);
 }
 
+#[test]
+fn test_sticky_scroll_scope_hierarchy_and_limits() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::folding::FoldingManager;
+
+    let code = r#"// Line 0: file header
+mod engine {
+    struct State {
+        x: i32,
+    }
+
+    fn run() {
+        if true {
+            let a = 1;
+            let b = 2;
+            let c = 3;
+        }
+    }
+}
+"#;
+    let buffer = TextBuffer::from_str(code);
+    let mut folding = FoldingManager::new();
+    folding.recompute_regions(&buffer, Language::Rust);
+    assert!(!folding.regions.is_empty());
+
+    // Line 0: top of buffer, no sticky lines
+    assert_eq!(folding.sticky_lines(0, 3), Vec::<usize>::new());
+
+    // Line 1: "mod engine {" is visible at the very top, so it is not sticky
+    assert_eq!(folding.sticky_lines(1, 3), Vec::<usize>::new());
+
+    // Line 3: "x: i32," -> enclosed by mod engine (line 1) and struct State (line 2)
+    assert_eq!(folding.sticky_lines(3, 3), vec![1, 2]);
+
+    // Line 8: "let a = 1;" -> enclosed by mod engine (1), fn run (6), and if true (7)
+    assert_eq!(folding.sticky_lines(8, 3), vec![1, 6, 7]);
+
+    // Test max_lines limit
+    assert_eq!(folding.sticky_lines(8, 2), vec![1, 6]);
+    assert_eq!(folding.sticky_lines(8, 1), vec![1]);
+    assert_eq!(folding.sticky_lines(8, 0), Vec::<usize>::new());
+
+    // Line 12: "}" closing fn run -> if true (7) has ended at 11, so only 1 and 6 remain
+    assert_eq!(folding.sticky_lines(12, 3), vec![1, 6]);
+
+    // Line 13: "}" closing mod engine -> fn run (6) has ended at 12, so only 1 remains
+    assert_eq!(folding.sticky_lines(13, 3), vec![1]);
+
+    // When folded, the region is not active in sticky scroll
+    assert!(folding.toggle_fold_at_line(6));
+    // When line 6 is folded, line 8 is hidden in folded block, line 6 is omitted
+    let sticky = folding.sticky_lines(8, 3);
+    assert!(!sticky.contains(&6));
+}
+
+#[test]
+fn test_sticky_scroll_gui_rendering_and_interaction() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::document::Document;
+    use rustext::editor::app::Editor;
+    use rustext::editor::keymap::EditorAction;
+    use rustext::gfx::framebuffer::Framebuffer;
+    use rustext::gfx::renderer::GfxRenderer;
+
+    let code = r#"// Line 0: comments
+mod server {
+    fn handle_req() {
+        let x = 1;
+        let y = 2;
+        let z = 3;
+        let w = 4;
+        let v = 5;
+    }
+}
+"#;
+    let mut doc = Document::new(TextBuffer::from_str(code));
+    doc.language = Language::Rust;
+    doc.update_folding();
+    doc.scroll_row = 5; // inside fn handle_req (line 2) and mod server (line 1)
+
+    let sticky = doc.folding.sticky_lines(doc.scroll_row, 3);
+    assert_eq!(sticky, vec![1, 2]);
+
+    let mut renderer = GfxRenderer::new();
+    renderer.sticky_scroll = true;
+    renderer.max_sticky_lines = 3;
+
+    let mut fb = Framebuffer::new(320, 240);
+    let tabs = vec!["server.rs".to_string()];
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, None);
+
+    let char_w = renderer.char_width();
+    let line_h = renderer.line_height();
+    let content_y_start = renderer.tab_bar_height;
+    let gutter_cols = doc.buffer.len_lines().to_string().len().max(3);
+    let gutter_w = (gutter_cols + 2) * char_w;
+
+    // Check sticky header background is drawn for row 0 (line 1)
+    let test_x = gutter_w + 10 * char_w;
+    let row0_y = content_y_start + line_h / 2;
+    let pixel_row0 = fb.get_pixel(test_x, row0_y);
+    assert_eq!(pixel_row0, renderer.colors.sticky_header_bg, "Sticky header row 0 must have sticky_header_bg");
+
+    // Check sticky header row 1 (line 2: "fn handle_req() {")
+    let row1_y = content_y_start + line_h + line_h / 2;
+    let pixel_row1 = fb.get_pixel(test_x, row1_y);
+    assert_eq!(pixel_row1, renderer.colors.sticky_header_bg, "Sticky header row 1 must have sticky_header_bg");
+
+    // Check sticky bottom border at end of sticky block (row 1 bottom) has accent color
+    let border_y = content_y_start + 2 * line_h - 1;
+    let pixel_border = fb.get_pixel(test_x, border_y);
+    assert_eq!(pixel_border, renderer.colors.accent, "Last sticky line bottom border must be accent color");
+
+    // Test Action Toggle
+    let mut app = Editor::new(TextBuffer::from_str(code));
+    app.doc_mut().language = Language::Rust;
+    app.doc_mut().update_folding();
+    app.doc_mut().scroll_row = 5;
+
+    assert!(app.config.editor.sticky_scroll);
+    app.execute_action(EditorAction::ToggleStickyScroll);
+    assert!(!app.config.editor.sticky_scroll);
+    app.execute_action(EditorAction::ToggleStickyScroll);
+    assert!(app.config.editor.sticky_scroll);
+
+    // Test mouse click jump on sticky header
+    // Row 0 of code canvas corresponds to sticky header for line 1 ("mod server {")
+    let (adj, red) = app.handle_code_canvas_click(0, test_x, gutter_w + char_w, char_w, 40);
+    assert!(adj && red);
+    assert_eq!(app.doc().scroll_row, 1, "Clicking row 0 sticky header must jump scroll_row to line 1");
+    let pos = app.doc().buffer.char_to_position(app.doc().cursors.primary().head);
+    assert_eq!(pos.line, 1, "Cursor must be placed at sticky header line 1");
+
+    // Test Config parsing and serialization roundtrip
+    let ini_custom = r#"[editor]
+sticky_scroll = false
+max_sticky_lines = 5
+"#;
+    let parsed_cfg = rustext::editor::config::EditorConfig::parse(ini_custom);
+    assert!(!parsed_cfg.editor.sticky_scroll);
+    assert_eq!(parsed_cfg.editor.max_sticky_lines, 5);
+    let serialized = parsed_cfg.to_ini_string();
+    assert!(serialized.contains("sticky_scroll = false"));
+    assert!(serialized.contains("max_sticky_lines = 5"));
+}
+
 
 

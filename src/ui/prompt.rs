@@ -77,6 +77,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Ver: Alternar Guías de Indentación (Indent Guides)", shortcut: "Alt+I", action: EditorAction::ToggleIndentGuides },
         CommandItem { name: "Ver: Alternar Resaltado de Línea Actual", shortcut: "", action: EditorAction::ToggleHighlightCurrentLine },
         CommandItem { name: "Ver: Alternar Líneas Guía de Límite (Rulers 80/120)", shortcut: "", action: EditorAction::ToggleRulers },
+        CommandItem { name: "Ver: Alternar Encabezados Fijos (Sticky Scroll)", shortcut: "", action: EditorAction::ToggleStickyScroll },
         CommandItem { name: "Ver: Plegar/Desplegar Bloque (Toggle Fold)", shortcut: "Alt+[", action: EditorAction::ToggleFold },
         CommandItem { name: "Ver: Plegar Todo (Fold All)", shortcut: "Alt+0", action: EditorAction::FoldAll },
         CommandItem { name: "Ver: Desplegar Todo (Unfold All)", shortcut: "Alt+J", action: EditorAction::UnfoldAll },

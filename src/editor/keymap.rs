@@ -89,6 +89,7 @@ pub enum EditorAction {
     // Ergonomic Visual Guides
     ToggleHighlightCurrentLine,
     ToggleRulers,
+    ToggleStickyScroll,
     // Code Folding
     ToggleFold,
     FoldAll,

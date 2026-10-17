@@ -60,6 +60,7 @@ pub struct ThemeColors {
     // Ergonomic Visual Editing
     pub current_line_bg: u32,
     pub ruler_color: u32,
+    pub sticky_header_bg: u32,
 }
 
 impl ThemeColors {
@@ -107,6 +108,7 @@ impl ThemeColors {
             bracket_2: 0x007DCFFF,
             current_line_bg: 0x001F2335,
             ruler_color: 0x0024283B,
+            sticky_header_bg: 0x001F2335,
         }
     }
 
@@ -154,6 +156,7 @@ impl ThemeColors {
             bracket_2: 0x0089DCEB,
             current_line_bg: 0x0026283D,
             ruler_color: 0x00313244,
+            sticky_header_bg: 0x0024273A,
         }
     }
 
@@ -201,6 +204,7 @@ impl ThemeColors {
             bracket_2: 0x0061AFEF,
             current_line_bg: 0x002C313C,
             ruler_color: 0x003E4451,
+            sticky_header_bg: 0x00252931,
         }
     }
 
@@ -248,6 +252,7 @@ impl ThemeColors {
             bracket_2: 0x00179FFF,
             current_line_bg: 0x00282828,
             ruler_color: 0x00333333,
+            sticky_header_bg: 0x00252526,
         }
     }
 
@@ -295,6 +300,7 @@ impl ThemeColors {
             bracket_2: 0x0066D9EF,
             current_line_bg: 0x003E3D32,
             ruler_color: 0x003E3D32,
+            sticky_header_bg: 0x0032332D,
         }
     }
 
@@ -342,6 +348,7 @@ impl ThemeColors {
             bracket_2: 0x002AA198,
             current_line_bg: 0x00073642,
             ruler_color: 0x00073642,
+            sticky_header_bg: 0x0009313C,
         }
     }
 
@@ -389,6 +396,7 @@ impl ThemeColors {
             bracket_2: 0x00008B8B,
             current_line_bg: 0x00F0F2F5,
             ruler_color: 0x00E5E7EB,
+            sticky_header_bg: 0x00ECEFF4,
         }
     }
 
@@ -608,6 +616,8 @@ pub struct GfxRenderer {
     pub highlight_active_indent_guide: bool,
     pub highlight_current_line: bool,
     pub rulers: Vec<usize>,
+    pub sticky_scroll: bool,
+    pub max_sticky_lines: usize,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -668,6 +678,8 @@ impl GfxRenderer {
             highlight_active_indent_guide: true,
             highlight_current_line: true,
             rulers: vec![80, 120],
+            sticky_scroll: true,
+            max_sticky_lines: 3,
         }
     }
 
@@ -1632,6 +1644,73 @@ impl GfxRenderer {
         prev_indent.min(next_indent)
     }
 
+    /// Renders sticky scope headers pinned at the top of the editor pane (`content_y`).
+    /// Returns the number of sticky lines rendered.
+    pub fn render_sticky_scroll(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        pane_x: usize,
+        content_y: usize,
+        gutter_w: usize,
+        gutter_cols: usize,
+        max_code_x: usize,
+        line_height: usize,
+    ) -> usize {
+        if !self.sticky_scroll || self.max_sticky_lines == 0 || doc.scroll_row == 0 {
+            return 0;
+        }
+
+        let sticky_lines = doc.folding.sticky_lines(doc.scroll_row, self.max_sticky_lines);
+        if sticky_lines.is_empty() {
+            return 0;
+        }
+
+        let total_lines = doc.buffer.len_lines();
+        let char_w = self.char_width();
+        let count = sticky_lines.len();
+
+        for (idx, &line_idx) in sticky_lines.iter().enumerate() {
+            if line_idx >= total_lines {
+                continue;
+            }
+
+            let py = content_y + idx * line_height;
+            let text_y = py + self.line_spacing / 2;
+            let row_w = max_code_x.saturating_sub(pane_x);
+
+            // 1. Draw sticky row background across the code canvas
+            fb.fill_rect(pane_x, py, row_w, line_height, self.colors.sticky_header_bg);
+
+            // 2. Gutter area background & separator
+            if self.show_line_numbers && gutter_w > 0 {
+                fb.fill_rect(pane_x, py, gutter_w, line_height, self.colors.gutter_bg);
+                fb.fill_rect(pane_x + gutter_w.saturating_sub(1), py, 1, line_height, self.colors.gutter_border);
+
+                // Gutter line number with sticky accent highlight
+                let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                fb.draw_text(&num_str, pane_x + char_w, text_y, self.colors.accent, None);
+            }
+
+            // 3. Render syntax highlighted code tokens
+            let text_start_x = pane_x + gutter_w + char_w;
+            let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+            let tokens = crate::core::syntax::SyntaxHighlighter::tokenize_line(&line_cow, doc.language);
+            self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.sticky_header_bg);
+
+            // 4. Row separator (gutter_border) or bottom border on the last sticky line (accent)
+            let is_last = idx + 1 == count;
+            let border_color = if is_last {
+                self.colors.accent
+            } else {
+                self.colors.gutter_border
+            };
+            fb.fill_rect(pane_x, py + line_height.saturating_sub(1), row_w, 1, border_color);
+        }
+
+        count
+    }
+
     /// Renders an individual editor pane (header, gutter, code lines, minimap, scrollbar, focus outline).
     pub fn render_editor_pane(
         &self,
@@ -2210,6 +2289,18 @@ impl GfxRenderer {
                 screen_row += 1;
             }
         }
+
+        // 5b. Sticky Scroll Scope Headers
+        self.render_sticky_scroll(
+            fb,
+            doc,
+            pane_x,
+            content_y,
+            gutter_w,
+            gutter_cols,
+            max_code_x,
+            line_height,
+        );
 
         // 6. Minimap
         if let Some(mg) = mini_geom {
@@ -2802,6 +2893,18 @@ impl GfxRenderer {
                     screen_row += 1;
                 }
             }
+
+            // 7b. Sticky Scroll Scope Headers
+            self.render_sticky_scroll(
+                fb,
+                doc,
+                canvas_x_start,
+                content_y_start,
+                gutter_width,
+                gutter_cols,
+                max_code_x,
+                line_height,
+            );
 
             // 8a. Draw Minimap if enabled
             if minimap_w > 0 {

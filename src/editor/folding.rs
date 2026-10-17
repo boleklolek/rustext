@@ -428,4 +428,42 @@ impl FoldingManager {
             None
         }
     }
+
+    /// Returns the 0-indexed line numbers of active scope headers that enclose `scroll_row`
+    /// but have scrolled above the visible viewport (`start_line < scroll_row <= end_line`).
+    ///
+    /// The scopes are sorted ascending by `start_line` (from outermost scope to innermost scope)
+    /// and capped at `max_lines`.
+    pub fn sticky_lines(&self, scroll_row: usize, max_lines: usize) -> Vec<usize> {
+        if !self.enabled || max_lines == 0 || scroll_row == 0 {
+            return Vec::new();
+        }
+
+        let mut scopes: Vec<&FoldRegion> = self
+            .regions
+            .iter()
+            .filter(|r| !r.is_folded && r.start_line < scroll_row && r.end_line >= scroll_row)
+            .collect();
+
+        // Sort by start_line ascending (outermost to innermost).
+        // If two regions share the same start_line, pick the larger end_line (outermost).
+        scopes.sort_by(|a, b| {
+            if a.start_line == b.start_line {
+                b.end_line.cmp(&a.end_line)
+            } else {
+                a.start_line.cmp(&b.start_line)
+            }
+        });
+
+        let mut result = Vec::with_capacity(max_lines.min(scopes.len()));
+        for r in scopes {
+            if !result.contains(&r.start_line) {
+                result.push(r.start_line);
+                if result.len() == max_lines {
+                    break;
+                }
+            }
+        }
+        result
+    }
 }

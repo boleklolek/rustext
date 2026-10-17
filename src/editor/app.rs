@@ -1078,6 +1078,9 @@ impl Editor {
             EditorAction::ToggleRulers => {
                 self.toggle_rulers();
             }
+            EditorAction::ToggleStickyScroll => {
+                self.toggle_sticky_scroll();
+            }
 
             EditorAction::ToggleMinimap => {
                 self.toggle_minimap();
@@ -1231,6 +1234,16 @@ impl Editor {
         ));
     }
 
+    /// Toggles sticky scroll scope headers on/off and persists the preference.
+    pub fn toggle_sticky_scroll(&mut self) {
+        self.config.editor.sticky_scroll = !self.config.editor.sticky_scroll;
+        let _ = self.config.save();
+        self.set_status(format!(
+            "Encabezados fijos de ámbito (Sticky Scroll): {}",
+            if self.config.editor.sticky_scroll { "ACTIVADOS" } else { "DESACTIVADOS" }
+        ));
+    }
+
     /// Helper to resolve mouse click coordinates to a character offset with or without word wrap.
     pub fn find_click_position(
         doc: &Document,
@@ -1296,6 +1309,19 @@ impl Editor {
         char_w: usize,
         code_cols: usize,
     ) -> (bool, bool) {
+        // 0. Sticky Scroll header jump: clicking a pinned scope header jumps directly to that line
+        if self.config.editor.sticky_scroll && self.doc().scroll_row > 0 {
+            let sticky_lines = self.doc().folding.sticky_lines(self.doc().scroll_row, self.config.editor.max_sticky_lines);
+            if row < sticky_lines.len() {
+                let target_line = sticky_lines[row];
+                let char_offset = self.doc().buffer.position_to_char(crate::core::buffer::Position::new(target_line, 0));
+                self.doc_mut().cursors.set_single(char_offset);
+                self.doc_mut().scroll_row = target_line;
+                self.set_status(format!("Saltó al encabezado fijo en línea {}", target_line + 1));
+                return (true, true);
+            }
+        }
+
         let total_lines = self.doc().buffer.len_lines();
         let target_line = if !self.word_wrap {
             self.doc().folding.visible_line_for_screen_row(self.doc().scroll_row, row, total_lines)
@@ -3320,6 +3346,8 @@ impl Editor {
         renderer.highlight_active_indent_guide = self.config.editor.highlight_active_indent_guide;
         renderer.highlight_current_line = self.config.editor.highlight_current_line;
         renderer.rulers = self.config.editor.rulers.clone();
+        renderer.sticky_scroll = self.config.editor.sticky_scroll;
+        renderer.max_sticky_lines = self.config.editor.max_sticky_lines;
         fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
         fb.use_ttf_font = self.config.gui.use_ttf_font;
         if !self.config.gui.ttf_font_path.trim().is_empty() {
@@ -3394,6 +3422,14 @@ impl Editor {
             }
             if renderer.rulers != self.config.editor.rulers {
                 renderer.rulers = self.config.editor.rulers.clone();
+                needs_redraw = true;
+            }
+            if renderer.sticky_scroll != self.config.editor.sticky_scroll {
+                renderer.sticky_scroll = self.config.editor.sticky_scroll;
+                needs_redraw = true;
+            }
+            if renderer.max_sticky_lines != self.config.editor.max_sticky_lines {
+                renderer.max_sticky_lines = self.config.editor.max_sticky_lines;
                 needs_redraw = true;
             }
             if self.config.gui != active_gui_settings {
@@ -4817,8 +4853,13 @@ impl Editor {
                     crate::editor::wrap::WordWrap::adjust_viewport(doc, visible_lines, self.last_code_cols);
                 } else {
                     if visible_lines > 0 {
-                        if primary_pos.line < doc.scroll_row {
-                            doc.scroll_row = primary_pos.line;
+                        let sticky_count = if self.config.editor.sticky_scroll {
+                            doc.folding.sticky_lines(doc.scroll_row, self.config.editor.max_sticky_lines).len()
+                        } else {
+                            0
+                        };
+                        if primary_pos.line < doc.scroll_row + sticky_count {
+                            doc.scroll_row = primary_pos.line.saturating_sub(sticky_count);
                         } else if primary_pos.line >= doc.scroll_row + visible_lines {
                             doc.scroll_row = primary_pos.line - visible_lines + 1;
                         }
@@ -4867,6 +4908,10 @@ impl Editor {
             } else {
                 None
             };
+
+            for doc in &mut self.documents {
+                doc.update_folding();
+            }
 
             let primary_doc = if self.split.is_split() {
                 &self.documents[self.split.primary_doc_idx.min(self.documents.len().saturating_sub(1))]

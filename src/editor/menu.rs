@@ -102,6 +102,7 @@ impl MenuBar {
                     MenuItem::action("Guías de Indentación", "Alt+I", EditorAction::ToggleIndentGuides),
                     MenuItem::action("Resaltar Línea Actual", "", EditorAction::ToggleHighlightCurrentLine),
                     MenuItem::action("Líneas Guía (Rulers)", "", EditorAction::ToggleRulers),
+                    MenuItem::action("Encabezados Fijos (Sticky Scroll)", "", EditorAction::ToggleStickyScroll),
                     MenuItem::action("Plegar/Desplegar Bloque", "Alt+[", EditorAction::ToggleFold),
                     MenuItem::action("Plegar Todo", "Alt+0", EditorAction::FoldAll),
                     MenuItem::action("Desplegar Todo", "Alt+J", EditorAction::UnfoldAll),

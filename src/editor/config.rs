@@ -64,6 +64,8 @@ pub struct EditorSettings {
     pub highlight_active_indent_guide: bool,
     pub highlight_current_line: bool,
     pub rulers: Vec<usize>,
+    pub sticky_scroll: bool,
+    pub max_sticky_lines: usize,
 }
 
 impl Default for EditorSettings {
@@ -88,6 +90,8 @@ impl Default for EditorSettings {
             highlight_active_indent_guide: true,
             highlight_current_line: true,
             rulers: vec![80, 120],
+            sticky_scroll: true,
+            max_sticky_lines: 3,
         }
     }
 }
@@ -275,6 +279,12 @@ highlight_current_line = true
 ; Columnas con líneas guía de límite de código (separadas por comas, e.g. 80, 120)
 rulers = 80, 120
 
+; Fijar encabezados de ámbito/funciones en la parte superior al desplazarse (Sticky Scroll)
+sticky_scroll = true
+
+; Número máximo de encabezados de ámbito simultáneos en Sticky Scroll (1 a 10)
+max_sticky_lines = 3
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -407,6 +417,8 @@ indent_guides = {}
 highlight_active_indent_guide = {}
 highlight_current_line = {}
 rulers = {}
+sticky_scroll = {}
+max_sticky_lines = {}
 
 [theme]
 name = {}
@@ -473,6 +485,8 @@ ttf_font_path = {}
             self.editor.highlight_active_indent_guide,
             self.editor.highlight_current_line,
             self.editor.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
+            self.editor.sticky_scroll,
+            self.editor.max_sticky_lines,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -654,6 +668,16 @@ ttf_font_path = {}
                                 .filter_map(|s| s.trim().parse::<usize>().ok())
                                 .collect();
                             config.editor.rulers = list;
+                        }
+                        "sticky_scroll" => {
+                            if let Some(b) = as_bool {
+                                config.editor.sticky_scroll = b;
+                            }
+                        }
+                        "max_sticky_lines" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.editor.max_sticky_lines = n.clamp(1, 10);
+                            }
                         }
                         _ => {}
                     },
