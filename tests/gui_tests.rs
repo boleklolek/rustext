@@ -4475,4 +4475,125 @@ fn test_code_folding_gui_rendering_and_actions() {
     assert_eq!(doc.folding.hidden_line_count(), 0);
 }
 
+#[test]
+fn test_indent_guides_calculation_and_blank_lines() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::gfx::GfxRenderer;
+
+    let content = "fn main() {\n    let a = 1;\n\n        let b = 2;\n\t\tlet c = 3;\n}\n";
+    let doc = Document::new(TextBuffer::from_str(content));
+
+    // Line 0: "fn main() {" -> 0 spaces
+    assert_eq!(GfxRenderer::line_indent_spaces(&doc, 0, 4), 0);
+    assert!(!GfxRenderer::is_blank_line(&doc, 0));
+
+    // Line 1: "    let a = 1;" -> 4 spaces
+    assert_eq!(GfxRenderer::line_indent_spaces(&doc, 1, 4), 4);
+    assert!(!GfxRenderer::is_blank_line(&doc, 1));
+
+    // Line 2: "" -> blank line, blank_line_indent should infer min(prev=4, next=8) = 4
+    assert!(GfxRenderer::is_blank_line(&doc, 2));
+    assert_eq!(GfxRenderer::blank_line_indent(&doc, 2, 4), 4);
+
+    // Line 3: "        let b = 2;" -> 8 spaces
+    assert_eq!(GfxRenderer::line_indent_spaces(&doc, 3, 4), 8);
+    assert!(!GfxRenderer::is_blank_line(&doc, 3));
+
+    // Line 4: "\t\tlet c = 3;" -> 2 tabs * 4 = 8 spaces
+    assert_eq!(GfxRenderer::line_indent_spaces(&doc, 4, 4), 8);
+    // with tab_size 2 -> 4 spaces
+    assert_eq!(GfxRenderer::line_indent_spaces(&doc, 4, 2), 4);
+}
+
+#[test]
+fn test_indent_guides_rendering_and_active_highlight() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::editor::keymap::{EditorAction, Keymap};
+    use rustext::ui::terminal::Key;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    // Verify keymap binding
+    assert_eq!(Keymap::resolve_key(Key::Alt('i')), EditorAction::ToggleIndentGuides);
+    assert_eq!(Keymap::resolve_key(Key::Alt('I')), EditorAction::ToggleIndentGuides);
+
+    let content = "fn test() {\n    let val = 100;\n\n    let val2 = 200;\n}\n";
+    let mut doc = Document::new(TextBuffer::from_str(content));
+    // Cursor at line 1 ("    let val = 100;")
+    doc.cursors = rustext::core::cursor::CursorSet::single(16);
+
+    let mut fb = Framebuffer::new(400, 300);
+    let mut renderer = GfxRenderer::new();
+    renderer.show_line_numbers = true;
+    renderer.indent_guides = true;
+    renderer.highlight_active_indent_guide = true;
+    renderer.tab_size = 4;
+
+    let tabs = vec!["test.rs".to_string()];
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, None);
+
+    // Line 1 is indented with 4 spaces.
+    // Indent guide at column 0 should be rendered.
+    // Check that active guide color (gutter_fg) or normal guide color (gutter_border) exists in the indent columns
+    let gutter_cols = doc.buffer.len_lines().to_string().len().max(3);
+    let gutter_w = (gutter_cols + 2) * renderer.char_width();
+    let text_start_x = gutter_w + renderer.char_width();
+    let guide_0_x = text_start_x; // col 0 guide
+
+    let tab_h = 24; // logical tab bar height
+    let line_h = renderer.line_height();
+
+    // Verify that guide pixel at col 0 is rendered on line 1 and blank line 2
+    let mut line1_has_guide = false;
+    for y in (tab_h + line_h)..(tab_h + line_h * 2) {
+        let p = fb.get_pixel(guide_0_x, y);
+        if p == renderer.colors.gutter_fg || p == renderer.colors.gutter_border {
+            line1_has_guide = true;
+            break;
+        }
+    }
+    assert!(line1_has_guide, "Indent guide must be rendered at col 0 for indented line 1");
+
+    let mut line2_blank_has_guide = false;
+    for y in (tab_h + line_h * 2)..(tab_h + line_h * 3) {
+        let p = fb.get_pixel(guide_0_x, y);
+        if p == renderer.colors.gutter_fg || p == renderer.colors.gutter_border {
+            line2_blank_has_guide = true;
+            break;
+        }
+    }
+    assert!(line2_blank_has_guide, "Indent guide must seamlessly span across blank line 2");
+
+    // Test with indent_guides disabled
+    let mut fb_no_guides = Framebuffer::new(400, 300);
+    renderer.indent_guides = false;
+    renderer.render(&mut fb_no_guides, &doc, &tabs, 0, None, None, None);
+    let mut no_guide_present = true;
+    for y in (tab_h + line_h * 2)..(tab_h + line_h * 3) {
+        let p = fb_no_guides.get_pixel(guide_0_x, y);
+        if p == renderer.colors.gutter_fg || p == renderer.colors.gutter_border {
+            no_guide_present = false;
+            break;
+        }
+    }
+    assert!(no_guide_present, "When indent_guides is disabled, no guide pixel should be rendered on blank line");
+
+    // Also test word wrap rendering with indent guides enabled
+    renderer.indent_guides = true;
+    renderer.word_wrap = true;
+    let mut fb_wrap = Framebuffer::new(400, 300);
+    renderer.render(&mut fb_wrap, &doc, &tabs, 0, None, None, None);
+    let mut wrap_has_guide = false;
+    for y in (tab_h + line_h)..(tab_h + line_h * 2) {
+        let p = fb_wrap.get_pixel(guide_0_x, y);
+        if p == renderer.colors.gutter_fg || p == renderer.colors.gutter_border {
+            wrap_has_guide = true;
+            break;
+        }
+    }
+    assert!(wrap_has_guide, "Indent guide must render correctly in word wrap mode");
+}
+
+
 

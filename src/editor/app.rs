@@ -1069,6 +1069,9 @@ impl Editor {
             EditorAction::ToggleWordWrap => {
                 self.toggle_word_wrap();
             }
+            EditorAction::ToggleIndentGuides => {
+                self.toggle_indent_guides();
+            }
 
             EditorAction::ToggleMinimap => {
                 self.toggle_minimap();
@@ -1185,6 +1188,16 @@ impl Editor {
         self.set_status(format!(
             "Ajuste de línea (Word Wrap): {}",
             if self.word_wrap { "ACTIVADO [Alt+Z]" } else { "DESACTIVADO [Alt+Z]" }
+        ));
+    }
+
+    /// Toggles visual indentation guides on/off and persists the preference.
+    pub fn toggle_indent_guides(&mut self) {
+        self.config.editor.indent_guides = !self.config.editor.indent_guides;
+        let _ = self.config.save();
+        self.set_status(format!(
+            "Guías de indentación: {}",
+            if self.config.editor.indent_guides { "ACTIVADAS [Alt+I]" } else { "DESACTIVADAS [Alt+I]" }
         ));
     }
 
@@ -3272,6 +3285,9 @@ impl Editor {
         renderer.optical_punctuation_spacing = self.config.gui.optical_punctuation_spacing;
         renderer.use_ttf_font = self.config.gui.use_ttf_font;
         renderer.word_wrap = self.word_wrap;
+        renderer.tab_size = self.config.editor.tab_size;
+        renderer.indent_guides = self.config.editor.indent_guides;
+        renderer.highlight_active_indent_guide = self.config.editor.highlight_active_indent_guide;
         fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
         fb.use_ttf_font = self.config.gui.use_ttf_font;
         if !self.config.gui.ttf_font_path.trim().is_empty() {
@@ -3326,6 +3342,18 @@ impl Editor {
             if self.config.editor.show_line_numbers != active_show_line_numbers {
                 renderer.show_line_numbers = self.config.editor.show_line_numbers;
                 active_show_line_numbers = self.config.editor.show_line_numbers;
+                needs_redraw = true;
+            }
+            if renderer.indent_guides != self.config.editor.indent_guides {
+                renderer.indent_guides = self.config.editor.indent_guides;
+                needs_redraw = true;
+            }
+            if renderer.highlight_active_indent_guide != self.config.editor.highlight_active_indent_guide {
+                renderer.highlight_active_indent_guide = self.config.editor.highlight_active_indent_guide;
+                needs_redraw = true;
+            }
+            if renderer.tab_size != self.config.editor.tab_size {
+                renderer.tab_size = self.config.editor.tab_size;
                 needs_redraw = true;
             }
             if self.config.gui != active_gui_settings {

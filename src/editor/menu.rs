@@ -99,6 +99,7 @@ impl MenuBar {
                     MenuItem::action("Explorador Lateral", "Ctrl+B", EditorAction::ToggleSidebar),
                     MenuItem::action("Actualizar Explorador", "", EditorAction::RefreshSidebar),
                     MenuItem::action("Ajuste de Línea (Word Wrap)", "Alt+Z", EditorAction::ToggleWordWrap),
+                    MenuItem::action("Guías de Indentación", "Alt+I", EditorAction::ToggleIndentGuides),
                     MenuItem::action("Plegar/Desplegar Bloque", "Alt+[", EditorAction::ToggleFold),
                     MenuItem::action("Plegar Todo", "Alt+0", EditorAction::FoldAll),
                     MenuItem::action("Desplegar Todo", "Alt+J", EditorAction::UnfoldAll),

@@ -84,6 +84,8 @@ pub enum EditorAction {
     ClearTerminal,
     // Word Wrap (Soft Wrap)
     ToggleWordWrap,
+    // Indent Guides
+    ToggleIndentGuides,
     // Code Folding
     ToggleFold,
     FoldAll,
@@ -100,6 +102,9 @@ impl Keymap {
         match key {
             // Word wrap (Alt+Z)
             Key::Alt('z') | Key::Alt('Z') => EditorAction::ToggleWordWrap,
+
+            // Indent guides (Alt+I)
+            Key::Alt('i') | Key::Alt('I') => EditorAction::ToggleIndentGuides,
 
             // Code folding (Alt+[, Ctrl+Shift+[, F9 for toggle; Alt+0 fold all; Alt+J unfold all)
             Key::Alt('[') | Key::CtrlShift('[') | Key::CtrlShift('{') | Key::F(9) => EditorAction::ToggleFold,

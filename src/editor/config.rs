@@ -60,6 +60,8 @@ pub struct EditorSettings {
     pub max_recent_files: usize,
     pub word_wrap: bool,
     pub code_folding: bool,
+    pub indent_guides: bool,
+    pub highlight_active_indent_guide: bool,
 }
 
 impl Default for EditorSettings {
@@ -80,6 +82,8 @@ impl Default for EditorSettings {
             max_recent_files: 20,
             word_wrap: false,
             code_folding: true,
+            indent_guides: true,
+            highlight_active_indent_guide: true,
         }
     }
 }
@@ -255,6 +259,12 @@ word_wrap = false
 ; Plegado de código sintáctico e indentación con indicadores en el gutter (Code Folding)
 code_folding = true
 
+; Guías de indentación visuales verticales (Indent Guides)
+indent_guides = true
+
+; Resaltar la guía de indentación del bloque activo bajo el cursor
+highlight_active_indent_guide = true
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -383,6 +393,8 @@ hot_exit = {}
 max_recent_files = {}
 word_wrap = {}
 code_folding = {}
+indent_guides = {}
+highlight_active_indent_guide = {}
 
 [theme]
 name = {}
@@ -445,6 +457,8 @@ ttf_font_path = {}
             self.editor.max_recent_files,
             self.editor.word_wrap,
             self.editor.code_folding,
+            self.editor.indent_guides,
+            self.editor.highlight_active_indent_guide,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -603,6 +617,16 @@ ttf_font_path = {}
                         "code_folding" => {
                             if let Some(b) = as_bool {
                                 config.editor.code_folding = b;
+                            }
+                        }
+                        "indent_guides" => {
+                            if let Some(b) = as_bool {
+                                config.editor.indent_guides = b;
+                            }
+                        }
+                        "highlight_active_indent_guide" => {
+                            if let Some(b) = as_bool {
+                                config.editor.highlight_active_indent_guide = b;
                             }
                         }
                         _ => {}

@@ -74,6 +74,7 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Ver: Alternar Explorador Lateral", shortcut: "Ctrl+B", action: EditorAction::ToggleSidebar },
         CommandItem { name: "Ver: Actualizar Árbol del Explorador", shortcut: "", action: EditorAction::RefreshSidebar },
         CommandItem { name: "Ver: Alternar Ajuste de Línea (Word Wrap)", shortcut: "Alt+Z", action: EditorAction::ToggleWordWrap },
+        CommandItem { name: "Ver: Alternar Guías de Indentación (Indent Guides)", shortcut: "Alt+I", action: EditorAction::ToggleIndentGuides },
         CommandItem { name: "Ver: Plegar/Desplegar Bloque (Toggle Fold)", shortcut: "Alt+[", action: EditorAction::ToggleFold },
         CommandItem { name: "Ver: Plegar Todo (Fold All)", shortcut: "Alt+0", action: EditorAction::FoldAll },
         CommandItem { name: "Ver: Desplegar Todo (Unfold All)", shortcut: "Alt+J", action: EditorAction::UnfoldAll },

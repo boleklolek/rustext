@@ -586,6 +586,9 @@ pub struct GfxRenderer {
     pub optical_punctuation_spacing: bool,
     pub use_ttf_font: bool,
     pub word_wrap: bool,
+    pub tab_size: usize,
+    pub indent_guides: bool,
+    pub highlight_active_indent_guide: bool,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -641,6 +644,9 @@ impl GfxRenderer {
             optical_punctuation_spacing: true,
             use_ttf_font: false,
             word_wrap: false,
+            tab_size: 4,
+            indent_guides: true,
+            highlight_active_indent_guide: true,
         }
     }
 
@@ -1550,6 +1556,61 @@ impl GfxRenderer {
         );
     }
 
+    /// Computes the leading indentation in spaces for a line (expanding tabs).
+    pub fn line_indent_spaces(doc: &Document, line_idx: usize, tab_size: usize) -> usize {
+        let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+        let mut spaces = 0;
+        let ts = tab_size.max(1);
+        for ch in line_cow.chars() {
+            if ch == ' ' {
+                spaces += 1;
+            } else if ch == '\t' {
+                spaces += ts;
+            } else {
+                break;
+            }
+        }
+        spaces
+    }
+
+    /// Checks if a line is empty or contains only whitespace.
+    pub fn is_blank_line(doc: &Document, line_idx: usize) -> bool {
+        let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+        line_cow.trim().is_empty()
+    }
+
+    /// Determines the inferred indentation of a blank line by checking nearby non-blank lines.
+    pub fn blank_line_indent(doc: &Document, line_idx: usize, tab_size: usize) -> usize {
+        let total_lines = doc.buffer.len_lines();
+        let mut prev_indent = 0;
+        let mut p = line_idx;
+        while p > 0 {
+            p -= 1;
+            if !Self::is_blank_line(doc, p) {
+                prev_indent = Self::line_indent_spaces(doc, p, tab_size);
+                break;
+            }
+            if line_idx - p > 20 {
+                break;
+            }
+        }
+
+        let mut next_indent = 0;
+        let mut n = line_idx + 1;
+        while n < total_lines {
+            if !Self::is_blank_line(doc, n) {
+                next_indent = Self::line_indent_spaces(doc, n, tab_size);
+                break;
+            }
+            if n - line_idx > 20 {
+                break;
+            }
+            n += 1;
+        }
+
+        prev_indent.min(next_indent)
+    }
+
     /// Renders an individual editor pane (header, gutter, code lines, minimap, scrollbar, focus outline).
     pub fn render_editor_pane(
         &self,
@@ -1649,6 +1710,56 @@ impl GfxRenderer {
             }
         }
 
+        // Compute active indent guide based on primary cursor position
+        let effective_tab_size = self.tab_size.max(1);
+        let (active_guide_col, active_guide_start_line, active_guide_end_line) = if self.highlight_active_indent_guide && is_active {
+            let cursor_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+            let cur_indent = if Self::is_blank_line(doc, cursor_pos.line) {
+                Self::blank_line_indent(doc, cursor_pos.line, effective_tab_size)
+            } else {
+                Self::line_indent_spaces(doc, cursor_pos.line, effective_tab_size)
+            };
+            if cur_indent >= effective_tab_size {
+                let guide_col = ((cur_indent.saturating_sub(1)) / effective_tab_size) * effective_tab_size;
+                let mut start_l = cursor_pos.line;
+                while start_l > 0 {
+                    let prev = start_l - 1;
+                    if !Self::is_blank_line(doc, prev) {
+                        let ind = Self::line_indent_spaces(doc, prev, effective_tab_size);
+                        if ind < guide_col + effective_tab_size {
+                            start_l = prev;
+                            break;
+                        }
+                    }
+                    start_l = prev;
+                    if cursor_pos.line - start_l > 500 {
+                        break;
+                    }
+                }
+                let mut end_l = cursor_pos.line;
+                let total_l = doc.buffer.len_lines();
+                while end_l + 1 < total_l {
+                    let next = end_l + 1;
+                    if !Self::is_blank_line(doc, next) {
+                        let ind = Self::line_indent_spaces(doc, next, effective_tab_size);
+                        if ind < guide_col + effective_tab_size {
+                            end_l = next;
+                            break;
+                        }
+                    }
+                    end_l = next;
+                    if end_l - cursor_pos.line > 500 {
+                        break;
+                    }
+                }
+                (Some(guide_col), start_l, end_l)
+            } else {
+                (None, 0, 0)
+            }
+        } else {
+            (None, 0, 0)
+        };
+
         if !self.word_wrap {
             let mut current_line = doc.scroll_row;
             while current_line > 0 && doc.folding.is_line_hidden(current_line) {
@@ -1731,6 +1842,30 @@ impl GfxRenderer {
                                 if sx < max_code_x {
                                     let sw = ((sel_col_end - sel_col_start) * self.char_width()).min(max_code_x - sx);
                                     fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
+                                }
+                            }
+                        }
+                    }
+
+                    // Indent Guides (vertical lines at tab stops)
+                    if self.indent_guides {
+                        let is_blank = Self::is_blank_line(doc, line_idx);
+                        let indent_spaces = if is_blank {
+                            Self::blank_line_indent(doc, line_idx, effective_tab_size)
+                        } else {
+                            Self::line_indent_spaces(doc, line_idx, effective_tab_size)
+                        };
+                        let num_guides = indent_spaces / effective_tab_size;
+                        for g in 0..num_guides {
+                            let g_col = g * effective_tab_size;
+                            if g_col >= doc.scroll_col {
+                                let gx = text_start_x + (g_col - doc.scroll_col) * self.char_width();
+                                if gx >= text_start_x && gx < max_code_x {
+                                    let is_active = active_guide_col == Some(g_col)
+                                        && line_idx >= active_guide_start_line
+                                        && line_idx <= active_guide_end_line;
+                                    let color = if is_active { self.colors.gutter_fg } else { self.colors.gutter_border };
+                                    fb.fill_rect(gx, py, 1, line_height, color);
                                 }
                             }
                         }
@@ -1888,6 +2023,28 @@ impl GfxRenderer {
                                     let sw = ((overlap_end - overlap_start) * self.char_width()).min(max_code_x - sx);
                                     fb.fill_rect(sx, py, sw, line_height, self.colors.selection_bg);
                                 }
+                            }
+                        }
+                    }
+
+                    // Indent Guides (vertical lines at tab stops)
+                    if self.indent_guides && !sub.is_continuation {
+                        let is_blank = Self::is_blank_line(doc, line_idx);
+                        let indent_spaces = if is_blank {
+                            Self::blank_line_indent(doc, line_idx, effective_tab_size)
+                        } else {
+                            Self::line_indent_spaces(doc, line_idx, effective_tab_size)
+                        };
+                        let num_guides = indent_spaces / effective_tab_size;
+                        for g in 0..num_guides {
+                            let g_col = g * effective_tab_size;
+                            let gx = text_start_x + g_col * self.char_width();
+                            if gx >= text_start_x && gx < max_code_x {
+                                let is_active = active_guide_col == Some(g_col)
+                                    && line_idx >= active_guide_start_line
+                                    && line_idx <= active_guide_end_line;
+                                let color = if is_active { self.colors.gutter_fg } else { self.colors.gutter_border };
+                                fb.fill_rect(gx, py, 1, line_height, color);
                             }
                         }
                     }
@@ -2102,9 +2259,64 @@ impl GfxRenderer {
                 canvas_x_start + self.scale_coord(8)
             };
 
+            // Compute active indent guide based on primary cursor position
+            let effective_tab_size = self.tab_size.max(1);
+            let (active_guide_col, active_guide_start_line, active_guide_end_line) = if self.highlight_active_indent_guide {
+                let cursor_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+                let cur_indent = if Self::is_blank_line(doc, cursor_pos.line) {
+                    Self::blank_line_indent(doc, cursor_pos.line, effective_tab_size)
+                } else {
+                    Self::line_indent_spaces(doc, cursor_pos.line, effective_tab_size)
+                };
+                if cur_indent >= effective_tab_size {
+                    let guide_col = ((cur_indent.saturating_sub(1)) / effective_tab_size) * effective_tab_size;
+                    let mut start_l = cursor_pos.line;
+                    while start_l > 0 {
+                        let prev = start_l - 1;
+                        if !Self::is_blank_line(doc, prev) {
+                            let ind = Self::line_indent_spaces(doc, prev, effective_tab_size);
+                            if ind < guide_col + effective_tab_size {
+                                start_l = prev;
+                                break;
+                            }
+                        }
+                        start_l = prev;
+                        if cursor_pos.line - start_l > 500 {
+                            break;
+                        }
+                    }
+                    let mut end_l = cursor_pos.line;
+                    let total_l = doc.buffer.len_lines();
+                    while end_l + 1 < total_l {
+                        let next = end_l + 1;
+                        if !Self::is_blank_line(doc, next) {
+                            let ind = Self::line_indent_spaces(doc, next, effective_tab_size);
+                            if ind < guide_col + effective_tab_size {
+                                end_l = next;
+                                break;
+                            }
+                        }
+                        end_l = next;
+                        if end_l - cursor_pos.line > 500 {
+                            break;
+                        }
+                    }
+                    (Some(guide_col), start_l, end_l)
+                } else {
+                    (None, 0, 0)
+                }
+            } else {
+                (None, 0, 0)
+            };
+
             if !self.word_wrap {
+                let mut current_line = doc.scroll_row;
+                while current_line > 0 && doc.folding.is_line_hidden(current_line) {
+                    current_line = doc.folding.prev_visible_line(current_line);
+                }
+
                 for row in 0..visible_lines {
-                    let line_idx = doc.scroll_row + row;
+                    let line_idx = current_line;
                     let py = content_y_start + row * line_height;
                     let text_y = py + self.line_spacing / 2;
 
@@ -2122,6 +2334,20 @@ impl GfxRenderer {
 
                             if let Some(b) = badge {
                                 fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
+                            }
+
+                            // Code folding indicator in gutter
+                            if doc.folding.enabled {
+                                let fold_x = canvas_x_start + (gutter_cols + 1) * self.char_width();
+                                match doc.folding.is_fold_start(line_idx) {
+                                    Some(true) => {
+                                        fb.draw_char('▶', fold_x, text_y, self.colors.accent, None);
+                                    }
+                                    Some(false) => {
+                                        fb.draw_char('▼', fold_x, text_y, self.colors.gutter_fg, None);
+                                    }
+                                    None => {}
+                                }
                             }
 
                             // Git Gutter diff indicator bar
@@ -2144,7 +2370,8 @@ impl GfxRenderer {
                             }
                         }
 
-                        let line_text = doc.buffer.line(line_idx).unwrap_or_default();
+                        let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+                        let line_text: &str = &line_cow;
 
                         for &(start, end) in &selections {
                             if line_idx >= start.line && line_idx <= end.line {
@@ -2165,8 +2392,43 @@ impl GfxRenderer {
                             }
                         }
 
-                        let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                        // Indent Guides (vertical lines at tab stops)
+                        if self.indent_guides {
+                            let is_blank = Self::is_blank_line(doc, line_idx);
+                            let indent_spaces = if is_blank {
+                                Self::blank_line_indent(doc, line_idx, effective_tab_size)
+                            } else {
+                                Self::line_indent_spaces(doc, line_idx, effective_tab_size)
+                            };
+                            let num_guides = indent_spaces / effective_tab_size;
+                            for g in 0..num_guides {
+                                let g_col = g * effective_tab_size;
+                                if g_col >= doc.scroll_col {
+                                    let gx = text_start_x + (g_col - doc.scroll_col) * self.char_width();
+                                    if gx >= text_start_x && gx < max_code_x {
+                                        let is_active = active_guide_col == Some(g_col)
+                                            && line_idx >= active_guide_start_line
+                                            && line_idx <= active_guide_end_line;
+                                        let color = if is_active { self.colors.gutter_fg } else { self.colors.gutter_border };
+                                        fb.fill_rect(gx, py, 1, line_height, color);
+                                    }
+                                }
+                            }
+                        }
+
+                        let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
                         self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+
+                        // Folded line indicator badge: " ··· "
+                        if doc.folding.fold_end_for_line(line_idx).is_some() {
+                            let text_chars = line_text.chars().count();
+                            let badge_x = text_start_x + text_chars * self.char_width() + 6;
+                            if badge_x + self.char_width() * 4 < max_code_x {
+                                let badge_w = self.char_width() * 5;
+                                fb.fill_rect(badge_x, py + 2, badge_w, line_height.saturating_sub(4), self.colors.gutter_bg);
+                                fb.draw_text(" ··· ", badge_x, text_y, self.colors.accent, None);
+                            }
+                        }
 
                         for pos in &cursor_positions {
                             if pos.line == line_idx && pos.col >= doc.scroll_col {
@@ -2188,6 +2450,14 @@ impl GfxRenderer {
                                 }
                             }
                         }
+
+                        // Advance to next visible line for the next screen row
+                        let next = doc.folding.next_visible_line(current_line, total_lines);
+                        if next <= current_line {
+                            current_line = total_lines;
+                        } else {
+                            current_line = next;
+                        }
                     } else if self.show_line_numbers {
                         fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
                     }
@@ -2197,6 +2467,9 @@ impl GfxRenderer {
                 let max_cols = (code_width / self.char_width()).max(10);
                 let mut screen_row = 0;
                 let mut line_idx = doc.scroll_row;
+                while line_idx > 0 && doc.folding.is_line_hidden(line_idx) {
+                    line_idx = doc.folding.prev_visible_line(line_idx);
+                }
                 let mut start_sub_idx = doc.scroll_subline;
 
                 while screen_row < visible_lines && line_idx < total_lines {
@@ -2233,6 +2506,20 @@ impl GfxRenderer {
 
                                 if let Some(b) = badge {
                                     fb.draw_text(b, canvas_x_start + 2, text_y, fg_col, None);
+                                }
+
+                                // Code folding indicator in gutter
+                                if doc.folding.enabled {
+                                    let fold_x = canvas_x_start + (gutter_cols + 1) * self.char_width();
+                                    match doc.folding.is_fold_start(line_idx) {
+                                        Some(true) => {
+                                            fb.draw_char('▶', fold_x, text_y, self.colors.accent, None);
+                                        }
+                                        Some(false) => {
+                                            fb.draw_char('▼', fold_x, text_y, self.colors.gutter_fg, None);
+                                        }
+                                        None => {}
+                                    }
                                 }
 
                                 if self.git_gutter_enabled {
@@ -2276,6 +2563,28 @@ impl GfxRenderer {
                             }
                         }
 
+                        // Indent Guides (vertical lines at tab stops)
+                        if self.indent_guides && !sub.is_continuation {
+                            let is_blank = Self::is_blank_line(doc, line_idx);
+                            let indent_spaces = if is_blank {
+                                Self::blank_line_indent(doc, line_idx, effective_tab_size)
+                            } else {
+                                Self::line_indent_spaces(doc, line_idx, effective_tab_size)
+                            };
+                            let num_guides = indent_spaces / effective_tab_size;
+                            for g in 0..num_guides {
+                                let g_col = g * effective_tab_size;
+                                let gx = text_start_x + g_col * self.char_width();
+                                if gx >= text_start_x && gx < max_code_x {
+                                    let is_active = active_guide_col == Some(g_col)
+                                        && line_idx >= active_guide_start_line
+                                        && line_idx <= active_guide_end_line;
+                                    let color = if is_active { self.colors.gutter_fg } else { self.colors.gutter_border };
+                                    fb.fill_rect(gx, py, 1, line_height, color);
+                                }
+                            }
+                        }
+
                         // Subline Tokens
                         let mut sub_tokens = Vec::new();
                         let mut tok_byte_offset = 0;
@@ -2296,6 +2605,17 @@ impl GfxRenderer {
                         }
 
                         self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
+
+                        // Folded line indicator badge: " ··· "
+                        if sub_idx + 1 == sublines.len() && doc.folding.fold_end_for_line(line_idx).is_some() {
+                            let text_chars = sub.len_chars();
+                            let badge_x = text_start_x + text_chars * self.char_width() + 6;
+                            if badge_x + self.char_width() * 4 < max_code_x {
+                                let badge_w = self.char_width() * 5;
+                                fb.fill_rect(badge_x, py + 2, badge_w, line_height.saturating_sub(4), self.colors.gutter_bg);
+                                fb.draw_text(" ··· ", badge_x, text_y, self.colors.accent, None);
+                            }
+                        }
 
                         // Cursors
                         for pos in &cursor_positions {
@@ -2329,7 +2649,12 @@ impl GfxRenderer {
                         screen_row += 1;
                     }
 
-                    line_idx += 1;
+                    let next = doc.folding.next_visible_line(line_idx, total_lines);
+                    if next <= line_idx {
+                        line_idx = total_lines;
+                    } else {
+                        line_idx = next;
+                    }
                     start_sub_idx = 0;
                 }
 
