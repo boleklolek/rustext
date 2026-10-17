@@ -404,6 +404,60 @@ impl PieceTable {
         result
     }
 
+    /// Extracts a string slice for the character range [start..end], returning Cow::Borrowed if the
+    /// range falls entirely within a single piece (zero-copy), or Cow::Owned if spanning pieces.
+    pub fn slice_chars_cow<'a>(&'a self, start: usize, end: usize) -> std::borrow::Cow<'a, str> {
+        let start = start.min(self.total_chars);
+        let end = end.min(self.total_chars);
+
+        if start >= end {
+            return std::borrow::Cow::Borrowed("");
+        }
+
+        let mut accum_chars = 0;
+        for piece in &self.pieces {
+            let piece_start = accum_chars;
+            let piece_end = accum_chars + piece.char_len;
+            accum_chars = piece_end;
+
+            if piece_end <= start || piece_start >= end {
+                continue;
+            }
+
+            // Zero-copy fast path: the entire requested range resides within this single piece
+            if start >= piece_start && end <= piece_end {
+                let text = self.piece_text(piece);
+                let piece_slice_start = start - piece_start;
+                let piece_slice_end = end - piece_start;
+                let byte_start = self.byte_offset_for_char(piece, piece_slice_start);
+                let byte_end = if piece_slice_end == piece_slice_start {
+                    byte_start
+                } else if piece.length == piece.char_len {
+                    piece_slice_end
+                } else {
+                    let delta_chars = piece_slice_end - piece_slice_start;
+                    let text_from_start = &text[byte_start..];
+                    let mut delta_bytes = text_from_start.len();
+                    let mut c = 0;
+                    for (b_idx, _) in text_from_start.char_indices() {
+                        if c == delta_chars {
+                            delta_bytes = b_idx;
+                            break;
+                        }
+                        c += 1;
+                    }
+                    byte_start + delta_bytes
+                };
+                return std::borrow::Cow::Borrowed(&text[byte_start..byte_end]);
+            }
+
+            // If the range crosses multiple pieces, fall back to allocated concatenation
+            return std::borrow::Cow::Owned(self.slice_chars(start, end));
+        }
+
+        std::borrow::Cow::Borrowed("")
+    }
+
     /// Returns the complete buffer content as a String.
     pub fn to_string(&self) -> String {
         let total_bytes = self.len_bytes();

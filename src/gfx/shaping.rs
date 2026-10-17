@@ -145,67 +145,79 @@ impl FontShaper {
         let scale = scale.max(1);
         let cell_w = cell_w.max(1);
         let cell_h = cell_h.max(1);
-        let mut result = Vec::new();
-        let chars: Vec<char> = text.chars().collect();
-        let mut i = 0;
+        let mut result = Vec::with_capacity(text.len());
+        let bytes = text.as_bytes();
+        let text_len = text.len();
+        let mut byte_idx = 0;
 
-        while i < chars.len() {
-            let slice: String = chars[i..].iter().collect();
+        while byte_idx < text_len {
+            let remainder = &text[byte_idx..];
 
             // 1. Check for programming ligatures if enabled
             if enable_ligatures {
-                if let Some((lig, len)) = LigatureKind::match_prefix(&slice) {
-                    let mut shaped = Self::rasterize_ligature(lig, scale);
-                    let target_w = cell_w * lig.char_length();
-                    let target_h = cell_h;
-                    if shaped.width != target_w || shaped.height != target_h {
-                        let mut resampled = vec![0u8; target_w * target_h];
-                        for y in 0..target_h {
-                            let src_y = (y * shaped.height) / target_h;
-                            for x in 0..target_w {
-                                let src_x = (x * shaped.width) / target_w;
-                                resampled[y * target_w + x] = shaped.coverage[src_y * shaped.width + src_x];
+                let first_b = bytes[byte_idx];
+                if matches!(first_b, b'=' | b'!' | b'.' | b'-' | b'>' | b'<' | b':' | b'&' | b'|' | b'/' | b'*' | b'+') {
+                    if let Some((lig, _)) = LigatureKind::match_prefix(remainder) {
+                        let mut shaped = Self::rasterize_ligature(lig, scale);
+                        let target_w = cell_w * lig.char_length();
+                        let target_h = cell_h;
+                        if shaped.width != target_w || shaped.height != target_h {
+                            let mut resampled = vec![0u8; target_w * target_h];
+                            for y in 0..target_h {
+                                let src_y = (y * shaped.height) / target_h;
+                                for x in 0..target_w {
+                                    let src_x = (x * shaped.width) / target_w;
+                                    resampled[y * target_w + x] = shaped.coverage[src_y * shaped.width + src_x];
+                                }
                             }
+                            shaped.width = target_w;
+                            shaped.height = target_h;
+                            shaped.coverage = resampled;
                         }
-                        shaped.width = target_w;
-                        shaped.height = target_h;
-                        shaped.coverage = resampled;
+                        byte_idx += lig.char_length();
+                        result.push(shaped);
+                        continue;
                     }
-                    result.push(shaped);
-                    i += len;
+                }
+            }
+
+            // 2. Extract current character
+            let ch = remainder.chars().next().unwrap_or(' ');
+            let ch_len = ch.len_utf8();
+            byte_idx += ch_len;
+
+            // Check for combining diacritics
+            if byte_idx < text_len {
+                let next_ch = text[byte_idx..].chars().next().unwrap_or(' ');
+                if Self::is_combining_mark(next_ch) {
+                    let combined_ch = Self::compose_diacritic(ch, next_ch);
+                    let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(combined_ch, family, cell_w, cell_h, weight);
+                    byte_idx += next_ch.len_utf8();
+                    let mut cluster = String::with_capacity(ch_len + next_ch.len_utf8());
+                    cluster.push(ch);
+                    cluster.push(next_ch);
+                    result.push(ShapedGlyph {
+                        cluster,
+                        advance_cells: 1,
+                        width: w,
+                        height: h,
+                        coverage: cov,
+                        is_ligature: false,
+                    });
                     continue;
                 }
             }
 
-            // 2. Check for combining diacritics (base char + combining mark)
-            let base_char = chars[i];
-            if i + 1 < chars.len() && Self::is_combining_mark(chars[i + 1]) {
-                let mark = chars[i + 1];
-                let combined_ch = Self::compose_diacritic(base_char, mark);
-                let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(combined_ch, family, cell_w, cell_h, weight);
-                result.push(ShapedGlyph {
-                    cluster: format!("{}{}", base_char, mark),
-                    advance_cells: 1,
-                    width: w,
-                    height: h,
-                    coverage: cov,
-                    is_ligature: false,
-                });
-                i += 2;
-                continue;
-            }
-
             // 3. Standard single character
-            let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(base_char, family, cell_w, cell_h, weight);
+            let (w, h, cov) = FontRasterizer::rasterize_glyph_sized(ch, family, cell_w, cell_h, weight);
             result.push(ShapedGlyph {
-                cluster: base_char.to_string(),
+                cluster: ch.to_string(),
                 advance_cells: 1,
                 width: w,
                 height: h,
                 coverage: cov,
                 is_ligature: false,
             });
-            i += 1;
         }
 
         result

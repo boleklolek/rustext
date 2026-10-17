@@ -229,13 +229,67 @@ impl TextBuffer {
         line_start + col
     }
 
+    fn update_line_index_on_insert(&mut self, char_idx: usize, text: &str) {
+        let text_char_len = text.chars().count();
+        if text_char_len == 0 {
+            return;
+        }
+
+        let line_idx = match self.line_starts.binary_search(&char_idx) {
+            Ok(idx) => idx,
+            Err(idx) => idx.saturating_sub(1),
+        };
+
+        let mut new_lines = Vec::new();
+        let mut current_offset = char_idx;
+        for ch in text.chars() {
+            current_offset += 1;
+            if ch == '\n' {
+                new_lines.push(current_offset);
+            }
+        }
+
+        for start in &mut self.line_starts[line_idx + 1..] {
+            *start += text_char_len;
+        }
+
+        if !new_lines.is_empty() {
+            self.line_starts.splice(line_idx + 1..line_idx + 1, new_lines);
+        }
+    }
+
+    fn update_line_index_on_delete(&mut self, start_char: usize, end_char: usize) {
+        if start_char >= end_char {
+            return;
+        }
+        let deleted_char_len = end_char - start_char;
+
+        let first_to_remove = match self.line_starts.binary_search(&(start_char + 1)) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
+        let last_to_remove = match self.line_starts.binary_search(&(end_char + 1)) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
+
+        if first_to_remove < last_to_remove {
+            self.line_starts.drain(first_to_remove..last_to_remove);
+        }
+
+        for start in &mut self.line_starts[first_to_remove..] {
+            *start = start.saturating_sub(deleted_char_len);
+        }
+    }
+
     /// Inserts text at the given character offset.
     pub fn insert(&mut self, char_idx: usize, text: &str) {
         if text.is_empty() {
             return;
         }
-        self.table.insert(char_idx, text);
-        self.rebuild_line_index();
+        let clamped = char_idx.min(self.table.len_chars());
+        self.update_line_index_on_insert(clamped, text);
+        self.table.insert(clamped, text);
         self.is_dirty = true;
         self.version = self.version.wrapping_add(1);
     }
@@ -248,11 +302,14 @@ impl TextBuffer {
 
     /// Deletes character range [start_char..end_char].
     pub fn delete_range(&mut self, start_char: usize, end_char: usize) {
+        let total_chars = self.table.len_chars();
+        let start_char = start_char.min(total_chars);
+        let end_char = end_char.min(total_chars);
         if start_char >= end_char {
             return;
         }
+        self.update_line_index_on_delete(start_char, end_char);
         self.table.delete(start_char, end_char);
-        self.rebuild_line_index();
         self.is_dirty = true;
         self.version = self.version.wrapping_add(1);
     }
@@ -277,8 +334,8 @@ impl TextBuffer {
         self.table.len_bytes()
     }
 
-    /// Retrieves the content of a specific line as a String (excluding the trailing newline).
-    pub fn line(&self, line_idx: usize) -> Option<String> {
+    /// Retrieves the content of a specific line as a zero-copy Cow<str> (excluding trailing newline).
+    pub fn line_cow<'a>(&'a self, line_idx: usize) -> Option<std::borrow::Cow<'a, str>> {
         if line_idx >= self.line_starts.len() {
             return None;
         }
@@ -290,9 +347,28 @@ impl TextBuffer {
             self.table.len_chars()
         };
 
-        let raw = self.table.slice_chars(start, end);
-        let trimmed = raw.trim_end_matches(['\r', '\n']);
-        Some(trimmed.to_string())
+        let raw = self.table.slice_chars_cow(start, end);
+        match raw {
+            std::borrow::Cow::Borrowed(s) => {
+                let trimmed = s.strip_suffix('\n').unwrap_or(s);
+                let trimmed = trimmed.strip_suffix('\r').unwrap_or(trimmed);
+                Some(std::borrow::Cow::Borrowed(trimmed))
+            }
+            std::borrow::Cow::Owned(mut s) => {
+                if s.ends_with('\n') {
+                    s.pop();
+                    if s.ends_with('\r') {
+                        s.pop();
+                    }
+                }
+                Some(std::borrow::Cow::Owned(s))
+            }
+        }
+    }
+
+    /// Retrieves the content of a specific line as a String (excluding the trailing newline).
+    pub fn line(&self, line_idx: usize) -> Option<String> {
+        self.line_cow(line_idx).map(|c| c.into_owned())
     }
 
     /// Returns the length of a specific line in characters (excluding trailing newline).

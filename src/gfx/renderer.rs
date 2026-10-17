@@ -690,7 +690,11 @@ impl GfxRenderer {
         let mut col_accum = 0;
         let char_w = self.char_width();
         let glyph_w = self.glyph_width();
-        let line_chars: Vec<char> = tokens.iter().flat_map(|t| t.text.chars()).collect();
+        let line_chars: Option<Vec<char>> = if self.optical_punctuation_spacing {
+            Some(tokens.iter().flat_map(|t| t.text.chars()).collect())
+        } else {
+            None
+        };
         let mut char_idx_accum = 0;
 
         for token in tokens {
@@ -715,8 +719,13 @@ impl GfxRenderer {
                         let ch = glyph.cluster.chars().next().unwrap_or(' ');
                         let is_box = FontRasterizer::is_box_drawing(ch);
 
-                        let prev_char = if current_char_idx > 0 { line_chars.get(current_char_idx - 1).copied() } else { None };
-                        let next_char = line_chars.get(current_char_idx + cluster_len).copied();
+                        let (prev_char, next_char) = if let Some(ref lc) = line_chars {
+                            let p = if current_char_idx > 0 { lc.get(current_char_idx - 1).copied() } else { None };
+                            let n = lc.get(current_char_idx + cluster_len).copied();
+                            (p, n)
+                        } else {
+                            (None, None)
+                        };
 
                         let opt_offset = if self.optical_punctuation_spacing && !is_box && !glyph.is_ligature {
                             OpticalPunctuationSpacing::compute_optical_offset(prev_char, ch, next_char, char_w, self.font_scale)
@@ -1686,7 +1695,8 @@ impl GfxRenderer {
                 }
 
                 // Line Content
-                let line_text = doc.buffer.line(line_idx).unwrap_or_default();
+                let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
+                let line_text: &str = &line_cow;
 
                 // Selections
                 for &(start, end) in &selections {
@@ -1705,7 +1715,7 @@ impl GfxRenderer {
                 }
 
                 // Syntax Highlighted Tokens
-                let tokens = SyntaxHighlighter::tokenize_line(&line_text, doc.language);
+                let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
                 self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
 
                 // Cursors (only rendered if this pane is active)
