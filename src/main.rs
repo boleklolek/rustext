@@ -24,6 +24,18 @@ fn print_help() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install panic hook to restore terminal state if an unhandled panic occurs (SEC-06)
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
+        let mut stdout = std::io::stdout();
+        let _ = stdout.write_all(b"\x1b[?25h\x1b[0m\x1b[?1049l\r\n");
+        let _ = stdout.flush();
+        #[cfg(unix)]
+        let _ = std::process::Command::new("stty").arg("sane").status();
+        default_panic(info);
+    }));
+
     let raw_args: Vec<String> = env::args().skip(1).collect();
 
     if raw_args.iter().any(|a| a == "-h" || a == "--help") {

@@ -67,4 +67,6 @@ impl CocoaWindow {
     pub fn cancel_close(&mut self) {
         self.should_close = false;
     }
+
+    pub fn start_interactive_move(&mut self) {}
 }

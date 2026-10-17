@@ -69,7 +69,6 @@ impl TextBuffer {
         Ok(buf)
     }
 
-    /// Saves the buffer content to its associated file path.
     pub fn save(&mut self) -> io::Result<()> {
         if let Some(path) = &self.file_path {
             if let Some(parent) = path.parent() {
@@ -78,9 +77,25 @@ impl TextBuffer {
                 }
             }
             let content = self.to_string();
-            let mut file = fs::File::create(path)?;
-            file.write_all(content.as_bytes())?;
-            file.flush()?;
+
+            // Atomic saving: write to a temporary sibling file and atomically rename.
+            // This prevents data truncation and loss if a crash, power failure, or disk error occurs.
+            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            let tmp_path = parent_dir.join(format!(".{}.rustext_tmp_{}", filename, std::process::id()));
+
+            {
+                let mut file = fs::File::create(&tmp_path)?;
+                file.write_all(content.as_bytes())?;
+                file.flush()?;
+                let _ = file.sync_all();
+            }
+
+            if let Err(e) = fs::rename(&tmp_path, path) {
+                let _ = fs::remove_file(&tmp_path);
+                return Err(e);
+            }
+
             self.is_dirty = false;
             Ok(())
         } else {

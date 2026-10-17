@@ -80,13 +80,20 @@ impl Clipboard {
     }
 
     fn try_system_copy(text: &str) {
-        // Try wl-copy (Wayland) con argumento directo
-        if let Ok(status) = Command::new("wl-copy")
-            .arg(text)
-            .status()
+        // Try wl-copy (Wayland) via stdin to prevent ARG_MAX buffer limits and CLI injection (SEC-03)
+        if let Ok(mut child) = Command::new("wl-copy")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
         {
-            if status.success() {
-                return;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if let Ok(status) = child.wait() {
+                if status.success() {
+                    return;
+                }
             }
         }
 

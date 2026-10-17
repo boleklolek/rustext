@@ -297,12 +297,23 @@ impl Editor {
                         let ligatures = dialog.ligatures;
                         let antialiasing = dialog.antialiasing;
                         let hinting = dialog.hinting;
+                        let letter_spacing = dialog.letter_spacing;
+                        let font_aspect_ratio = dialog.font_aspect_ratio;
+                        let stem_darkening = dialog.stem_darkening;
                         self.config.gui.font_family = family.as_str().to_string();
                         self.config.gui.font_size = size;
                         self.config.gui.font_weight = weight.as_str().to_string();
                         self.config.gui.line_spacing = line_spacing;
                         self.config.gui.font_ligatures = ligatures;
                         self.config.gui.font_antialiasing = antialiasing;
+                        self.config.gui.letter_spacing = letter_spacing;
+                        self.config.gui.font_aspect_ratio = font_aspect_ratio;
+                        self.config.gui.stem_darkening = stem_darkening;
+                        self.config.gui.scale_factor = dialog.scale_factor;
+                        self.config.gui.ergonomic_scaling = dialog.ergonomic_scaling;
+                        self.config.gui.sdf_font_rendering = dialog.sdf_rendering;
+                        self.config.gui.optical_punctuation_spacing = dialog.optical_spacing;
+                        self.config.gui.use_ttf_font = dialog.use_ttf;
                         self.config.gui.font_hinting = match hinting {
                             crate::gfx::HintingLevel::None => "none".to_string(),
                             crate::gfx::HintingLevel::Slight => "slight".to_string(),
@@ -836,6 +847,14 @@ impl Editor {
                 let ligatures = self.config.gui.font_ligatures;
                 let antialiasing = self.config.gui.font_antialiasing;
                 let hinting = crate::gfx::HintingLevel::from_str(&self.config.gui.font_hinting);
+                let letter_spacing = self.config.gui.letter_spacing;
+                let font_aspect_ratio = self.config.gui.font_aspect_ratio;
+                let stem_darkening = self.config.gui.stem_darkening;
+                let scale_factor = self.config.gui.scale_factor;
+                let ergonomic_scaling = self.config.gui.ergonomic_scaling;
+                let sdf_rendering = self.config.gui.sdf_font_rendering;
+                let optical_spacing = self.config.gui.optical_punctuation_spacing;
+                let use_ttf = self.config.gui.use_ttf_font;
                 self.mode = EditorMode::FontSelector(crate::editor::font_selector::FontSelectorDialog::new(
                     family,
                     size,
@@ -844,6 +863,14 @@ impl Editor {
                     ligatures,
                     antialiasing,
                     hinting,
+                    letter_spacing,
+                    font_aspect_ratio,
+                    stem_darkening,
+                    scale_factor,
+                    ergonomic_scaling,
+                    sdf_rendering,
+                    optical_spacing,
+                    use_ttf,
                 ));
             }
 
@@ -2950,11 +2977,27 @@ impl Editor {
         renderer.smooth_shadows = self.config.gui.smooth_shadows;
         renderer.animation_enabled = self.config.gui.animation_enabled;
         renderer.edge_perception = self.config.gui.edge_perception;
+        renderer.sdf_font_rendering = self.config.gui.sdf_font_rendering;
+        renderer.optical_punctuation_spacing = self.config.gui.optical_punctuation_spacing;
+        renderer.use_ttf_font = self.config.gui.use_ttf_font;
+        fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
+        fb.use_ttf_font = self.config.gui.use_ttf_font;
+        if !self.config.gui.ttf_font_path.trim().is_empty() {
+            crate::gfx::ttf::SystemFontLoader::set_active_font(Some(&self.config.gui.ttf_font_path));
+        }
         self.sidebar.is_visible = self.config.gui.sidebar;
         self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
         renderer.minimap_enabled = self.config.gui.minimap;
         renderer.minimap_width = renderer.scale_coord(self.config.gui.minimap_width);
         self.terminal.height = renderer.scale_coord(self.config.gui.terminal_height);
+
+        #[cfg(target_os = "linux")]
+        let backend_info = format!("{} ({}x{} @ {:.1}x)", window.backend_name(), window.width, window.height, effective_scale);
+        #[cfg(not(target_os = "linux"))]
+        let backend_info = format!("{}x{} @ {:.1}x", window.width, window.height, effective_scale);
+
+        eprintln!("[Rustext] Ventana nativa iniciada: {}", backend_info);
+        self.set_status(format!("Rustext listo • {}", backend_info));
 
         let mut active_theme_name = self.config.theme.name.clone();
         let mut active_show_line_numbers = self.config.editor.show_line_numbers;
@@ -3016,6 +3059,22 @@ impl Editor {
                 renderer.edge_perception = self.config.gui.edge_perception;
                 renderer.subpixel_antialiasing = self.config.gui.subpixel_antialiasing;
                 fb.subpixel_antialiasing = self.config.gui.subpixel_antialiasing;
+                renderer.letter_spacing = self.config.gui.letter_spacing;
+                fb.letter_spacing = self.config.gui.letter_spacing;
+                renderer.font_aspect_ratio = self.config.gui.font_aspect_ratio;
+                fb.font_aspect_ratio = self.config.gui.font_aspect_ratio;
+                renderer.stem_darkening = self.config.gui.stem_darkening;
+                fb.stem_darkening = self.config.gui.stem_darkening;
+                renderer.stem_darkening_amount = self.config.gui.stem_darkening_amount;
+                fb.stem_darkening_amount = self.config.gui.stem_darkening_amount;
+                renderer.sdf_font_rendering = self.config.gui.sdf_font_rendering;
+                renderer.optical_punctuation_spacing = self.config.gui.optical_punctuation_spacing;
+                renderer.use_ttf_font = self.config.gui.use_ttf_font;
+                fb.sdf_font_rendering = self.config.gui.sdf_font_rendering;
+                fb.use_ttf_font = self.config.gui.use_ttf_font;
+                if !self.config.gui.ttf_font_path.trim().is_empty() {
+                    crate::gfx::ttf::SystemFontLoader::set_active_font(Some(&self.config.gui.ttf_font_path));
+                }
                 self.sidebar.is_visible = self.config.gui.sidebar;
                 self.sidebar.width = renderer.scale_coord(self.config.gui.sidebar_width);
                 renderer.minimap_enabled = self.config.gui.minimap;
@@ -3210,6 +3269,14 @@ impl Editor {
                                     self.config.gui.line_spacing = dialog_clone.line_spacing;
                                     self.config.gui.font_ligatures = dialog_clone.ligatures;
                                     self.config.gui.font_antialiasing = dialog_clone.antialiasing;
+                                    self.config.gui.letter_spacing = dialog_clone.letter_spacing;
+                                    self.config.gui.font_aspect_ratio = dialog_clone.font_aspect_ratio;
+                                    self.config.gui.stem_darkening = dialog_clone.stem_darkening;
+                                    self.config.gui.scale_factor = dialog_clone.scale_factor;
+                                    self.config.gui.ergonomic_scaling = dialog_clone.ergonomic_scaling;
+                                    self.config.gui.sdf_font_rendering = dialog_clone.sdf_rendering;
+                                    self.config.gui.optical_punctuation_spacing = dialog_clone.optical_spacing;
+                                    self.config.gui.use_ttf_font = dialog_clone.use_ttf;
                                     self.config.gui.font_hinting = match dialog_clone.hinting {
                                         crate::gfx::HintingLevel::None => "none".to_string(),
                                         crate::gfx::HintingLevel::Slight => "slight".to_string(),
@@ -3277,6 +3344,18 @@ impl Editor {
                                     let c1_x = c0_x + chip_w + renderer.scale_coord(8);
                                     let c2_x = c1_x + chip_w + renderer.scale_coord(8);
 
+                                    let opts_row2_y = opts_chips_y + pill_h + renderer.scale_coord(6);
+                                    let chip2_w = (col_w.saturating_sub(renderer.scale_coord(16))) / 3;
+                                    let r2_c0_x = left_x;
+                                    let r2_c1_x = r2_c0_x + chip2_w + renderer.scale_coord(8);
+                                    let r2_c2_x = r2_c1_x + chip2_w + renderer.scale_coord(8);
+
+                                    let opts_row3_y = opts_row2_y + pill_h + renderer.scale_coord(6);
+                                    let chip3_w = (col_w.saturating_sub(renderer.scale_coord(16))) / 3;
+                                    let r3_c0_x = left_x;
+                                    let r3_c1_x = r3_c0_x + chip3_w + renderer.scale_coord(8);
+                                    let r3_c2_x = r3_c1_x + chip3_w + renderer.scale_coord(8);
+
                                     if y >= opts_chips_y && y < opts_chips_y + pill_h {
                                         if x >= c0_x && x < c0_x + chip_w {
                                             dialog.toggle_ligatures();
@@ -3285,6 +3364,34 @@ impl Editor {
                                         } else if x >= c2_x && x < c2_x + chip_w {
                                             dialog.cycle_line_spacing();
                                         }
+                                    } else if y >= opts_row2_y && y < opts_row2_y + pill_h {
+                                        if x >= r2_c0_x && x < r2_c0_x + chip2_w {
+                                            dialog.cycle_letter_spacing();
+                                        } else if x >= r2_c1_x && x < r2_c1_x + chip2_w {
+                                            dialog.cycle_aspect_ratio();
+                                        } else if x >= r2_c2_x && x < r2_c2_x + chip2_w {
+                                            dialog.toggle_stem_darkening();
+                                        }
+                                    } else if y >= opts_row3_y && y < opts_row3_y + pill_h {
+                                        if x >= r3_c0_x && x < r3_c0_x + chip3_w {
+                                            dialog.toggle_sdf_rendering();
+                                        } else if x >= r3_c1_x && x < r3_c1_x + chip3_w {
+                                            dialog.toggle_optical_spacing();
+                                        } else if x >= r3_c2_x && x < r3_c2_x + chip3_w {
+                                            dialog.toggle_ttf_rendering();
+                                        }
+                                    }
+
+                                    // Check click on ISO 9241-303 / HiDPI card in right column
+                                    let right_x = left_x + col_w + renderer.scale_coord(8);
+                                    let iso_card_h = renderer.scale_coord(76);
+                                    let prev_box_y = content_y + renderer.scale_coord(16);
+                                    let content_h = (win_h.saturating_sub(title_h + 1)).saturating_sub(footer_h + renderer.scale_coord(12));
+                                    let prev_box_h = content_h.saturating_sub(renderer.scale_coord(16) + iso_card_h + renderer.scale_coord(8));
+                                    let iso_card_y = prev_box_y + prev_box_h + renderer.scale_coord(8);
+
+                                    if x >= right_x && x < right_x + col_w && y >= iso_card_y && y < iso_card_y + iso_card_h {
+                                        dialog.cycle_scale_factor();
                                     }
                                 }
                             // C. Check Modal Prompt Window interaction
@@ -3637,8 +3744,10 @@ impl Editor {
                                         let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
                                         let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                                        // 2. Check Sidebar Hit Test
-                                    if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
+                                        // 1.5 Click on empty area of menu bar -> start interactive window move
+                                        if self.config.gui.menu_bar && y < menu_offset {
+                                            window.start_interactive_move();
+                                        } else if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
                                         let rel_x = x;
                                         let rel_y = y - menu_offset;
                                         let row_h = (renderer.char_height() + renderer.scale_coord(4)).max(renderer.scale_coord(18));
@@ -3847,6 +3956,8 @@ impl Editor {
                                                     self.new_tab();
                                                     self.sidebar.is_focused = false;
                                                     adjust_viewport = true;
+                                                } else if !clicked {
+                                                    window.start_interactive_move();
                                                 }
                                             } else {
                                                 // 5. Check Editor Code Canvas

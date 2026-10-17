@@ -401,6 +401,8 @@ impl Win32Window {
     pub fn cancel_close(&mut self) {
         self.should_close = false;
     }
+
+    pub fn start_interactive_move(&mut self) {}
 }
 
 impl Drop for Win32Window {

@@ -6,7 +6,10 @@ use super::font::{FontFamily, FontRasterizer, FontWeight, FONT_HEIGHT, FONT_WIDT
 use super::framebuffer::Framebuffer;
 use super::gamma::{blend_pixel_gamma, blend_pixel_subpixel_gamma};
 use super::hinting::{FontHinter, HintingLevel};
+use super::optical_spacing::OpticalPunctuationSpacing;
+use super::sdf::SdfFontRasterizer;
 use super::shaping::FontShaper;
+use super::stem_darkening::StemDarkener;
 use crate::core::syntax::{SyntaxHighlighter, TokenType};
 use crate::editor::Document;
 
@@ -575,6 +578,13 @@ pub struct GfxRenderer {
     pub animation_enabled: bool,
     pub edge_perception: bool,
     pub subpixel_antialiasing: bool,
+    pub letter_spacing: usize,
+    pub font_aspect_ratio: f64,
+    pub stem_darkening: bool,
+    pub stem_darkening_amount: f64,
+    pub sdf_font_rendering: bool,
+    pub optical_punctuation_spacing: bool,
+    pub use_ttf_font: bool,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -622,6 +632,13 @@ impl GfxRenderer {
             animation_enabled: true,
             edge_perception: true,
             subpixel_antialiasing: true,
+            letter_spacing: 0,
+            font_aspect_ratio: 0.50,
+            stem_darkening: true,
+            stem_darkening_amount: 1.0,
+            sdf_font_rendering: true,
+            optical_punctuation_spacing: true,
+            use_ttf_font: false,
         }
     }
 
@@ -672,35 +689,91 @@ impl GfxRenderer {
     ) {
         let mut col_accum = 0;
         let char_w = self.char_width();
+        let glyph_w = self.glyph_width();
+        let line_chars: Vec<char> = tokens.iter().flat_map(|t| t.text.chars()).collect();
+        let mut char_idx_accum = 0;
 
         for token in tokens {
             let token_color = self.colors.token_color(token.token_type);
-            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.font_size != 12 || self.subpixel_antialiasing {
-                let shaped_glyphs = FontShaper::shape_text_ex(&token.text, self.font_scale, self.font_ligatures, self.font_family, self.font_weight, char_w, self.char_height());
+            let dark_factor = if self.stem_darkening {
+                StemDarkener::compute_darkening_factor(bg_color, token_color, self.font_size, self.stem_darkening_amount)
+            } else {
+                0.0
+            };
+
+            if self.font_ligatures || self.font_hinting != HintingLevel::None || self.edge_perception || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.font_size != 12 || self.subpixel_antialiasing || self.letter_spacing > 0 || (self.font_aspect_ratio - 0.50).abs() > 0.001 || dark_factor > 0.001 || self.sdf_font_rendering || self.optical_punctuation_spacing || self.use_ttf_font {
+                let shaped_glyphs = FontShaper::shape_text_ex(&token.text, self.font_scale, self.font_ligatures, self.font_family, self.font_weight, glyph_w, self.char_height());
                 for glyph in shaped_glyphs {
                     let col = col_accum;
                     col_accum += glyph.advance_cells;
+                    let cluster_len = glyph.cluster.chars().count();
+                    let current_char_idx = char_idx_accum;
+                    char_idx_accum += cluster_len;
+
                     if col >= scroll_col {
-                        let px = text_start_x + (col - scroll_col) * char_w;
-                        if px + glyph.width <= max_code_x {
-                            let max_w = glyph.width.min(fb.width.saturating_sub(px));
+                        let cell_px = text_start_x + (col - scroll_col) * char_w;
+                        let ch = glyph.cluster.chars().next().unwrap_or(' ');
+                        let is_box = FontRasterizer::is_box_drawing(ch);
+
+                        let prev_char = if current_char_idx > 0 { line_chars.get(current_char_idx - 1).copied() } else { None };
+                        let next_char = line_chars.get(current_char_idx + cluster_len).copied();
+
+                        let opt_offset = if self.optical_punctuation_spacing && !is_box && !glyph.is_ligature {
+                            OpticalPunctuationSpacing::compute_optical_offset(prev_char, ch, next_char, char_w, self.font_scale)
+                        } else {
+                            0
+                        };
+
+                        let (px, draw_w) = if is_box {
+                            (cell_px, char_w)
+                        } else {
+                            let total_w = char_w * glyph.advance_cells;
+                            let safe_x = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cell_px, total_w, glyph.width, opt_offset);
+                            (safe_x, glyph.width)
+                        };
+
+                        if px + draw_w <= max_code_x {
+                            let max_w = draw_w.min(fb.width.saturating_sub(px));
                             let max_h = glyph.height.min(fb.height.saturating_sub(text_y));
                             if self.subpixel_antialiasing && !glyph.is_ligature {
-                                let ch = glyph.cluster.chars().next().unwrap_or(' ');
-                                let (_, _, subpixel_cov) = FontRasterizer::rasterize_glyph_subpixel(
-                                    ch,
-                                    self.font_family,
-                                    glyph.width,
-                                    glyph.height,
-                                    self.font_weight,
-                                );
+                                let ttf_sub;
+                                let sdf_sub;
+                                let font_sub;
+                                let subpixel_cov: &[[u8; 3]] = if self.use_ttf_font && !is_box {
+                                    let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+                                    let (_, _, sub) = crate::gfx::ttf::TtfRasterizer::rasterize_char_subpixel_cached(&ttf_font, ch, draw_w, glyph.height);
+                                    ttf_sub = sub;
+                                    &ttf_sub
+                                } else if self.sdf_font_rendering && !is_box {
+                                    sdf_sub = SdfFontRasterizer::rasterize_glyph_sdf_subpixel(
+                                        ch,
+                                        self.font_family,
+                                        draw_w,
+                                        glyph.height,
+                                        self.font_weight,
+                                        0.0,
+                                    );
+                                    &sdf_sub.2
+                                } else {
+                                    font_sub = FontRasterizer::rasterize_glyph_subpixel(
+                                        ch,
+                                        self.font_family,
+                                        draw_w,
+                                        glyph.height,
+                                        self.font_weight,
+                                    );
+                                    &font_sub.2
+                                };
                                 for row in 0..max_h {
                                     let py = text_y + row;
-                                    let row_offset = row * glyph.width;
+                                    let row_offset = row * draw_w;
                                     let fb_offset = py * fb.width + px;
                                     for c in 0..max_w {
                                         let [mut ar, mut ag, mut ab] = subpixel_cov[row_offset + c];
                                         if ar > 0 || ag > 0 || ab > 0 {
+                                            if dark_factor > 0.001 && !is_box {
+                                                [ar, ag, ab] = StemDarkener::darken_subpixel(ar, ag, ab, dark_factor);
+                                            }
                                             if self.edge_perception {
                                                 ar = EdgePerception::adapt_edge_coverage(ar, token_color, bg_color);
                                                 ag = EdgePerception::adapt_edge_coverage(ag, token_color, bg_color);
@@ -711,14 +784,59 @@ impl GfxRenderer {
                                     }
                                 }
                             } else {
-                                let effective_cov = if self.font_hinting != HintingLevel::None {
-                                    FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting)
+                                let box_cov;
+                                let ttf_cov;
+                                let darkened_ttf;
+                                let sdf_cov;
+                                let darkened_sdf;
+                                let hinted_cov;
+                                let darkened_hinted;
+                                let darkened_std;
+                                let effective_cov: &[u8] = if is_box && draw_w != glyph.width {
+                                    box_cov = FontRasterizer::rasterize_glyph_sized(ch, self.font_family, draw_w, glyph.height, self.font_weight);
+                                    &box_cov.2
+                                } else if self.use_ttf_font && !glyph.is_ligature {
+                                    let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+                                    let (_, _, cov) = crate::gfx::ttf::TtfRasterizer::rasterize_char_cached(&ttf_font, ch, draw_w, glyph.height);
+                                    if dark_factor > 0.001 {
+                                        darkened_ttf = StemDarkener::darken_coverage_mask(&cov, draw_w, glyph.height, dark_factor);
+                                        &darkened_ttf
+                                    } else {
+                                        ttf_cov = cov;
+                                        &ttf_cov
+                                    }
+                                } else if self.sdf_font_rendering && !glyph.is_ligature {
+                                    sdf_cov = SdfFontRasterizer::rasterize_glyph_sdf(
+                                        ch,
+                                        self.font_family,
+                                        draw_w,
+                                        glyph.height,
+                                        self.font_weight,
+                                        0.0,
+                                    );
+                                    if dark_factor > 0.001 {
+                                        darkened_sdf = StemDarkener::darken_coverage_mask(&sdf_cov.2, draw_w, glyph.height, dark_factor);
+                                        &darkened_sdf
+                                    } else {
+                                        &sdf_cov.2
+                                    }
+                                } else if self.font_hinting != HintingLevel::None {
+                                    hinted_cov = FontHinter::hint_coverage(&glyph.coverage, glyph.width, glyph.height, self.font_hinting);
+                                    if dark_factor > 0.001 && !is_box {
+                                        darkened_hinted = StemDarkener::darken_coverage_mask(&hinted_cov, glyph.width, glyph.height, dark_factor);
+                                        &darkened_hinted
+                                    } else {
+                                        &hinted_cov
+                                    }
+                                } else if dark_factor > 0.001 && !is_box {
+                                    darkened_std = StemDarkener::darken_coverage_mask(&glyph.coverage, glyph.width, glyph.height, dark_factor);
+                                    &darkened_std
                                 } else {
-                                    glyph.coverage
+                                    &glyph.coverage
                                 };
                                 for row in 0..max_h {
                                     let py = text_y + row;
-                                    let row_offset = row * glyph.width;
+                                    let row_offset = row * draw_w;
                                     let fb_offset = py * fb.width + px;
                                     for c in 0..max_w {
                                         let mut alpha = effective_cov[row_offset + c];
@@ -738,6 +856,7 @@ impl GfxRenderer {
                 for ch in token.text.chars() {
                     let col = col_accum;
                     col_accum += 1;
+                    char_idx_accum += 1;
                     if col >= scroll_col {
                         let px = text_start_x + (col - scroll_col) * char_w;
                         if px + char_w <= max_code_x {
@@ -785,14 +904,23 @@ impl GfxRenderer {
         }
     }
 
-    /// Character width in physical pixels based on font_size and font_scale.
+    /// Raw glyph width in physical pixels based on font_size, aspect ratio, and font_scale.
     #[inline]
-    pub fn char_width(&self) -> usize {
-        if self.font_size != 12 {
+    pub fn glyph_width(&self) -> usize {
+        let h = self.char_height();
+        if self.font_aspect_ratio > 0.0 && (self.font_aspect_ratio - 0.50).abs() > 0.001 {
+            ((h as f64 * self.font_aspect_ratio).round() as usize).max(5)
+        } else if self.font_size != 12 {
             ((self.font_size as f64 * 8.0 / 12.0).round() as usize).max(5) * self.font_scale
         } else {
             FONT_WIDTH * self.font_scale
         }
+    }
+
+    /// Character cell width in physical pixels based on font_size, aspect ratio, font_scale, and letter_spacing.
+    #[inline]
+    pub fn char_width(&self) -> usize {
+        self.glyph_width() + self.letter_spacing * self.font_scale
     }
 
     /// Character height in physical pixels based on font_size and font_scale.
@@ -1424,6 +1552,10 @@ impl GfxRenderer {
         }
 
         fb.subpixel_antialiasing = self.subpixel_antialiasing;
+        fb.letter_spacing = self.letter_spacing;
+        fb.font_aspect_ratio = self.font_aspect_ratio;
+        fb.stem_darkening = self.stem_darkening;
+        fb.stem_darkening_amount = self.stem_darkening_amount;
         fb.font_family = self.font_family;
         fb.font_weight = self.font_weight;
         fb.font_size = self.font_size;
@@ -1632,6 +1764,10 @@ impl GfxRenderer {
         // Clear background
         fb.clear(self.colors.background);
         fb.subpixel_antialiasing = self.subpixel_antialiasing;
+        fb.letter_spacing = self.letter_spacing;
+        fb.font_aspect_ratio = self.font_aspect_ratio;
+        fb.stem_darkening = self.stem_darkening;
+        fb.stem_darkening_amount = self.stem_darkening_amount;
         fb.font_family = self.font_family;
         fb.font_weight = self.font_weight;
         fb.font_size = self.font_size;
@@ -3752,37 +3888,66 @@ impl GfxRenderer {
 
         let chip_lig_text = format!("Ligaduras: {}", if dialog.ligatures { "ON" } else { "OFF" });
         let chip_aa_text = format!("Anti-alias: {}", if dialog.antialiasing { "ON" } else { "OFF" });
-        let chip_sp_text = format!("Interlineado: {}px", dialog.line_spacing);
+        let chip_sp_text = format!("Interlínea: {}px", dialog.line_spacing);
 
         let chip_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
         let c0_x = left_x;
         let c1_x = c0_x + chip_w + self.scale_coord(8);
         let c2_x = c1_x + chip_w + self.scale_coord(8);
 
-        let draw_opt_chip = |fb: &mut Framebuffer, cx: usize, text: &str, active: bool| {
+        let draw_opt_chip = |fb: &mut Framebuffer, cx: usize, cy: usize, cw: usize, text: &str, active: bool| {
             let bg = if active { self.colors.chip_bg } else { self.colors.modal_bg };
             let border = if active { self.colors.accent } else { self.colors.scrollbar_border };
             let fg = if active { self.colors.accent } else { 0x00888888 };
             if self.rounded_corners {
-                fb.fill_rounded_rect(cx, opts_chips_y, chip_w, pill_h, 3, bg);
-                fb.draw_rounded_outline(cx, opts_chips_y, chip_w, pill_h, 3, border);
+                fb.fill_rounded_rect(cx, cy, cw, pill_h, 3, bg);
+                fb.draw_rounded_outline(cx, cy, cw, pill_h, 3, border);
             } else {
-                fb.fill_rect(cx, opts_chips_y, chip_w, pill_h, bg);
+                fb.fill_rect(cx, cy, cw, pill_h, bg);
             }
-            let tx = cx + (chip_w.saturating_sub(text.chars().count() * self.char_width())) / 2;
-            fb.draw_text(text, tx, opts_chips_y + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
+            let tx = cx + (cw.saturating_sub(text.chars().count() * self.char_width())) / 2;
+            fb.draw_text(text, tx, cy + (pill_h.saturating_sub(self.char_height())) / 2, fg, None);
         };
 
-        draw_opt_chip(fb, c0_x, &chip_lig_text, dialog.ligatures);
-        draw_opt_chip(fb, c1_x, &chip_aa_text, dialog.antialiasing);
-        draw_opt_chip(fb, c2_x, &chip_sp_text, true);
+        draw_opt_chip(fb, c0_x, opts_chips_y, chip_w, &chip_lig_text, dialog.ligatures);
+        draw_opt_chip(fb, c1_x, opts_chips_y, chip_w, &chip_aa_text, dialog.antialiasing);
+        draw_opt_chip(fb, c2_x, opts_chips_y, chip_w, &chip_sp_text, true);
+
+        let opts_row2_y = opts_chips_y + pill_h + self.scale_coord(6);
+        let chip2_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
+        let r2_c0_x = left_x;
+        let r2_c1_x = r2_c0_x + chip2_w + self.scale_coord(8);
+        let r2_c2_x = r2_c1_x + chip2_w + self.scale_coord(8);
+
+        let chip_let_text = format!("Esp: +{}px", dialog.letter_spacing);
+        let chip_asp_text = format!("Asp: {:.2}", dialog.font_aspect_ratio);
+        let chip_dark_text = if dialog.stem_darkening { "Engrosado" } else { "Estándar" };
+
+        draw_opt_chip(fb, r2_c0_x, opts_row2_y, chip2_w, &chip_let_text, dialog.letter_spacing > 0);
+        draw_opt_chip(fb, r2_c1_x, opts_row2_y, chip2_w, &chip_asp_text, (dialog.font_aspect_ratio - 0.50).abs() > 0.001);
+        draw_opt_chip(fb, r2_c2_x, opts_row2_y, chip2_w, chip_dark_text, dialog.stem_darkening);
+
+        let opts_row3_y = opts_row2_y + pill_h + self.scale_coord(6);
+        let chip3_w = (col_w.saturating_sub(self.scale_coord(16))) / 3;
+        let r3_c0_x = left_x;
+        let r3_c1_x = r3_c0_x + chip3_w + self.scale_coord(8);
+        let r3_c2_x = r3_c1_x + chip3_w + self.scale_coord(8);
+
+        let chip_sdf_text = format!("SDF: {}", if dialog.sdf_rendering { "ON" } else { "OFF" });
+        let chip_opt_text = format!("Óptico: {}", if dialog.optical_spacing { "ON" } else { "OFF" });
+        let chip_ttf_text = format!("TTF: {}", if dialog.use_ttf { "ON" } else { "OFF" });
+
+        draw_opt_chip(fb, r3_c0_x, opts_row3_y, chip3_w, &chip_sdf_text, dialog.sdf_rendering);
+        draw_opt_chip(fb, r3_c1_x, opts_row3_y, chip3_w, &chip_opt_text, dialog.optical_spacing);
+        draw_opt_chip(fb, r3_c2_x, opts_row3_y, chip3_w, &chip_ttf_text, dialog.use_ttf);
 
         // === RIGHT COLUMN: Live Preview ===
         let prev_title = format!("VISTA PREVIA EN VIVO ({} pt • {})", dialog.selected_size, dialog.selected_family.display_name());
         fb.draw_text(&prev_title, right_x, content_y, self.colors.accent, None);
 
+        let iso_card_h = self.scale_coord(76);
         let prev_box_y = content_y + self.scale_coord(16);
-        let prev_box_h = content_h.saturating_sub(self.scale_coord(16));
+        let prev_box_h = content_h.saturating_sub(self.scale_coord(16) + iso_card_h + self.scale_coord(8));
 
         if self.rounded_corners {
             fb.fill_rounded_rect(right_x, prev_box_y, col_w, prev_box_h, 6, self.colors.input_bg);
@@ -3804,8 +3969,15 @@ impl GfxRenderer {
             ("}", self.colors.syntax_keyword),
         ];
 
-        let prev_char_w = ((dialog.selected_size as f64 * 8.0 / 12.0).round() as usize).max(5);
         let prev_char_h = ((dialog.selected_size as f64 * 16.0 / 12.0).round() as usize).max(10);
+        let prev_glyph_w = if dialog.font_aspect_ratio > 0.0 && (dialog.font_aspect_ratio - 0.50).abs() > 0.001 {
+            ((prev_char_h as f64 * dialog.font_aspect_ratio).round() as usize).max(5)
+        } else if dialog.selected_size != 12 {
+            ((dialog.selected_size as f64 * 8.0 / 12.0).round() as usize).max(5)
+        } else {
+            FONT_WIDTH
+        };
+        let prev_char_w = prev_glyph_w + dialog.letter_spacing;
         let prev_line_h = prev_char_h + dialog.line_spacing;
 
         let prev_pad_x = right_x + self.scale_coord(12);
@@ -3817,6 +3989,14 @@ impl GfxRenderer {
                 break;
             }
 
+            let dark_factor = if dialog.stem_darkening {
+                StemDarkener::compute_darkening_factor(self.colors.input_bg, line_fg, dialog.selected_size, 1.0)
+            } else {
+                0.0
+            };
+
+            let line_chars: Vec<char> = line_str.chars().collect();
+
             if dialog.ligatures {
                 let glyphs = FontShaper::shape_text_ex(
                     line_str,
@@ -3824,22 +4004,67 @@ impl GfxRenderer {
                     dialog.ligatures,
                     dialog.selected_family,
                     dialog.selected_weight,
-                    prev_char_w,
+                    prev_glyph_w,
                     prev_char_h,
                 );
                 let mut gx = prev_pad_x;
+                let mut char_idx = 0;
                 for g in glyphs {
                     if gx + g.width > right_x + col_w - self.scale_coord(8) {
                         break;
                     }
-                    let max_w = g.width.min(fb.width.saturating_sub(gx));
+                    let ch = g.cluster.chars().next().unwrap_or(' ');
+                    let is_box = FontRasterizer::is_box_drawing(ch);
+                    let cluster_len = g.cluster.chars().count();
+
+                    let prev_char = if char_idx > 0 { line_chars.get(char_idx - 1).copied() } else { None };
+                    let next_char = line_chars.get(char_idx + cluster_len).copied();
+                    char_idx += cluster_len;
+
+                    let opt_offset = if dialog.optical_spacing && !is_box && !g.is_ligature {
+                        OpticalPunctuationSpacing::compute_optical_offset(prev_char, ch, next_char, prev_char_w, 1)
+                    } else {
+                        0
+                    };
+
+                    let total_w = prev_char_w * g.advance_cells;
+                    let (draw_x, draw_w) = if is_box {
+                        (gx, prev_char_w)
+                    } else {
+                        let safe_x = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(gx, total_w, g.width, opt_offset);
+                        (safe_x, g.width)
+                    };
+                    let max_w = draw_w.min(fb.width.saturating_sub(draw_x));
                     let max_h = g.height.min(fb.height.saturating_sub(ly));
+                    let effective_cov = if is_box && draw_w != g.width {
+                        let (_, _, box_cov) = FontRasterizer::rasterize_glyph_sized(ch, dialog.selected_family, draw_w, g.height, dialog.selected_weight);
+                        box_cov
+                    } else if dialog.use_ttf && !g.is_ligature {
+                        let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+                        let (_, _, ttf_cov) = crate::gfx::ttf::TtfRasterizer::rasterize_char_cached(&ttf_font, ch, draw_w, g.height);
+                        if dark_factor > 0.001 {
+                            StemDarkener::darken_coverage_mask(&ttf_cov, draw_w, g.height, dark_factor)
+                        } else {
+                            ttf_cov.to_vec()
+                        }
+                    } else if dialog.sdf_rendering && !g.is_ligature {
+                        let (_, _, sdf_cov) = SdfFontRasterizer::rasterize_glyph_sdf(ch, dialog.selected_family, draw_w, g.height, dialog.selected_weight, 0.0);
+                        if dark_factor > 0.001 {
+                            StemDarkener::darken_coverage_mask(&sdf_cov, draw_w, g.height, dark_factor)
+                        } else {
+                            sdf_cov
+                        }
+                    } else if dark_factor > 0.001 && !is_box {
+                        StemDarkener::darken_coverage_mask(&g.coverage, g.width, g.height, dark_factor)
+                    } else {
+                        g.coverage.clone()
+                    };
                     for row in 0..max_h {
                         let py = ly + row;
-                        let row_offset = row * g.width;
-                        let fb_offset = py * fb.width + gx;
+                        let row_offset = row * draw_w;
+                        let fb_offset = py * fb.width + draw_x;
                         for col in 0..max_w {
-                            let alpha = g.coverage[row_offset + col];
+                            let alpha = effective_cov[row_offset + col];
                             if alpha > 0 {
                                 fb.pixels[fb_offset + col] = blend_pixel_gamma(self.colors.input_bg, line_fg, alpha);
                             }
@@ -3849,24 +4074,64 @@ impl GfxRenderer {
                 }
             } else {
                 let mut cur_gx = prev_pad_x;
-                for ch in line_str.chars() {
+                for (char_idx, ch) in line_str.chars().enumerate() {
                     if cur_gx + prev_char_w > right_x + col_w - self.scale_coord(8) {
                         break;
                     }
+                    let is_box = FontRasterizer::is_box_drawing(ch);
+
+                    let prev_char = if char_idx > 0 { line_chars.get(char_idx - 1).copied() } else { None };
+                    let next_char = line_chars.get(char_idx + 1).copied();
+
+                    let opt_offset = if dialog.optical_spacing && !is_box {
+                        OpticalPunctuationSpacing::compute_optical_offset(prev_char, ch, next_char, prev_char_w, 1)
+                    } else {
+                        0
+                    };
+
+                    let (draw_x, target_w) = if is_box {
+                        (cur_gx, prev_char_w)
+                    } else {
+                        let safe_x = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cur_gx, prev_char_w, prev_glyph_w, opt_offset);
+                        (safe_x, prev_glyph_w)
+                    };
                     if self.subpixel_antialiasing {
-                        let (gw, gh, sub_cov) = FontRasterizer::rasterize_glyph_subpixel(
-                            ch,
-                            dialog.selected_family,
-                            prev_char_w,
-                            prev_char_h,
-                            dialog.selected_weight,
-                        );
-                        let max_w = gw.min(fb.width.saturating_sub(cur_gx));
+                        let (gw, gh, mut sub_cov) = if dialog.use_ttf && !is_box {
+                            let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+                            let (w, h, sub) = crate::gfx::ttf::TtfRasterizer::rasterize_char_subpixel_cached(
+                                &ttf_font,
+                                ch,
+                                target_w,
+                                prev_char_h,
+                            );
+                            (w, h, sub.to_vec())
+                        } else if dialog.sdf_rendering && !is_box {
+                            SdfFontRasterizer::rasterize_glyph_sdf_subpixel(
+                                ch,
+                                dialog.selected_family,
+                                target_w,
+                                prev_char_h,
+                                dialog.selected_weight,
+                                0.0,
+                            )
+                        } else {
+                            FontRasterizer::rasterize_glyph_subpixel(
+                                ch,
+                                dialog.selected_family,
+                                target_w,
+                                prev_char_h,
+                                dialog.selected_weight,
+                            )
+                        };
+                        if dark_factor > 0.001 && !is_box {
+                            sub_cov = StemDarkener::darken_subpixel_mask(&sub_cov, gw, gh, dark_factor);
+                        }
+                        let max_w = gw.min(fb.width.saturating_sub(draw_x));
                         let max_h = gh.min(fb.height.saturating_sub(ly));
                         for row in 0..max_h {
                             let py = ly + row;
                             let row_offset = row * gw;
-                            let fb_offset = py * fb.width + cur_gx;
+                            let fb_offset = py * fb.width + draw_x;
                             for col in 0..max_w {
                                 let [ar, ag, ab] = sub_cov[row_offset + col];
                                 if ar > 0 || ag > 0 || ab > 0 {
@@ -3875,19 +4140,42 @@ impl GfxRenderer {
                             }
                         }
                     } else {
-                        let (gw, gh, cov) = FontRasterizer::rasterize_glyph_sized(
-                            ch,
-                            dialog.selected_family,
-                            prev_char_w,
-                            prev_char_h,
-                            dialog.selected_weight,
-                        );
-                        let max_w = gw.min(fb.width.saturating_sub(cur_gx));
+                        let (gw, gh, mut cov) = if dialog.use_ttf && !is_box {
+                            let ttf_font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+                            let (w, h, cov) = crate::gfx::ttf::TtfRasterizer::rasterize_char_cached(
+                                &ttf_font,
+                                ch,
+                                target_w,
+                                prev_char_h,
+                            );
+                            (w, h, cov.to_vec())
+                        } else if dialog.sdf_rendering && !is_box {
+                            SdfFontRasterizer::rasterize_glyph_sdf(
+                                ch,
+                                dialog.selected_family,
+                                target_w,
+                                prev_char_h,
+                                dialog.selected_weight,
+                                0.0,
+                            )
+                        } else {
+                            FontRasterizer::rasterize_glyph_sized(
+                                ch,
+                                dialog.selected_family,
+                                target_w,
+                                prev_char_h,
+                                dialog.selected_weight,
+                            )
+                        };
+                        if dark_factor > 0.001 && !is_box {
+                            cov = StemDarkener::darken_coverage_mask(&cov, gw, gh, dark_factor);
+                        }
+                        let max_w = gw.min(fb.width.saturating_sub(draw_x));
                         let max_h = gh.min(fb.height.saturating_sub(ly));
                         for row in 0..max_h {
                             let py = ly + row;
                             let row_offset = row * gw;
-                            let fb_offset = py * fb.width + cur_gx;
+                            let fb_offset = py * fb.width + draw_x;
                             for col in 0..max_w {
                                 let alpha = cov[row_offset + col];
                                 if alpha > 0 {
@@ -3901,11 +4189,85 @@ impl GfxRenderer {
             }
         }
 
+        // === ISO 9241-303 Ergonomics & HiDPI Card ===
+        let iso_card_y = prev_box_y + prev_box_h + self.scale_coord(8);
+        let metrics = crate::gfx::HiDpiDetector::detect_display_metrics();
+        let effective_scale = if dialog.scale_factor > 0.0 {
+            dialog.scale_factor
+        } else if dialog.ergonomic_scaling {
+            crate::gfx::HiDpiDetector::compute_ergonomic_scale(
+                metrics.dpi,
+                metrics.default_viewing_distance_mm,
+                crate::gfx::HiDpiDetector::ISO_RECOMMENDED_ARCMIN,
+            )
+        } else {
+            self.scale_factor
+        };
+
+        let char_height_logical = ((dialog.selected_size as f64 * 16.0 / 12.0).round() as usize).max(10);
+        let legibility = crate::gfx::HiDpiDetector::assess_legibility(
+            char_height_logical,
+            effective_scale,
+            metrics.dpi,
+            metrics.default_viewing_distance_mm,
+        );
+
+        let card_bg = self.colors.modal_header_bg;
+        let card_border = legibility.rating.badge_color();
+
+        if self.rounded_corners {
+            fb.fill_rounded_rect(right_x, iso_card_y, col_w, iso_card_h, 4, card_bg);
+            fb.draw_rounded_outline(right_x, iso_card_y, col_w, iso_card_h, 4, card_border);
+        } else {
+            fb.fill_rect(right_x, iso_card_y, col_w, iso_card_h, card_bg);
+        }
+
+        let pad_x = right_x + self.scale_coord(10);
+        let l1_y = iso_card_y + self.scale_coord(6);
+        let l2_y = l1_y + self.scale_coord(16);
+        let l3_y = l2_y + self.scale_coord(16);
+        let l4_y = l3_y + self.scale_coord(16);
+
+        // Line 1: Header + Rating badge
+        fb.draw_text("ERGONOMÍA VISUAL (ISO 9241-303)", pad_x, l1_y, self.colors.accent, None);
+        let badge_str = format!("Ángulo: {:.1}' [{}]", legibility.visual_angle_arcmin, legibility.rating.badge_label());
+        let badge_char_w = self.char_width().max(1);
+        let badge_w = badge_str.chars().count() * badge_char_w;
+        let badge_x = if col_w > badge_w + self.scale_coord(14) {
+            right_x + col_w - self.scale_coord(10) - badge_w
+        } else {
+            pad_x
+        };
+        fb.draw_text(&badge_str, badge_x, l1_y, legibility.rating.badge_color(), None);
+
+        // Line 2: Display Density & Active Scale
+        let l2_str = format!(
+            "Pantalla: {:.1} DPI ({:.1}\")  •  HiDPI: {} (i)",
+            metrics.dpi,
+            metrics.diagonal_inches,
+            dialog.scale_label()
+        );
+        fb.draw_text(&l2_str, pad_x, l2_y, 0x00CCCCCC, None);
+
+        // Line 3: Physical character size & viewing distance
+        let l3_str = format!(
+            "Altura física: {:.2} mm  •  Distancia: {} cm  •  Óptima: {:.2}x",
+            legibility.physical_height_mm,
+            (metrics.default_viewing_distance_mm / 10.0).round() as usize,
+            legibility.recommended_scale
+        );
+        fb.draw_text(&l3_str, pad_x, l3_y, 0x00999999, None);
+
+        // Line 4: Ergonomic recommendation
+        let desc_max_chars = (col_w.saturating_sub(self.scale_coord(20))) / self.char_width().max(1);
+        let desc_trunc: String = legibility.description.chars().take(desc_max_chars).collect();
+        fb.draw_text(&desc_trunc, pad_x, l4_y, legibility.rating.badge_color(), None);
+
         // === FOOTER BAR: Buttons & Key Hints ===
         let footer_y = win_y + win_h - footer_h;
         fb.fill_rect(win_x, footer_y, win_w, 1, self.colors.scrollbar_border);
 
-        let hint = "Tab: Sección  •  ↑/↓: Seleccionar  •  Ctrl++/--: Zoom  •  Enter: Aplicar  •  Esc: Cancelar";
+        let hint = "Tab: Sección  •  +/-: Zoom  •  s: Interlínea  •  e: Espaciado  •  p: Aspecto  •  d: Engrosado  •  f: SDF  •  o: Óptico  •  t: TTF  •  i: HiDPI ISO  •  Enter: Aplicar  •  Esc: Cancelar";
         fb.draw_text(hint, win_x + self.scale_coord(14), footer_y + self.scale_coord(14), self.colors.gutter_fg, None);
 
         let btn_cancel_w = self.scale_coord(95);

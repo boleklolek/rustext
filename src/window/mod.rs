@@ -6,6 +6,12 @@ pub mod events;
 #[cfg(target_os = "linux")]
 pub mod x11;
 
+#[cfg(target_os = "linux")]
+pub mod wayland;
+
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 #[cfg(target_os = "windows")]
 pub mod win32;
 
@@ -15,7 +21,7 @@ pub mod macos;
 pub use events::{MouseButton, WindowEvent};
 
 #[cfg(target_os = "linux")]
-pub use x11::X11Window as NativeWindow;
+pub use linux::LinuxWindow as NativeWindow;
 
 #[cfg(target_os = "windows")]
 pub use win32::Win32Window as NativeWindow;
@@ -40,6 +46,7 @@ impl UnsupportedWindow {
         true
     }
     pub fn cancel_close(&mut self) {}
+    pub fn start_interactive_move(&mut self) {}
     pub fn scale_factor(&self) -> f64 {
         1.0
     }

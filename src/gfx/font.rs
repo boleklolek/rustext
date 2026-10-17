@@ -11,7 +11,7 @@ pub type GlyphCoverage16 = [u8; 128];
 pub type SubpixelCoverage16 = [[u8; 3]; 128];
 
 /// Font Family identifier for monospace coding fonts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontFamily {
     Standard,
     Terminus,
@@ -71,7 +71,7 @@ impl FontFamily {
 }
 
 /// Font stroke weight.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontWeight {
     Normal,
     Semibold,
@@ -125,7 +125,7 @@ static UNKNOWN_SUBPIXEL: OnceLock<SubpixelCoverage16> = OnceLock::new();
 impl FontRasterizer {
     /// Determines if a character is a box-drawing symbol that requires 100% sharp connected edges.
     pub fn is_box_drawing(ch: char) -> bool {
-        matches!(ch, '│' | '─' | '█')
+        matches!(ch, '│' | '─' | '█' | '\u{2500}'..='\u{257F}' | '\u{2580}'..='\u{259F}')
     }
 
     /// Computes spatial anti-aliased coverage mask (8x16 = 128 bytes, 0..=255) from a 1-bit bitmap.

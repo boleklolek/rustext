@@ -232,7 +232,12 @@ impl SessionState {
                                     }
                                     "draft" => {
                                         if !val_unquoted.is_empty() {
-                                            entry.draft_path = Some(PathBuf::from(val_unquoted));
+                                            let p = PathBuf::from(val_unquoted);
+                                            let safe_ext = p.extension().and_then(|e| e.to_str()) == Some("draft");
+                                            let no_traversal = !val_unquoted.contains("..") && !val_unquoted.contains('\0');
+                                            if safe_ext && no_traversal {
+                                                entry.draft_path = Some(p);
+                                            }
                                         }
                                     }
                                     _ => {}
@@ -356,14 +361,34 @@ impl SessionManager {
         Ok(file_path)
     }
 
+    /// Checks whether a draft path is safely confined within the drafts directory.
+    pub fn is_safe_draft_path(&self, path: &Path) -> bool {
+        let drafts_dir = self.drafts_dir();
+        if let Ok(canon_dir) = drafts_dir.canonicalize() {
+            if let Ok(canon_path) = path.canonicalize() {
+                return canon_path.starts_with(&canon_dir)
+                    && canon_path.extension().and_then(|e| e.to_str()) == Some("draft");
+            }
+        }
+        path.starts_with(&drafts_dir) && path.extension().and_then(|e| e.to_str()) == Some("draft")
+    }
+
     /// Reads an unsaved draft buffer from disk.
     pub fn read_draft(&self, path: &Path) -> io::Result<String> {
+        if !self.is_safe_draft_path(path) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Draft path traversal denied: file outside drafts directory (SEC-05)",
+            ));
+        }
         fs::read_to_string(path)
     }
 
     /// Removes an existing draft file.
     pub fn remove_draft(&self, path: &Path) {
-        let _ = fs::remove_file(path);
+        if self.is_safe_draft_path(path) {
+            let _ = fs::remove_file(path);
+        }
     }
 
     /// Clears all existing draft recovery files.

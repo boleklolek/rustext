@@ -127,6 +127,17 @@ pub struct GuiSettings {
     pub animation_enabled: bool,
     pub edge_perception: bool,
     pub subpixel_antialiasing: bool,
+    pub letter_spacing: usize,
+    pub font_aspect_ratio: f64,
+    pub stem_darkening: bool,
+    pub stem_darkening_amount: f64,
+    pub ergonomic_scaling: bool,
+    pub viewing_distance_mm: f64,
+    pub iso_target_arcmin: f64,
+    pub sdf_font_rendering: bool,
+    pub optical_punctuation_spacing: bool,
+    pub use_ttf_font: bool,
+    pub ttf_font_path: String,
 }
 
 impl Default for GuiSettings {
@@ -162,6 +173,17 @@ impl Default for GuiSettings {
             animation_enabled: true,
             edge_perception: true,
             subpixel_antialiasing: true,
+            letter_spacing: 0,
+            font_aspect_ratio: 0.50,
+            stem_darkening: true,
+            stem_darkening_amount: 1.0,
+            ergonomic_scaling: true,
+            viewing_distance_mm: 0.0,
+            iso_target_arcmin: 22.0,
+            sdf_font_rendering: true,
+            optical_punctuation_spacing: true,
+            use_ttf_font: false,
+            ttf_font_path: String::new(),
         }
     }
 }
@@ -294,6 +316,39 @@ font_weight = normal
 
 ; Renderizado subpíxel LCD RGB ClearType (true = 3x resolución horizontal suave, false = escala de grises)
 subpixel_antialiasing = true
+
+; Espaciado horizontal entre caracteres (tracking / letter-spacing extra en píxeles)
+letter_spacing = 0
+
+; Relación de aspecto ergonómica de la fuente (ancho/alto): 0.50 (clásico), 0.55 (equilibrado), 0.60 (confort), 0.65 (amplio)
+font_aspect_ratio = 0.50
+
+; Engrosamiento óptico de trazo en modo oscuro (compensa la irradiación retiniana)
+stem_darkening = true
+
+; Nivel de intensidad de engrosamiento óptico (0.0 a 2.0, por defecto 1.0)
+stem_darkening_amount = 1.0
+
+; Escala ergonómica ISO 9241-303 (true = escala cuantizada óptima según densidad y distancia de visión)
+ergonomic_scaling = true
+
+; Distancia estimada de visualización en milímetros (0.0 = automático según tamaño de pantalla: 480mm laptop, 600mm escritorio)
+viewing_distance_mm = 0.0
+
+; Ángulo visual objetivo en minutos de arco según ISO 9241-303 (recomendado: 20.0 a 24.0, por defecto 22.0)
+iso_target_arcmin = 22.0
+
+; Renderizado de fuentes mediante Campos de Distancia con Signo (SDF) en alta resolución (true = contornos vectoriales puros)
+sdf_font_rendering = true
+
+; Espaciado óptico dinámico de signos de puntuación y delimitadores (true = kerning visual armónico sin romper columnas)
+optical_punctuation_spacing = true
+
+; Motor vectorial TrueType (.ttf/.otf) analítico puro en Rust (true = rasterizado vectorial de curvas Bézier exactas)
+use_ttf_font = false
+
+; Ruta personalizada a archivo de fuente TrueType .ttf (vacío para usar fuentes del sistema o sintetizada integrada)
+ttf_font_path = 
 "#
     }
 
@@ -351,6 +406,17 @@ smooth_shadows = {}
 animation_enabled = {}
 edge_perception = {}
 subpixel_antialiasing = {}
+letter_spacing = {}
+font_aspect_ratio = {:.2}
+stem_darkening = {}
+stem_darkening_amount = {:.2}
+ergonomic_scaling = {}
+viewing_distance_mm = {:.1}
+iso_target_arcmin = {:.1}
+sdf_font_rendering = {}
+optical_punctuation_spacing = {}
+use_ttf_font = {}
+ttf_font_path = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -396,6 +462,17 @@ subpixel_antialiasing = {}
             self.gui.animation_enabled,
             self.gui.edge_perception,
             self.gui.subpixel_antialiasing,
+            self.gui.letter_spacing,
+            self.gui.font_aspect_ratio,
+            self.gui.stem_darkening,
+            self.gui.stem_darkening_amount,
+            self.gui.ergonomic_scaling,
+            self.gui.viewing_distance_mm,
+            self.gui.iso_target_arcmin,
+            self.gui.sdf_font_rendering,
+            self.gui.optical_punctuation_spacing,
+            self.gui.use_ttf_font,
+            self.gui.ttf_font_path,
         )
     }
 
@@ -664,6 +741,69 @@ subpixel_antialiasing = {}
                             if let Some(b) = as_bool {
                                 config.gui.subpixel_antialiasing = b;
                             }
+                        }
+                        "letter_spacing" => {
+                            if let Ok(n) = val_unquoted.parse::<usize>() {
+                                config.gui.letter_spacing = n.min(12);
+                            }
+                        }
+                        "font_aspect_ratio" => {
+                            if let Ok(f) = val_unquoted.parse::<f64>() {
+                                if f >= 0.40 && f <= 0.90 {
+                                    config.gui.font_aspect_ratio = f;
+                                }
+                            } else {
+                                match val_unquoted.to_lowercase().as_str() {
+                                    "compact" | "classic" => config.gui.font_aspect_ratio = 0.50,
+                                    "normal" | "balanced" => config.gui.font_aspect_ratio = 0.55,
+                                    "comfort" | "ergonomic" => config.gui.font_aspect_ratio = 0.60,
+                                    "wide" => config.gui.font_aspect_ratio = 0.65,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        "stem_darkening" => {
+                            if let Some(b) = as_bool {
+                                config.gui.stem_darkening = b;
+                            }
+                        }
+                        "stem_darkening_amount" => {
+                            if let Ok(f) = val_unquoted.parse::<f64>() {
+                                config.gui.stem_darkening_amount = f.clamp(0.0, 3.0);
+                            }
+                        }
+                        "ergonomic_scaling" => {
+                            if let Some(b) = as_bool {
+                                config.gui.ergonomic_scaling = b;
+                            }
+                        }
+                        "viewing_distance_mm" => {
+                            if let Ok(f) = val_unquoted.parse::<f64>() {
+                                config.gui.viewing_distance_mm = f.clamp(0.0, 3000.0);
+                            }
+                        }
+                        "iso_target_arcmin" => {
+                            if let Ok(f) = val_unquoted.parse::<f64>() {
+                                config.gui.iso_target_arcmin = f.clamp(10.0, 40.0);
+                            }
+                        }
+                        "sdf_font_rendering" => {
+                            if let Some(b) = as_bool {
+                                config.gui.sdf_font_rendering = b;
+                            }
+                        }
+                        "optical_punctuation_spacing" => {
+                            if let Some(b) = as_bool {
+                                config.gui.optical_punctuation_spacing = b;
+                            }
+                        }
+                        "use_ttf_font" => {
+                            if let Some(b) = as_bool {
+                                config.gui.use_ttf_font = b;
+                            }
+                        }
+                        "ttf_font_path" => {
+                            config.gui.ttf_font_path = val_unquoted.to_string();
                         }
                         _ => {}
                     },

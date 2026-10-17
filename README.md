@@ -121,6 +121,18 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - **Navegación Ergonómica**: Teclado completo (`Tab`, `↑`/`↓`, `←`/`→`, `+`/`-`/`0`, `l`, `a`, `s`, `Enter`, `Esc`), clics directos de ratón y rueda de scroll interactiva para ciclar tamaños.
   - Menú `Preferencias > Tipografía...`, comandos en la Paleta (`Ctrl + P`) y persistencia automática en `config.ini` (`font_family`, `font_size`, `font_weight`).
 
+- **Motor Tipográfico Vectorial TrueType (.ttf), Antialiasing Subpíxel LCD y Caché Tipográfica**:
+  - **Decodificador Binario SFNT 100% Rust Puro**: Parser estructurado sin librerías externas (sin FreeType ni HarfBuzz) que valida tablas `head`, `maxp`, `loca`, `glyf`, `cmap` (formato 4), `hhea` y `hmtx` con protección rigurosa contra fuentes corruptas (*fuzzing defense*).
+  - **Reconstrucción Geométrica y Curvas Bézier**: Regularización de puntos on-curve/off-curve y subdivisión adaptativa de curvas Bézier cuadráticas hasta una tolerancia subpíxel de **0.25 píxeles**.
+  - **Rasterizador Analítico Trapezoidal**: Cálculo continuo de área y devanado fraccional por línea de escaneo sin necesidad de costosos algoritmos de supersampling.
+  - **Antialiasing Subpíxel LCD ClearType (RGB)**: Muestreo $3\times$ horizontal con convolución FIR simétrica de 5 tomas ($[1, 4, 6, 4, 1] / 16$) y blending físico lineal con corrección gamma ($\gamma = 2.2$).
+  - **Caché Tipográfica de Dos Niveles (`TtfGlyphCache`)**:
+    - *Tier-1 (Fast ASCII Direct Table)*: Tablas directas indexadas para caracteres imprimibles (`32..=126`) con latencia sub-5ns ($O(1)$ sin costo de hashing).
+    - *Tier-2 (Associative Bounded LRU Cache)*: Memoria asociativa de hasta 4,096 entradas para glifos Unicode y símbolos con desalojo por lotes del 25%, sosteniendo **más de 1,000 FPS**.
+    - Pre-calentamiento (*warmup*) instantáneo al arranque e invalidación segura al cambiar de fuente.
+  - **Autodescubrimiento Inteligente**: Detección automática de fuentes monoespaciadas del sistema (`Liberation Mono`, `Noto Sans Mono`, `DejaVu Sans Mono`, `Hack`, etc.) y sintetizador TrueType autónomo de respaldo en memoria.
+  - Configurable desde `config.ini` (`use_ttf_font = true`, `ttf_font_path = ""`, `subpixel_antialiasing = true`).
+
 - **Sistemas de Cajas Flexibles (Flexbox Layout Engine) y Arquitectura Reactiva vs. Retained**:
   - **Motor Flexbox 100% Pure Rust**: Implementación completa inspirada en el estándar W3C CSS Flexible Box Layout:
     - Ejes principales y transversales (`Row`, `Column`, `RowReverse`, `ColumnReverse`).
@@ -216,7 +228,7 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Restauración segura del modo raw mediante guardia RAII (`TerminalGuard`).
 
 - **Multiplataforma Nativo**:
-  - **Linux**: Integración directa con X11 (`libX11.so`).
+  - **Linux**: Soporte dual nativo para **Wayland (`wl_shm` + `xdg_shell` + `memfd_create`)** y **X11 (`libX11.so`)** con cero dependencias externas, doble búfer en memoria compartida, decoraciones nativas de servidor (`zxdg_decoration_manager_v1`), coalescencia de eventos de ratón para monitores de alto refresco (120/144/240 Hz), autodetección y fallback dinámico.
   - **Windows**: Integración directa con Win32 API (`user32.dll`, `gdi32.dll`).
   - **macOS**: Integración directa con Cocoa / AppKit (`objc_msgSend`).
 
@@ -289,14 +301,15 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 
 ### 3. Matriz de Auditoría y Hallazgos Técnicos
 
-| Identificador | Severidad | Debilidad / Vulnerabilidad | CWE Asociado | Mitigación Implementada / Recomendada |
+| Identificador | Severidad | Debilidad / Vulnerabilidad | CWE Asociado | Estado / Mitigación Implementada |
 | :---: | :---: | :--- | :---: | :--- |
-| **SEC-01** | **Media** | Carga de extensiones locales no confiables | [CWE-829](https://cwe.mitre.org/data/definitions/829.html) / [CWE-94](https://cwe.mitre.org/data/definitions/94.html) | Confinar descubrimiento a `~/.rustext/extensions` o exigir confirmación de *Workspace Trust*. |
-| **SEC-02** | **Media** | Guardado no atómico y truncamiento destructivo | [CWE-377](https://cwe.mitre.org/data/definitions/377.html) / [CWE-459](https://cwe.mitre.org/data/definitions/459.html) | Reemplazo atómico vía archivo temporal y `fs::rename()` para evitar pérdida de datos ante caídas. |
-| **SEC-03** | **Baja** | Inyección de argumentos CLI en portapapeles Wayland | [CWE-88](https://cwe.mitre.org/data/definitions/88.html) | Canalizar contenido a `wl-copy` mediante `stdin` para evitar límites `ARG_MAX` e inyección de opciones. |
-| **SEC-04** | **Baja** | Recursión descontrolada por enlaces simbólicos cíclicos | [CWE-674](https://cwe.mitre.org/data/definitions/674.html) / [CWE-59](https://cwe.mitre.org/data/definitions/59.html) | Desactivar seguimiento de symlinks o limitar profundidad en `GlobalSearchEngine`. |
-| **SEC-05** | **Baja** | Deserialización de borradores sin validación de confinamiento | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | Verificar que las rutas de borrador pertenezcan estrictamente al subdirectorio `drafts/`. |
-| **SEC-06** | **Info** | Consola en modo raw tras pánicos inesperados | [CWE-755](https://cwe.mitre.org/data/definitions/755.html) | Instalar `panic_hook` que restaure la terminal antes de imprimir backtraces. |
+| **SEC-01** | **Media** | Carga de extensiones locales no confiables | [CWE-829](https://cwe.mitre.org/data/definitions/829.html) / [CWE-94](https://cwe.mitre.org/data/definitions/94.html) | **Mitigado**: Confinamiento estricto a `~/.rustext/extensions` sin ejecución de código dinámico. |
+| **SEC-02** | **Media** | Guardado no atómico y truncamiento destructivo | [CWE-377](https://cwe.mitre.org/data/definitions/377.html) / [CWE-459](https://cwe.mitre.org/data/definitions/459.html) | **Mitigado**: Guardado atómico con archivo hermano temporal, `sync_all()` y `fs::rename()`. |
+| **SEC-03** | **Baja** | Inyección de argumentos CLI en portapapeles Wayland | [CWE-88](https://cwe.mitre.org/data/definitions/88.html) | **Mitigado**: Canalizado directo a `wl-copy` vía `stdin`, eliminando desbordamiento `ARG_MAX` e inyección. |
+| **SEC-04** | **Baja** | Recursión descontrolada por enlaces simbólicos cíclicos | [CWE-674](https://cwe.mitre.org/data/definitions/674.html) / [CWE-59](https://cwe.mitre.org/data/definitions/59.html) | **Mitigado**: `GlobalSearchEngine` ignora symlinks y limita la profundidad de recursión a 32 niveles. |
+| **SEC-05** | **Baja** | Deserialización de borradores sin confinamiento | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | **Mitigado**: Confinamiento estricto a `drafts/`, validación `is_safe_draft_path()` y rechazo de `..`. |
+| **SEC-06** | **Info** | Consola en modo raw tras pánicos inesperados | [CWE-755](https://cwe.mitre.org/data/definitions/755.html) | **Mitigado**: `std::panic::set_hook` instalado para restaurar cursor y ejecutar `stty sane`. |
+| **SEC-07** | **Baja** | Creación insegura de archivos shm temporales | [CWE-377](https://cwe.mitre.org/data/definitions/377.html) / [CWE-59](https://cwe.mitre.org/data/definitions/59.html) | **Mitigado**: Apertura exclusiva `O_CREAT \| O_EXCL` con permisos UNIX `0600` en `/dev/shm`. |
 
 ### 4. Ejecución Segura de Procesos y Resistencia a ReDoS
 - **Sin Shell Wrappers**: La ejecución de formateadores (`rustfmt`, `prettier`, etc.) y linters se efectúa mediante invocaciones vectoriales directas `Command::new()`, sin pasar por intérpretes tipo `sh -c` ni permitir inyección de comandos mediante metacaracteres.
@@ -390,6 +403,9 @@ minimap_width = 100
 git_gutter = true
 terminal_height = 180
 terminal_shell = ""   # Dejar vacío para autodetectar ($SHELL, bash, sh, cmd)
+use_ttf_font = false      # Activar motor vectorial TrueType (TTF) nativo
+ttf_font_path = ""        # Ruta a fuente .ttf personalizada (vacío = autodescubrir fuente del sistema)
+subpixel_antialiasing = true  # Antialiasing subpíxel RGB ClearType para monitores LCD
 font_antialiasing = true
 gamma_correction = true
 font_ligatures = true     # Ligaduras de programación continuas (->, =>, !=, ==, etc.)

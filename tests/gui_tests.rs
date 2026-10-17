@@ -2774,6 +2774,14 @@ fn test_font_selector_dialog_lifecycle_and_navigation() {
         true,
         true,
         HintingLevel::Medium,
+        0,
+        0.50,
+        true,
+        0.0,
+        true,
+        true,
+        true,
+        true,
     );
 
     assert_eq!(dialog.selected_family, FontFamily::Standard);
@@ -2782,6 +2790,11 @@ fn test_font_selector_dialog_lifecycle_and_navigation() {
     assert_eq!(dialog.line_spacing, 3);
     assert!(dialog.ligatures);
     assert!(dialog.antialiasing);
+    assert_eq!(dialog.letter_spacing, 0);
+    assert!((dialog.font_aspect_ratio - 0.50).abs() < 1e-4);
+    assert!(dialog.stem_darkening);
+    assert!(dialog.sdf_rendering);
+    assert!(dialog.optical_spacing);
 
     // 1. Navigation through sections with Tab
     assert_eq!(dialog.focus_section, 0);
@@ -2815,7 +2828,7 @@ fn test_font_selector_dialog_lifecycle_and_navigation() {
     dialog.handle_key(Key::Char('0'));
     assert_eq!(dialog.selected_size, 12);
 
-    // 4. Feature toggles (l, a, h, s)
+    // 4. Feature toggles (l, a, h, s, e, p, d, f, o)
     dialog.handle_key(Key::Char('l'));
     assert!(!dialog.ligatures);
     dialog.handle_key(Key::Char('l'));
@@ -2828,6 +2841,46 @@ fn test_font_selector_dialog_lifecycle_and_navigation() {
 
     dialog.handle_key(Key::Char('s'));
     assert_eq!(dialog.line_spacing, 5); // 3 -> 5
+
+    dialog.handle_key(Key::Char('e'));
+    assert_eq!(dialog.letter_spacing, 1);
+    dialog.handle_key(Key::Char('e'));
+    assert_eq!(dialog.letter_spacing, 2);
+
+    dialog.handle_key(Key::Char('p'));
+    assert!((dialog.font_aspect_ratio - 0.55).abs() < 1e-4);
+    dialog.handle_key(Key::Char('p'));
+    assert!((dialog.font_aspect_ratio - 0.60).abs() < 1e-4);
+
+    dialog.handle_key(Key::Char('d'));
+    assert!(!dialog.stem_darkening);
+    dialog.handle_key(Key::Char('d'));
+    assert!(dialog.stem_darkening);
+
+    dialog.handle_key(Key::Char('f'));
+    assert!(!dialog.sdf_rendering);
+    dialog.handle_key(Key::Char('f'));
+    assert!(dialog.sdf_rendering);
+
+    dialog.handle_key(Key::Char('o'));
+    assert!(!dialog.optical_spacing);
+    dialog.handle_key(Key::Char('o'));
+    assert!(dialog.optical_spacing);
+
+    dialog.handle_key(Key::Char('i'));
+    assert_eq!(dialog.scale_factor, 1.0);
+    dialog.handle_key(Key::Char('i'));
+    assert_eq!(dialog.scale_factor, 1.25);
+
+    dialog.handle_key(Key::Char('r'));
+    assert!(!dialog.ergonomic_scaling);
+    dialog.handle_key(Key::Char('r'));
+    assert!(dialog.ergonomic_scaling);
+
+    dialog.handle_key(Key::Char('t'));
+    assert!(!dialog.use_ttf);
+    dialog.handle_key(Key::Char('t'));
+    assert!(dialog.use_ttf);
 
     // 5. Esc cancels dialog
     let cancel_res = dialog.handle_key(Key::Esc);
@@ -2858,6 +2911,14 @@ fn test_font_selector_gui_rendering_and_preview() {
         true,
         true,
         HintingLevel::Medium,
+        1,
+        0.55,
+        true,
+        1.5,
+        true,
+        true,
+        true,
+        true,
     );
 
     // Render dialog overlay onto framebuffer
@@ -2870,6 +2931,116 @@ fn test_font_selector_gui_rendering_and_preview() {
     // Close button hit area
     renderer.render_font_selector_dialog(&mut fb, &dialog, true);
     assert!(fb.width == 800 && fb.height == 600);
+}
+
+#[test]
+fn test_dark_mode_optical_stem_darkening_and_irradiation_compensation() {
+    use rustext::gfx::StemDarkener;
+
+    // 1. Relative luminance calculations
+    assert!((StemDarkener::relative_luminance(0x00000000) - 0.0).abs() < 1e-5);
+    assert!((StemDarkener::relative_luminance(0x00FFFFFF) - 1.0).abs() < 1e-5);
+    let dark_bg = 0x001E1E1E;
+    assert!(StemDarkener::relative_luminance(dark_bg) < 0.2);
+
+    // 2. Darkening factor calculations
+    let k_dark = StemDarkener::compute_darkening_factor(dark_bg, 0x00FFFFFF, 12, 1.0);
+    assert!(k_dark > 0.4, "Dark mode text should have a positive stem darkening factor (got {})", k_dark);
+
+    // Inactive on light themes (light background >= 0.5)
+    let k_light = StemDarkener::compute_darkening_factor(0x00FFFFFF, 0x00000000, 12, 1.0);
+    assert_eq!(k_light, 0.0, "Stem darkening must be completely inactive in light themes");
+
+    // Inactive for low contrast
+    let k_none = StemDarkener::compute_darkening_factor(dark_bg, dark_bg, 12, 1.0);
+    assert_eq!(k_none, 0.0);
+
+    // Size attenuation (FreeType ppem curve)
+    let k_10 = StemDarkener::compute_darkening_factor(dark_bg, 0x00FFFFFF, 10, 1.0);
+    let k_14 = StemDarkener::compute_darkening_factor(dark_bg, 0x00FFFFFF, 14, 1.0);
+    let k_24 = StemDarkener::compute_darkening_factor(dark_bg, 0x00FFFFFF, 24, 1.0);
+    assert!(k_10 > k_14);
+    assert!(k_14 > k_24);
+    assert_eq!(k_24, 0.0, "Large fonts >= 24pt do not need stem darkening");
+
+    // 3. Alpha darkening and boundary preservation
+    assert_eq!(StemDarkener::darken_alpha(0, k_dark), 0);
+    assert_eq!(StemDarkener::darken_alpha(255, k_dark), 255);
+    let darkened_mid = StemDarkener::darken_alpha(128, k_dark);
+    assert!(darkened_mid > 150, "Mid-tone alpha should be emboldened (got {})", darkened_mid);
+
+    // 4. Subpixel chromatic balance preservation
+    let sub = StemDarkener::darken_subpixel(120, 120, 120, k_dark);
+    assert_eq!(sub[0], sub[1]);
+    assert_eq!(sub[1], sub[2]);
+    assert!(sub[0] > 120);
+
+    // 5. 2D coverage mask and counter-space protection
+    // Create a 5x5 mask with an enclosed counter (hole in the center at (2,2))
+    // and an outer edge at (0, 2)
+    let mask = vec![
+        0, 200, 200, 200, 0,
+        0, 200,   0, 200, 0,
+        0, 200,   0, 200, 0,
+        0, 200, 200, 200, 0,
+        0,   0,   0,   0, 0,
+    ];
+    let darkened_mask = StemDarkener::darken_coverage_mask(&mask, 5, 5, k_dark);
+
+    // Center hole at (2,2): index = 2 * 5 + 2 = 12
+    assert_eq!(darkened_mask[12], 0, "Counter-space / interior loop must be strictly preserved without clogging");
+
+    // Outer edge at (0, 1): index = 1 * 5 + 0 = 5, has solid neighbor to the right (index 6 = 200)
+    // Left is free, so it is an exterior boundary that receives halo dilation
+    assert!(darkened_mask[5] > 0, "Exterior boundary should receive subtle optical dilation");
+
+    // 6. Config INI roundtrip
+    let mut config = rustext::editor::config::EditorConfig::default();
+    assert!(config.gui.stem_darkening);
+    assert!((config.gui.stem_darkening_amount - 1.0).abs() < 1e-4);
+
+    config.gui.stem_darkening = false;
+    config.gui.stem_darkening_amount = 1.5;
+    let ini = config.to_ini_string();
+    assert!(ini.contains("stem_darkening = false"));
+    assert!(ini.contains("stem_darkening_amount = 1.50"));
+
+    let reloaded = rustext::editor::config::EditorConfig::parse(&ini);
+    assert!(!reloaded.gui.stem_darkening);
+    assert!((reloaded.gui.stem_darkening_amount - 1.5).abs() < 1e-4);
+}
+
+#[test]
+fn test_ergonomic_aspect_ratio_and_letter_spacing_metrics() {
+    let mut renderer = GfxRenderer::new();
+    assert_eq!(renderer.glyph_width(), 8);
+    assert_eq!(renderer.char_width(), 8);
+
+    // Change aspect ratio to Comfort (0.60): 16 * 0.60 = 9.6 -> round to 10
+    renderer.font_aspect_ratio = 0.60;
+    assert_eq!(renderer.glyph_width(), 10);
+    assert_eq!(renderer.char_width(), 10);
+
+    // Add letter spacing +2px
+    renderer.letter_spacing = 2;
+    assert_eq!(renderer.glyph_width(), 10);
+    assert_eq!(renderer.char_width(), 12);
+
+    // Test framebuffer cell size synchronization
+    let mut fb = Framebuffer::new(800, 600);
+    fb.set_font_aspect_ratio(0.60);
+    fb.set_letter_spacing(2);
+    let (cell_w, cell_h) = fb.char_cell_size();
+    assert_eq!(cell_w, 12);
+    assert_eq!(cell_h, 16);
+
+    // Box drawing characters contiguity test
+    assert!(rustext::gfx::font::FontRasterizer::is_box_drawing('│'));
+    assert!(rustext::gfx::font::FontRasterizer::is_box_drawing('─'));
+    assert!(rustext::gfx::font::FontRasterizer::is_box_drawing('█'));
+    assert!(rustext::gfx::font::FontRasterizer::is_box_drawing('\u{2502}'));
+    assert!(rustext::gfx::font::FontRasterizer::is_box_drawing('\u{2588}'));
+    assert!(!rustext::gfx::font::FontRasterizer::is_box_drawing('A'));
 }
 
 #[test]
@@ -2921,3 +3092,860 @@ fn test_font_settings_editor_actions_and_ini_persistence() {
     let _ = editor.config.save();
 }
 
+#[test]
+fn test_iso_9241_303_visual_angle_and_ergonomic_scaling() {
+    use rustext::gfx::hidpi::{DisplayFormFactor, HiDpiDetector, IsoComplianceRating};
+
+    // 1. Visual angle calculations
+    // Character of 3.84 mm at 600 mm viewing distance:
+    // angle = 2 * atan(3.84 / 1200) * 3437.75 = 22.0 arcmin
+    let angle = HiDpiDetector::calculate_visual_angle_arcmin(3.84, 600.0);
+    assert!((angle - 22.0).abs() < 0.1, "Angle was {:.2}, expected ~22.0'", angle);
+
+    // Inverse target physical height
+    let h_target = HiDpiDetector::target_physical_height_mm(22.0, 600.0);
+    assert!((h_target - 3.84).abs() < 0.05, "Target height was {:.2}mm, expected ~3.84mm", h_target);
+
+    // 2. Form factors and viewing distances
+    assert_eq!(DisplayFormFactor::UltraCompact.default_viewing_distance_mm(), 450.0);
+    assert_eq!(DisplayFormFactor::Laptop.default_viewing_distance_mm(), 480.0);
+    assert_eq!(DisplayFormFactor::Desktop.default_viewing_distance_mm(), 600.0);
+
+    // 3. Continuous scale calculation
+    // Standard desktop (96 DPI, 600 mm distance, 22 arcmin target)
+    let s_96 = HiDpiDetector::compute_continuous_scale(96.0, 600.0, 22.0);
+    assert!((s_96 - 0.91).abs() < 0.1);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(s_96), 1.0);
+
+    // 14" 1080p laptop (157.7 DPI, 480 mm distance, 22 arcmin target)
+    let s_laptop = HiDpiDetector::compute_continuous_scale(157.7, 480.0, 22.0);
+    let q_laptop = HiDpiDetector::quantize_ergonomic_scale(s_laptop);
+    assert_eq!(q_laptop, 1.25, "157 DPI at 48cm laptop distance quantizes to 1.25x");
+
+    // 4K 27" desktop (163.2 DPI, 650 mm distance, 22 arcmin target)
+    let s_4k_desktop = HiDpiDetector::compute_continuous_scale(163.2, 650.0, 22.0);
+    let q_4k_desktop = HiDpiDetector::quantize_ergonomic_scale(s_4k_desktop);
+    assert!(q_4k_desktop >= 1.5 && q_4k_desktop <= 1.75);
+
+    // 4K 15.6" laptop (282 DPI, 480 mm distance, 22 arcmin target)
+    let s_4k_laptop = HiDpiDetector::compute_continuous_scale(282.0, 480.0, 22.0);
+    let q_4k_laptop = HiDpiDetector::quantize_ergonomic_scale(s_4k_laptop);
+    assert!(q_4k_laptop >= 2.0 && q_4k_laptop <= 2.25);
+
+    // 4. ISO 9241-303 legibility assessment and ratings
+    // Unscaled 16px font at 157.7 DPI viewed at 600mm -> 14.8 arcmin (< 16' BelowMinimum!)
+    let report_unscaled = HiDpiDetector::assess_legibility(16, 1.0, 157.7, 600.0);
+    assert_eq!(report_unscaled.rating, IsoComplianceRating::BelowMinimum);
+    assert!(!report_unscaled.rating.is_compliant());
+    assert!(report_unscaled.visual_angle_arcmin < 16.0);
+    assert_eq!(report_unscaled.recommended_scale, 1.5);
+
+    // Scaled 1.5x at 157.7 DPI viewed at 600mm -> 22.2 arcmin (Optimal!)
+    let report_scaled = HiDpiDetector::assess_legibility(16, 1.5, 157.7, 600.0);
+    assert_eq!(report_scaled.rating, IsoComplianceRating::Optimal);
+    assert!(report_scaled.rating.is_optimal());
+    assert!(report_scaled.rating.is_compliant());
+    assert!((report_scaled.visual_angle_arcmin - 22.2).abs() < 0.5);
+
+    // 5. Quantization table edge cases
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(0.8), 1.0);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(1.10), 1.0);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(1.20), 1.25);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(1.50), 1.5);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(1.80), 1.75);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(2.00), 2.0);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(2.20), 2.25);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(2.50), 2.5);
+    assert_eq!(HiDpiDetector::quantize_ergonomic_scale(3.20), 3.0);
+}
+
+#[test]
+fn test_edid_parser_and_display_metrics() {
+    use rustext::gfx::hidpi::HiDpiDetector;
+
+    // 1. Build a synthetic valid 128-byte VESA EDID block
+    let mut edid = vec![0u8; 128];
+    // Magic header: 00 FF FF FF FF FF FF 00
+    edid[0] = 0x00;
+    for i in 1..7 { edid[i] = 0xFF; }
+    edid[7] = 0x00;
+
+    // Bytes 21 and 22: Basic Display Parameters (width 31cm, height 17cm)
+    edid[21] = 31;
+    edid[22] = 17;
+
+    // Detailed Timing Descriptor 1 at bytes 54..72
+    // Pixel clock: 148.50 MHz (14850 = 0x3A02)
+    edid[54] = 0x02;
+    edid[55] = 0x3A;
+    // Horizontal active: 1920 (0x780 -> lower 8 bits 0x80, upper 4 bits 0x70)
+    edid[56] = 0x80;
+    edid[58] = 0x70;
+    // Vertical active: 1080 (0x438 -> lower 8 bits 0x38, upper 4 bits 0x40)
+    edid[59] = 0x38;
+    edid[61] = 0x40;
+    // Image size in mm: 309mm x 174mm (0x135 x 0x0AE)
+    edid[66] = 0x35; // lower 8 bits of 309
+    edid[67] = 0xAE; // lower 8 bits of 174
+    edid[68] = 0x10; // high nibble 1 for H, 0 for V
+
+    // Compute checksum (mod 256 sum of all 128 bytes must equal 0)
+    let partial_sum: usize = edid[0..127].iter().map(|&b| b as usize).sum();
+    let chk = ((256 - (partial_sum % 256)) % 256) as u8;
+    edid[127] = chk;
+
+    // Verify parsing
+    let parsed = HiDpiDetector::parse_edid(&edid);
+    assert!(parsed.is_some(), "Valid EDID should parse successfully");
+    let (w_px, h_px, w_mm, h_mm) = parsed.unwrap();
+    assert_eq!(w_px, 1920);
+    assert_eq!(h_px, 1080);
+    assert_eq!(w_mm as usize, 309);
+    assert_eq!(h_mm as usize, 174);
+
+    // Corrupt header
+    let mut bad_edid = edid.clone();
+    bad_edid[0] = 0xAA;
+    assert!(HiDpiDetector::parse_edid(&bad_edid).is_none());
+
+    // Corrupt checksum
+    let mut bad_chk = edid.clone();
+    bad_chk[127] ^= 0x55;
+    assert!(HiDpiDetector::parse_edid(&bad_chk).is_none());
+}
+
+#[test]
+fn test_config_ini_ergonomic_scaling_persistence() {
+    use rustext::editor::config::EditorConfig;
+
+    let ini = r#"
+[gui]
+scale_factor = 1.5
+ergonomic_scaling = true
+viewing_distance_mm = 650.0
+iso_target_arcmin = 21.5
+"#;
+    let cfg = EditorConfig::parse(ini);
+    assert_eq!(cfg.gui.scale_factor, 1.5);
+    assert!(cfg.gui.ergonomic_scaling);
+    assert_eq!(cfg.gui.viewing_distance_mm, 650.0);
+    assert_eq!(cfg.gui.iso_target_arcmin, 21.5);
+
+    // Serialization roundtrip
+    let serialized = cfg.to_ini_string();
+    assert!(serialized.contains("scale_factor = 1.5"));
+    assert!(serialized.contains("ergonomic_scaling = true"));
+    assert!(serialized.contains("viewing_distance_mm = 650.0"));
+    assert!(serialized.contains("iso_target_arcmin = 21.5"));
+
+    let roundtrip = EditorConfig::parse(&serialized);
+    assert_eq!(roundtrip.gui.scale_factor, 1.5);
+    assert_eq!(roundtrip.gui.ergonomic_scaling, true);
+    assert_eq!(roundtrip.gui.viewing_distance_mm, 650.0);
+    assert_eq!(roundtrip.gui.iso_target_arcmin, 21.5);
+}
+
+#[test]
+fn test_sdf_euclidean_distance_transform_and_bilinear_sampling() {
+    use rustext::gfx::sdf::{SignedDistanceField, SdfFontRasterizer};
+    use rustext::gfx::{FontFamily, FontWeight};
+
+    // 1. Create a synthetic 8x8 glyph mask with a 4x4 filled center box
+    let w = 8;
+    let h = 8;
+    let mut cov = vec![0u8; w * h];
+    for y in 2..6 {
+        for x in 2..6 {
+            cov[y * w + x] = 255;
+        }
+    }
+
+    let sdf = SignedDistanceField::from_coverage(&cov, w, h);
+    assert_eq!(sdf.width, w);
+    assert_eq!(sdf.height, h);
+
+    // Pixels inside center box (e.g. (3, 3)) should have positive signed distance
+    let inner_dist = sdf.get_distance(3, 3);
+    assert!(inner_dist > 0.0, "Inner pixel distance must be positive, got {}", inner_dist);
+
+    // Pixels far outside (e.g. (0, 0)) should have negative signed distance
+    let outer_dist = sdf.get_distance(0, 0);
+    assert!(outer_dist < 0.0, "Outer pixel distance must be negative, got {}", outer_dist);
+
+    // Continuous bilinear sampling
+    let sampled_center = sdf.sample_bilinear(3.5, 3.5);
+    assert!(sampled_center > 0.5, "Center bilinear sample should be strongly positive, got {}", sampled_center);
+
+    let sampled_corner = sdf.sample_bilinear(0.2, 0.2);
+    assert!(sampled_corner < -1.0, "Corner bilinear sample should be negative, got {}", sampled_corner);
+
+    // Arbitrary resolution rendering (upscaling to 16x16)
+    let (rw, rh, out_sized) = sdf.render_sized(16, 16, 0.0);
+    assert_eq!(rw, 16);
+    assert_eq!(rh, 16);
+    assert_eq!(out_sized.len(), 16 * 16);
+    // Center pixel of upscaled box should have full coverage
+    assert_eq!(out_sized[8 * 16 + 8], 255);
+
+    // Subpixel LCD RGB ClearType sampling
+    let (sw, sh, out_subpixel) = sdf.render_subpixel(16, 16, 0.0);
+    assert_eq!(sw, 16);
+    assert_eq!(sh, 16);
+    assert_eq!(out_subpixel.len(), 16 * 16);
+    // Center pixel should be opaque white RGB
+    assert_eq!(out_subpixel[8 * 16 + 8], [255, 255, 255]);
+
+    // Test SdfFontRasterizer with standard glyphs
+    let (gw, gh, alpha_sdf) = SdfFontRasterizer::rasterize_glyph_sdf('A', FontFamily::Standard, 16, 32, FontWeight::Normal, 0.0);
+    assert_eq!(gw, 16);
+    assert_eq!(gh, 32);
+    assert!(alpha_sdf.iter().any(|&a| a > 0), "Glyph 'A' must produce non-empty coverage");
+
+    let (sw2, sh2, rgb_sdf) = SdfFontRasterizer::rasterize_glyph_sdf_subpixel('M', FontFamily::Modern, 12, 24, FontWeight::Bold, 0.0);
+    assert_eq!(sw2, 12);
+    assert_eq!(sh2, 24);
+    assert!(rgb_sdf.iter().any(|&[r, g, b]| r > 0 || g > 0 || b > 0), "Glyph 'M' must produce non-empty subpixel coverage");
+}
+
+#[test]
+fn test_optical_punctuation_spacing_rules_and_in_cell_clamping() {
+    use rustext::gfx::optical_spacing::{GlyphOpticalMetrics, OpticalPunctuationSpacing, PunctuationClass};
+
+    // 1. Classification
+    assert_eq!(PunctuationClass::from_char('.'), PunctuationClass::Period);
+    assert_eq!(PunctuationClass::from_char(','), PunctuationClass::Comma);
+    assert_eq!(PunctuationClass::from_char(';'), PunctuationClass::Semicolon);
+    assert_eq!(PunctuationClass::from_char('('), PunctuationClass::OpenParen);
+    assert_eq!(PunctuationClass::from_char(')'), PunctuationClass::CloseParen);
+    assert_eq!(PunctuationClass::from_char('['), PunctuationClass::OpenBracket);
+    assert_eq!(PunctuationClass::from_char(']'), PunctuationClass::CloseBracket);
+    assert_eq!(PunctuationClass::from_char('\''), PunctuationClass::Quote);
+    assert_eq!(PunctuationClass::from_char('"'), PunctuationClass::Quote);
+    assert_eq!(PunctuationClass::from_char('a'), PunctuationClass::Alphanumeric);
+
+    // 2. Optical metrics measurement on a synthetic glyph
+    let w = 8;
+    let h = 16;
+    let mut dot_cov = vec![0u8; w * h];
+    // Put a 2x2 dot on bottom left (cols 1..3, rows 12..14)
+    for r in 12..14 {
+        for c in 1..3 {
+            dot_cov[r * w + c] = 255;
+        }
+    }
+    let metrics = GlyphOpticalMetrics::from_coverage(&dot_cov, w, h);
+    assert!(metrics.total_mass > 0);
+    assert_eq!(metrics.min_x, 1);
+    assert_eq!(metrics.max_x, 2);
+    assert_eq!(metrics.ink_width, 2);
+    assert!(metrics.center_of_mass_x < 2.5, "Center of mass should be on left half");
+
+    // 3. Optical tucking rules
+    let cell_w = 12;
+    let scale = 1;
+
+    // Member access: "obj.prop" -> period tucked left towards 'j'
+    let offset_member = OpticalPunctuationSpacing::compute_optical_offset(Some('j'), '.', Some('p'), cell_w, scale);
+    assert!(offset_member < 0, "Member access period should tuck left, got offset {}", offset_member);
+
+    // Argument list: "arg, next" -> comma tucked left towards 'g'
+    let offset_arg = OpticalPunctuationSpacing::compute_optical_offset(Some('g'), ',', Some(' '), cell_w, scale);
+    assert!(offset_arg < 0, "Argument separator comma should tuck left, got offset {}", offset_arg);
+
+    // Semicolon statement termination: "1;" -> tucked left towards '1'
+    let offset_semi = OpticalPunctuationSpacing::compute_optical_offset(Some('1'), ';', None, cell_w, scale);
+    assert!(offset_semi < 0, "Statement termination semicolon should tuck left, got offset {}", offset_semi);
+
+    // Function call open paren: "foo(" -> opening paren tucked left towards function name
+    let offset_call = OpticalPunctuationSpacing::compute_optical_offset(Some('o'), '(', Some('x'), cell_w, scale);
+    assert!(offset_call < 0, "Function call opening paren should tuck left towards identifier, got offset {}", offset_call);
+
+    // Empty pair: "()" -> closing paren tucked left towards opening paren
+    let offset_paren_close = OpticalPunctuationSpacing::compute_optical_offset(Some('('), ')', None, cell_w, scale);
+    assert!(offset_paren_close < 0, "Closing paren after opening paren should tuck left, got offset {}", offset_paren_close);
+
+    // 4. In-cell strict boundary clamping
+    let glyph_w = 8;
+    for cell_px in [0, 48, 120, 240] {
+        let nominal_centered = cell_px + (cell_w - glyph_w) / 2;
+        let min_bound = cell_px;
+        let max_bound = cell_px + cell_w - glyph_w;
+
+        // Zero offset gives nominal centered coordinate
+        let safe_zero = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cell_px, cell_w, glyph_w, 0);
+        assert_eq!(safe_zero, nominal_centered);
+
+        // Huge negative offset (-100px) must be safely clamped to cell_px
+        let safe_neg = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cell_px, cell_w, glyph_w, -100);
+        assert_eq!(safe_neg, min_bound);
+
+        // Huge positive offset (+100px) must be safely clamped to cell_px + cell_w - glyph_w
+        let safe_pos = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cell_px, cell_w, glyph_w, 100);
+        assert_eq!(safe_pos, max_bound);
+
+        // Within bounds
+        let normal_shift = OpticalPunctuationSpacing::compute_safe_in_cell_draw_x(cell_px, cell_w, glyph_w, -1);
+        assert!(normal_shift >= min_bound && normal_shift <= max_bound);
+    }
+}
+
+#[test]
+fn test_config_ini_sdf_and_optical_spacing_persistence() {
+    use rustext::editor::config::EditorConfig;
+
+    let ini = r#"
+[gui]
+sdf_font_rendering = true
+optical_punctuation_spacing = true
+"#;
+    let cfg = EditorConfig::parse(ini);
+    assert!(cfg.gui.sdf_font_rendering);
+    assert!(cfg.gui.optical_punctuation_spacing);
+
+    // Toggle off in config
+    let ini_off = r#"
+[gui]
+sdf_font_rendering = false
+optical_punctuation_spacing = false
+"#;
+    let cfg_off = EditorConfig::parse(ini_off);
+    assert!(!cfg_off.gui.sdf_font_rendering);
+    assert!(!cfg_off.gui.optical_punctuation_spacing);
+
+    // Serialization roundtrip
+    let serialized = cfg.to_ini_string();
+    assert!(serialized.contains("sdf_font_rendering = true"));
+    assert!(serialized.contains("optical_punctuation_spacing = true"));
+
+    let roundtrip = EditorConfig::parse(&serialized);
+    assert!(roundtrip.gui.sdf_font_rendering);
+    assert!(roundtrip.gui.optical_punctuation_spacing);
+}
+
+#[test]
+fn test_ttf_binary_reader_and_bounds_checking() {
+    use rustext::gfx::ttf::{TtfError, TtfReader};
+
+    let sample_data = [
+        0x12, 0x34,             // u16: 0x1234
+        0x56, 0x78, 0x9A, 0xBC, // u32: 0x56789ABC
+        0xFE, 0xDC,             // i16: -292 (0xFEDC)
+        0x00, 0x01, 0x80, 0x00, // Fixed: 1.5
+        0x40, 0x00,             // f2dot14: 1.0 (0x4000)
+        0xAB,                   // u8: 0xAB
+    ];
+
+    let mut reader = TtfReader::new(&sample_data);
+    assert_eq!(reader.remaining(), 15);
+    assert_eq!(reader.read_u16().unwrap(), 0x1234);
+    assert_eq!(reader.read_u32().unwrap(), 0x56789ABC);
+    assert_eq!(reader.read_i16().unwrap(), -292);
+
+    let fixed_val = reader.read_fixed().unwrap();
+    assert!((fixed_val - 1.5).abs() < 1e-4);
+
+    let f2_val = reader.read_f2dot14().unwrap();
+    assert!((f2_val - 1.0).abs() < 1e-4);
+
+    assert_eq!(reader.read_u8().unwrap(), 0xAB);
+    assert_eq!(reader.remaining(), 0);
+
+    // Reading past EOF must return TtfError::UnexpectedEof
+    assert_eq!(reader.read_u8().unwrap_err(), TtfError::UnexpectedEof);
+
+    // Sub-reader tests
+    let full_reader = TtfReader::new(&sample_data);
+    let sub = full_reader.sub_reader(2, 4).unwrap();
+    assert_eq!(sub.remaining(), 4);
+    let mut sub_mut = sub;
+    assert_eq!(sub_mut.read_u32().unwrap(), 0x56789ABC);
+
+    // Sub-reader bounds overflow
+    assert_eq!(full_reader.sub_reader(10, 10).unwrap_err(), TtfError::UnexpectedEof);
+}
+
+#[test]
+fn test_ttf_outline_regularization_and_bezier_subdivision() {
+    use rustext::gfx::ttf::{Contour, GlyphOutline, OutlinePoint};
+
+    // Construct a contour with consecutive off-curve points (implicit on-curve midpoint)
+    // P0: On-curve (0, 0)
+    // P1: Off-curve (10, 0)
+    // P2: Off-curve (10, 10) -> implicit midpoint at (10, 5)
+    // P3: On-curve (0, 10)
+    let raw_points = vec![
+        OutlinePoint::on_curve(0.0, 0.0),
+        OutlinePoint::off_curve(10.0, 0.0),
+        OutlinePoint::off_curve(10.0, 10.0),
+        OutlinePoint::on_curve(0.0, 10.0),
+    ];
+    let contour = Contour::with_points(raw_points);
+    let regularized = contour.regularize_points();
+
+    // Must have inserted the midpoint (10, 5) between P1 and P2
+    assert!(regularized.len() >= 5);
+    let has_implicit_midpoint = regularized.iter().any(|p| {
+        p.on_curve && (p.x - 10.0).abs() < 1e-3 && (p.y - 5.0).abs() < 1e-3
+    });
+    assert!(has_implicit_midpoint, "Implicit on-curve midpoint must be regularized");
+
+    // Test De Casteljau quadratic Bézier flattening
+    let mut outline = GlyphOutline::new();
+    outline.add_contour(contour);
+
+    let flattened = outline.scale_and_flatten(1.0, 1.0, 0.0, 0.0, 0.25);
+    assert_eq!(flattened.len(), 1);
+    let polygon = &flattened[0];
+    assert!(polygon.len() > 4, "Bézier curve must subdivide into flattened polygonal line segments");
+
+    // All polygon points must remain within the bounding hull [0..10, 0..10]
+    for pt in polygon {
+        assert!(pt.x >= -0.01 && pt.x <= 10.01);
+        assert!(pt.y >= -0.01 && pt.y <= 10.01);
+    }
+}
+
+#[test]
+fn test_ttf_font_synthesizer_and_table_parser() {
+    use rustext::gfx::ttf::{TrueTypeFont, TtfFontGenerator};
+
+    // 1. Synthesize built-in vector TTF binary
+    let ttf_bytes = TtfFontGenerator::generate_default_monospace_font();
+    assert!(ttf_bytes.len() > 1024, "TTF font must contain complete SFNT tables");
+
+    // Check SFNT magic tag: standard TrueType (0x00010000)
+    assert_eq!(&ttf_bytes[0..4], &[0x00, 0x01, 0x00, 0x00]);
+
+    // 2. Parse synthesized font using pure Rust TrueType parser
+    let font = TrueTypeFont::from_bytes(&ttf_bytes)
+        .expect("Generated TTF font must parse successfully");
+
+    assert_eq!(font.units_per_em, 1000);
+    assert_eq!(font.ascender, 800);
+    assert_eq!(font.descender, -200);
+    assert_eq!(font.family_name, "Rustext Vector Mono");
+    assert_eq!(font.style_name, "Regular");
+    assert!(font.num_glyphs >= 96, "Font must contain printable ASCII range");
+
+    // 3. Test character-to-glyph mapping via cmap table
+    assert_eq!(font.char_to_glyph_id(' '), Some(1));
+    assert_eq!(font.char_to_glyph_id('!'), Some(2));
+    assert_eq!(font.char_to_glyph_id('A'), Some(34)); // 65 - 31 = 34
+
+    // Unknown unicode character must return None or map gracefully
+    let unknown_gid = font.char_to_glyph_id('\u{1F600}');
+    assert_eq!(unknown_gid, None);
+
+    // 4. Test glyph outline retrieval
+    let outline_a = font.get_glyph_outline(34).expect("Glyph 'A' outline must exist");
+    assert!(!outline_a.is_empty(), "Glyph 'A' outline must have contours");
+    assert!(outline_a.contours.len() >= 2, "Glyph 'A' has outer contour and inner triangle hole");
+
+    // 5. Test metrics retrieval
+    let metrics_a = font.get_glyph_metrics(34);
+    assert_eq!(metrics_a.advance_width, 600);
+    assert_eq!(metrics_a.left_side_bearing, 60);
+}
+
+#[test]
+fn test_ttf_rasterizer_analytical_scanline_coverage() {
+    use rustext::gfx::ttf::{TrueTypeFont, TtfFontGenerator, TtfRasterizer};
+
+    let bundled_bytes = TtfFontGenerator::get_bundled_ttf();
+    let font = TrueTypeFont::from_bytes(bundled_bytes).unwrap();
+
+    // Rasterize character 'A' into a 16x24 pixel grid
+    let target_w = 16;
+    let target_h = 24;
+    let (w, h, coverage) = TtfRasterizer::rasterize_char(&font, 'A', target_w, target_h);
+
+    assert_eq!(w, target_w);
+    assert_eq!(h, target_h);
+    assert_eq!(coverage.len(), target_w * target_h);
+
+    // Verify non-empty coverage
+    let non_zero_count = coverage.iter().filter(|&&alpha| alpha > 0).count();
+    assert!(non_zero_count > 10, "Glyph 'A' must produce rasterized pixels");
+
+    // Verify analytical anti-aliasing produces smooth fractional coverage (0 < alpha < 255)
+    let partial_alpha_count = coverage.iter().filter(|&&alpha| alpha > 0 && alpha < 255).count();
+    assert!(partial_alpha_count > 0, "Analytical scanline accumulator must generate anti-aliased edge alphas");
+
+    // Space ' ' should be entirely blank
+    let (_, _, space_cov) = TtfRasterizer::rasterize_char(&font, ' ', target_w, target_h);
+    assert!(space_cov.iter().all(|&a| a == 0), "Space glyph must be completely empty");
+}
+
+#[test]
+fn test_ttf_rasterizer_subpixel_cleartype_lcd_rendering() {
+    use rustext::gfx::ttf::{TrueTypeFont, TtfFontGenerator, TtfRasterizer};
+
+    let bundled_bytes = TtfFontGenerator::get_bundled_ttf();
+    let font = TrueTypeFont::from_bytes(bundled_bytes).unwrap();
+
+    let target_w = 14;
+    let target_h = 20;
+    let (w, h, subpixel_cov) = TtfRasterizer::rasterize_char_subpixel(&font, 'M', target_w, target_h);
+
+    assert_eq!(w, target_w);
+    assert_eq!(h, target_h);
+    assert_eq!(subpixel_cov.len(), target_w * target_h);
+
+    // Each subpixel entry is [r, g, b]
+    let mut total_r = 0u64;
+    let mut total_g = 0u64;
+    let mut total_b = 0u64;
+    let mut has_asymmetric_subpixels = false;
+
+    for &[r, g, b] in &subpixel_cov {
+        total_r += r as u64;
+        total_g += g as u64;
+        total_b += b as u64;
+        if r != g || g != b {
+            has_asymmetric_subpixels = true;
+        }
+    }
+
+    assert!(total_r > 0 && total_g > 0 && total_b > 0, "Subpixel rendering must populate color channels");
+    assert!(has_asymmetric_subpixels, "ClearType LCD 3x subpixel rendering must produce color-fringe anti-aliasing");
+}
+
+#[test]
+fn test_system_font_loader_and_caching() {
+    use rustext::gfx::ttf::SystemFontLoader;
+
+    let font = SystemFontLoader::get_active_font();
+    let gid = font.char_to_glyph_id('m').unwrap();
+    let outline = font.get_glyph_outline(gid).unwrap();
+    assert!(!outline.contours.is_empty());
+    let (w, h, cov_m) = rustext::gfx::ttf::TtfRasterizer::rasterize_char(&font, 'm', 8, 16);
+    assert_eq!(w, 8);
+    assert_eq!(h, 16);
+    assert!(cov_m.iter().any(|&c| c > 0), "Character 'm' must render non-zero coverage");
+
+    for ch in ['a', 'e', 'o', 'B', 'g', '1'] {
+        let (cw, ch_h, cov) = rustext::gfx::ttf::TtfRasterizer::rasterize_char(&font, ch, 8, 16);
+        assert_eq!(cw, 8);
+        assert_eq!(ch_h, 16);
+        assert!(cov.iter().any(|&c| c > 0), "Character '{}' must render non-zero coverage", ch);
+    }
+
+    assert!(font.units_per_em > 0);
+    assert!(font.num_glyphs > 0);
+
+    // Same pointer / cache retrieval
+    let font2 = SystemFontLoader::get_active_font();
+    assert!(std::sync::Arc::ptr_eq(&font, &font2), "SystemFontLoader must return cached Arc instance");
+
+    // Fallback on non-existent path
+    let fallback = SystemFontLoader::load_font(Some("/non_existent_directory/font.ttf"));
+    assert!(fallback.num_glyphs > 0, "Non-existent path must gracefully fallback to valid font");
+}
+
+#[test]
+fn test_config_ini_ttf_persistence_and_roundtrip() {
+    use rustext::editor::config::EditorConfig;
+
+    let ini = r#"
+[gui]
+use_ttf_font = true
+ttf_font_path = /usr/share/fonts/custom/MyFont.ttf
+"#;
+    let cfg = EditorConfig::parse(ini);
+    assert!(cfg.gui.use_ttf_font);
+    assert_eq!(cfg.gui.ttf_font_path, "/usr/share/fonts/custom/MyFont.ttf");
+
+    // Toggle off
+    let ini_off = r#"
+[gui]
+use_ttf_font = false
+ttf_font_path = 
+"#;
+    let cfg_off = EditorConfig::parse(ini_off);
+    assert!(!cfg_off.gui.use_ttf_font);
+    assert_eq!(cfg_off.gui.ttf_font_path, "");
+
+    // Serialization roundtrip
+    let serialized = cfg.to_ini_string();
+    assert!(serialized.contains("use_ttf_font = true"));
+    assert!(serialized.contains("ttf_font_path = /usr/share/fonts/custom/MyFont.ttf"));
+
+    let roundtrip = EditorConfig::parse(&serialized);
+    assert!(roundtrip.gui.use_ttf_font);
+    assert_eq!(roundtrip.gui.ttf_font_path, "/usr/share/fonts/custom/MyFont.ttf");
+}
+
+#[test]
+fn test_framebuffer_and_renderer_ttf_integration() {
+    use rustext::core::TextBuffer;
+    use rustext::editor::Document;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+
+    let mut fb = Framebuffer::new(320, 240);
+    fb.set_use_ttf_font(true);
+    assert!(fb.use_ttf_font);
+
+    // Draw text with TTF vector rasterizer
+    fb.draw_text("Rustext TTF", 10, 20, 0x00FFFFFF, Some(0x00000000));
+
+    // Verify text pixels were drawn into framebuffer
+    let mut drawn_pixels = 0;
+    for y in 20..40 {
+        for x in 10..120 {
+            if fb.get_pixel(x, y) != 0x00000000 {
+                drawn_pixels += 1;
+            }
+        }
+    }
+    assert!(drawn_pixels > 20, "Framebuffer text with TTF must render visible pixels");
+
+    // Verify GfxRenderer with use_ttf_font
+    let mut r = GfxRenderer::new();
+    r.use_ttf_font = true;
+    let doc = Document::new(TextBuffer::from_str("let x = 42;"));
+    let tabs = vec!["main.rs".to_string()];
+    r.render(&mut fb, &doc, &tabs, 0, None, None, None);
+
+    let doc_drawn_pixels = fb.pixels.iter().filter(|&&p| p != 0x00000000).count();
+    assert!(doc_drawn_pixels > 50, "Renderer with TTF vector font must render document line tokens");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_wayland_socket_discovery_and_availability() {
+    use rustext::window::wayland::WaylandWindow;
+
+    // Check socket resolution
+    let socket_opt = WaylandWindow::find_socket_path();
+    let is_avail = WaylandWindow::is_available();
+
+    if std::env::var("WAYLAND_DISPLAY").is_ok() || std::env::var("XDG_RUNTIME_DIR").is_ok() {
+        if let Some(ref path) = socket_opt {
+            assert!(path.exists(), "Detected Wayland socket must exist on filesystem");
+            assert!(is_avail, "is_available() must be true when socket path exists");
+
+            let res = WaylandWindow::new("Wayland Direct Test", 640, 480);
+            assert!(res.is_ok(), "WaylandWindow::new failed: {:?}", res.err());
+            let mut win = res.unwrap();
+
+            // Initial buffer presentation
+            let mut fb1 = Framebuffer::new(640, 480);
+            fb1.clear(0xFF1E1E1E);
+            win.present(&fb1);
+
+            // Resized / maximized buffer presentation (verifies recreation of wl_buffer with new stride)
+            let mut fb2 = Framebuffer::new(1920, 1080);
+            fb2.clear(0xFF252526);
+            win.present(&fb2);
+            assert_eq!(win.width, 1920);
+            assert_eq!(win.height, 1080);
+
+            // Poll events for 100ms to observe compositor response
+            for _ in 0..10 {
+                let _ = win.poll_event();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_linux_window_creation_and_fallback() {
+    use rustext::window::linux::LinuxWindow;
+    use rustext::window::WindowEvent;
+
+    // Create a native Linux window (Wayland or X11)
+    let win_res = LinuxWindow::new("Rustext Test Window", 640, 480);
+    assert!(win_res.is_ok(), "LinuxWindow::new must successfully initialize: {:?}", win_res.err());
+
+    let mut win = win_res.unwrap();
+    assert!(win.width >= 400);
+    assert!(win.height >= 300);
+    assert!(win.scale_factor() >= 0.5);
+
+    let name = win.backend_name();
+    assert!(name == "Wayland" || name == "X11", "Backend name must be Wayland or X11, got: {}", name);
+
+    if win.is_wayland() {
+        assert_eq!(name, "Wayland");
+    } else {
+        assert_eq!(name, "X11");
+    }
+
+    // Set title
+    win.set_title("Rustext Native Window Test - Updated");
+
+    // Poll event non-blocking
+    let ev = win.poll_event();
+    // Initially should be None or Resize/Configure
+    match ev {
+        WindowEvent::None | WindowEvent::Resize { .. } => {}
+        other => println!("Initial event: {:?}", other),
+    }
+
+    // Present a test Framebuffer
+    let mut fb = rustext::gfx::Framebuffer::new(win.width, win.height);
+    fb.fill_rect(0, 0, win.width, win.height, 0x001E1E2E);
+    fb.draw_text("Wayland Native Support in Rustext", 10, 10, 0x00CDD6F4, None);
+    win.present(&fb);
+
+    // Close state
+    assert!(!win.should_close());
+    win.cancel_close();
+    assert!(!win.should_close());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_linux_backend_override_environment() {
+    use rustext::window::linux::LinuxWindow;
+
+    // Test X11 override
+    unsafe {
+        std::env::set_var("RUSTEXT_BACKEND", "x11");
+    }
+    if let Ok(win) = LinuxWindow::new("Rustext X11 Force", 400, 300) {
+        assert!(win.is_x11());
+        assert_eq!(win.backend_name(), "X11");
+    }
+    unsafe {
+        std::env::remove_var("RUSTEXT_BACKEND");
+    }
+}
+
+#[test]
+fn test_ttf_glyph_cache_lifecycle_and_warmup() {
+    use rustext::gfx::ttf::{SystemFontLoader, TtfRasterizer};
+
+    let font = SystemFontLoader::get_active_font();
+    TtfRasterizer::clear_cache();
+    let stats_empty = TtfRasterizer::cache_stats();
+    assert_eq!(stats_empty.entry_count, 0);
+
+    // Warm up ASCII at 8x16
+    TtfRasterizer::warmup_cache(&font, 8, 16);
+    let stats_warmed = TtfRasterizer::cache_stats();
+    assert!(stats_warmed.fast_ascii_count >= 95, "ASCII warmup must populate fast tables");
+    assert!(stats_warmed.memory_bytes > 0);
+
+    // Retrieval of warmed ASCII character 'A' should hit the cache immediately
+    let prev_hits = stats_warmed.hits;
+    let (w, h, cov_a) = TtfRasterizer::rasterize_char_cached(&font, 'A', 8, 16);
+    assert_eq!(w, 8);
+    assert_eq!(h, 16);
+    assert!(cov_a.iter().any(|&c| c > 0));
+
+    let stats_after = TtfRasterizer::cache_stats();
+    assert!(stats_after.hits > prev_hits, "Warm ASCII lookup must register a cache hit");
+
+    // Subpixel cached retrieval
+    let (sw, sh, sub_a) = TtfRasterizer::rasterize_char_subpixel_cached(&font, 'A', 8, 16);
+    assert_eq!(sw, 8);
+    assert_eq!(sh, 16);
+    assert!(sub_a.iter().any(|&[r, g, b]| r > 0 || g > 0 || b > 0));
+
+    // Clear cache
+    TtfRasterizer::clear_cache();
+    let stats_cleared = TtfRasterizer::cache_stats();
+    assert_eq!(stats_cleared.entry_count, 0);
+    assert_eq!(stats_cleared.fast_ascii_count, 0);
+}
+
+#[test]
+fn test_ttf_glyph_cache_eviction_and_metrics() {
+    use rustext::gfx::ttf::{SystemFontLoader, TtfGlyphCache};
+
+    let font = SystemFontLoader::get_active_font();
+    // Cache with tiny capacity of 128 to test LRU eviction
+    let mut cache = TtfGlyphCache::with_capacity(128);
+
+    for code in 32u32..=200u32 {
+        if let Some(ch) = char::from_u32(code) {
+            let _ = cache.get_or_rasterize_grayscale(&font, ch, 10, 20);
+        }
+    }
+
+    let stats = cache.stats();
+    assert!(stats.entry_count <= 128, "Cache must not exceed maximum configured capacity");
+    assert!(stats.hit_ratio() >= 0.0 && stats.hit_ratio() <= 100.0);
+
+    // Re-accessing an existing glyph produces hits
+    let hits_before = cache.stats().hits;
+    let _ = cache.get_or_rasterize_grayscale(&font, 'x', 10, 20);
+    let hits_after = cache.stats().hits;
+    assert!(hits_after > hits_before);
+}
+
+#[test]
+fn test_security_atomic_file_save() {
+    use rustext::core::TextBuffer;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_sec_test_{}", std::process::id()));
+    fs::create_dir_all(&temp_dir).unwrap();
+    let target_file = temp_dir.join("critical_code.rs");
+
+    let mut buf = TextBuffer::new();
+    buf.set_file_path(target_file.clone());
+    buf.insert(0, "pub fn safe_atomic() -> bool { true }\n");
+
+    assert!(buf.save().is_ok());
+    assert!(target_file.exists());
+
+    let saved = fs::read_to_string(&target_file).unwrap();
+    assert_eq!(saved, "pub fn safe_atomic() -> bool { true }\n");
+
+    // Clean up
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_security_draft_path_traversal_confinement() {
+    use rustext::editor::session::SessionManager;
+    use std::path::PathBuf;
+
+    let manager = SessionManager::default();
+
+    // 1. Path with parent traversal must be rejected
+    let traversal_path = PathBuf::from("/etc/../etc/passwd.draft");
+    assert!(!manager.is_safe_draft_path(&traversal_path));
+    assert!(manager.read_draft(&traversal_path).is_err());
+
+    // 2. Arbitrary file without .draft extension must be rejected
+    let arbitrary_path = PathBuf::from("/etc/shadow");
+    assert!(!manager.is_safe_draft_path(&arbitrary_path));
+    assert!(manager.read_draft(&arbitrary_path).is_err());
+
+    // 3. Legit draft within drafts directory is accepted
+    let legitimate = manager.drafts_dir().join("tab_1.draft");
+    assert!(manager.is_safe_draft_path(&legitimate));
+}
+
+#[test]
+fn test_security_global_search_symlink_defense() {
+    use rustext::core::GlobalSearchEngine;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_symlink_test_{}", std::process::id()));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let normal_file = temp_dir.join("test.rs");
+    fs::write(&normal_file, "fn search_target_token() {}\n").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        // Create a symlink loop: loop_dir -> temp_dir
+        let loop_link = temp_dir.join("loop_link");
+        let _ = symlink(&temp_dir, &loop_link);
+    }
+
+    // Search must terminate gracefully without stack overflow or infinite recursion
+    let results = GlobalSearchEngine::search_project(&temp_dir, "search_target_token", false, 100);
+    assert_eq!(results.matches.len(), 1);
+    assert_eq!(results.matches[0].line_number, 1);
+
+    // Clean up
+    let _ = fs::remove_dir_all(&temp_dir);
+}

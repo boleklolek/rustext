@@ -82,6 +82,7 @@ impl GlobalSearchEngine {
         Self::scan_dir_recursive(
             root_dir,
             root_dir,
+            0,
             &query_chars,
             &query_lower,
             case_sensitive,
@@ -107,6 +108,7 @@ impl GlobalSearchEngine {
     fn scan_dir_recursive(
         root_dir: &Path,
         current_dir: &Path,
+        depth: usize,
         query_chars: &[char],
         query_lower: &[char],
         case_sensitive: bool,
@@ -116,7 +118,8 @@ impl GlobalSearchEngine {
         matching_files: &mut HashSet<PathBuf>,
         truncated: &mut bool,
     ) {
-        if *truncated {
+        // Limit recursion depth to 32 to prevent stack overflow from deep trees (SEC-04)
+        if *truncated || depth > 32 {
             return;
         }
 
@@ -155,9 +158,19 @@ impl GlobalSearchEngine {
                 continue;
             }
 
-            if path.is_dir() {
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            // Do not follow symlinks to avoid cyclical directory links and infinite recursion (SEC-04 / CWE-59)
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            if file_type.is_dir() {
                 subdirs.push(path);
-            } else if path.is_file() {
+            } else if file_type.is_file() {
                 files.push(path);
             }
         }
@@ -189,6 +202,7 @@ impl GlobalSearchEngine {
             Self::scan_dir_recursive(
                 root_dir,
                 &subdir,
+                depth + 1,
                 query_chars,
                 query_lower,
                 case_sensitive,

@@ -275,8 +275,19 @@ pub unsafe fn detect_scale_factor(display: *mut Display) -> f64 {
         }
     }
 
+    // 2. Query hardware display metrics via DRM EDID sysfs (sub-millimeter precision)
+    if let Some(metrics) = crate::gfx::HiDpiDetector::detect_from_drm_sysfs() {
+        if metrics.dpi >= 115.0 {
+            return crate::gfx::HiDpiDetector::compute_ergonomic_scale(
+                metrics.dpi,
+                metrics.default_viewing_distance_mm,
+                crate::gfx::HiDpiDetector::ISO_RECOMMENDED_ARCMIN,
+            );
+        }
+    }
+
     if !display.is_null() {
-        // 2. Query Xft.dpi from X resource database via XGetDefault
+        // 3. Query Xft.dpi from X resource database via XGetDefault
         let program = CString::new("Xft").unwrap();
         let option = CString::new("dpi").unwrap();
         let val_ptr = unsafe { XGetDefault(display, program.as_ptr(), option.as_ptr()) };
@@ -292,7 +303,7 @@ pub unsafe fn detect_scale_factor(display: *mut Display) -> f64 {
             }
         }
 
-        // 3. Query physical screen dimensions (pixels vs millimeters)
+        // 4. Query physical screen dimensions (pixels vs millimeters)
         let (screen, width_px, width_mm, height_px, height_mm) = unsafe {
             let screen = XDefaultScreen(display);
             let width_px = XDisplayWidth(display, screen);
@@ -306,9 +317,12 @@ pub unsafe fn detect_scale_factor(display: *mut Display) -> f64 {
             let dpi_x = (width_px as f64 * 25.4) / (width_mm as f64);
             let dpi_y = (height_px as f64 * 25.4) / (height_mm as f64);
             let dpi = (dpi_x + dpi_y) / 2.0;
-            if dpi >= 130.0 {
-                let scale = dpi / 96.0;
-                return (scale * 2.0).round() / 2.0;
+            if dpi >= 115.0 {
+                return crate::gfx::HiDpiDetector::compute_ergonomic_scale(
+                    dpi,
+                    600.0,
+                    crate::gfx::HiDpiDetector::ISO_RECOMMENDED_ARCMIN,
+                );
             }
         }
     }

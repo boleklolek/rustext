@@ -7,7 +7,9 @@ use super::edge_perception::EdgePerception;
 use super::font::{get_glyph, FontFamily, FontWeight, FontRasterizer, FONT_HEIGHT, FONT_WIDTH};
 use super::gamma::{blend_pixel_gamma, blend_pixel_subpixel_gamma};
 use super::hinting::{FontHinter, HintingLevel};
+use super::sdf::SdfFontRasterizer;
 use super::shaping::FontShaper;
+use super::stem_darkening::StemDarkener;
 
 /// Software pixel buffer in 32-bit ARGB (0xAARRGGBB) format.
 #[derive(Debug, Clone)]
@@ -20,6 +22,12 @@ pub struct Framebuffer {
     pub font_weight: FontWeight,
     pub font_size: usize,
     pub subpixel_antialiasing: bool,
+    pub letter_spacing: usize,
+    pub font_aspect_ratio: f64,
+    pub stem_darkening: bool,
+    pub stem_darkening_amount: f64,
+    pub sdf_font_rendering: bool,
+    pub use_ttf_font: bool,
 }
 
 impl Framebuffer {
@@ -35,6 +43,12 @@ impl Framebuffer {
             font_weight: FontWeight::Normal,
             font_size: 12,
             subpixel_antialiasing: false,
+            letter_spacing: 0,
+            font_aspect_ratio: 0.50,
+            stem_darkening: true,
+            stem_darkening_amount: 1.0,
+            sdf_font_rendering: false,
+            use_ttf_font: false,
         }
     }
 
@@ -342,42 +356,99 @@ impl Framebuffer {
         self.subpixel_antialiasing = enabled;
     }
 
-    /// Returns the character cell dimensions `(width, height)` in pixels based on font_size and font_scale.
-    pub fn char_cell_size(&self) -> (usize, usize) {
+    /// Sets additional horizontal letter spacing (tracking) in pixels.
+    pub fn set_letter_spacing(&mut self, spacing: usize) {
+        self.letter_spacing = spacing;
+    }
+
+    /// Sets the ergonomic font aspect ratio (width / height). Default is 0.50 (compact 8x16).
+    pub fn set_font_aspect_ratio(&mut self, ratio: f64) {
+        self.font_aspect_ratio = ratio;
+    }
+
+    /// Sets whether optical stem darkening in dark mode is enabled.
+    pub fn set_stem_darkening(&mut self, enabled: bool) {
+        self.stem_darkening = enabled;
+    }
+
+    /// Sets the optical stem darkening strength factor (0.0 to 2.0).
+    pub fn set_stem_darkening_amount(&mut self, amount: f64) {
+        self.stem_darkening_amount = amount;
+    }
+
+    /// Sets whether high-resolution Signed Distance Field (SDF) rasterization is enabled.
+    pub fn set_sdf_font_rendering(&mut self, enabled: bool) {
+        self.sdf_font_rendering = enabled;
+    }
+
+    /// Sets whether TrueType vector outline rasterization is enabled.
+    pub fn set_use_ttf_font(&mut self, enabled: bool) {
+        self.use_ttf_font = enabled;
+    }
+
+    /// Character height in physical pixels based on font_size and font_scale.
+    #[inline]
+    pub fn char_height(&self) -> usize {
         if self.font_size != 12 {
-            let w = ((self.font_size as f64 * 8.0 / 12.0).round() as usize).max(5) * self.font_scale;
-            let h = ((self.font_size as f64 * 16.0 / 12.0).round() as usize).max(10) * self.font_scale;
-            (w, h)
+            ((self.font_size as f64 * 16.0 / 12.0).round() as usize).max(10) * self.font_scale
         } else {
-            (FONT_WIDTH * self.font_scale, FONT_HEIGHT * self.font_scale)
+            FONT_HEIGHT * self.font_scale
         }
+    }
+
+    /// Raw glyph width in physical pixels based on font_size, aspect ratio, and font_scale.
+    #[inline]
+    pub fn glyph_width(&self) -> usize {
+        let h = self.char_height();
+        if self.font_aspect_ratio > 0.0 && (self.font_aspect_ratio - 0.50).abs() > 0.001 {
+            ((h as f64 * self.font_aspect_ratio).round() as usize).max(5)
+        } else if self.font_size != 12 {
+            ((self.font_size as f64 * 8.0 / 12.0).round() as usize).max(5) * self.font_scale
+        } else {
+            FONT_WIDTH * self.font_scale
+        }
+    }
+
+    /// Returns the character cell dimensions `(width, height)` in pixels including letter spacing.
+    pub fn char_cell_size(&self) -> (usize, usize) {
+        let h = self.char_height();
+        let w = self.glyph_width() + self.letter_spacing * self.font_scale;
+        (w, h)
     }
 
     /// Draws a single character glyph at pixel coordinates (x, y) with subpixel anti-aliasing and gamma correction.
     pub fn draw_char(&mut self, ch: char, x: usize, y: usize, fg: u32, bg: Option<u32>) {
         let (char_w, char_h) = self.char_cell_size();
+        let is_box = FontRasterizer::is_box_drawing(ch);
+        let glyph_w = if is_box { char_w } else { self.glyph_width() };
+        let offset_x = if is_box { 0 } else { (char_w.saturating_sub(glyph_w)) / 2 };
+
+        if let Some(bg_color) = bg {
+            self.fill_rect(x, y, char_w, char_h, bg_color);
+        }
+
         if self.subpixel_antialiasing {
-            self.draw_char_subpixel(ch, x, y, fg, bg, char_w, char_h);
+            self.draw_char_subpixel(ch, x + offset_x, y, fg, bg, glyph_w, char_h);
             return;
         }
 
-        if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
-            self.draw_char_sized(ch, x, y, fg, bg, char_w, char_h);
+        if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || glyph_w != FONT_WIDTH || char_h != FONT_HEIGHT || self.sdf_font_rendering || self.use_ttf_font {
+            self.draw_char_sized(ch, x + offset_x, y, fg, bg, glyph_w, char_h);
             return;
         }
 
-        if x >= self.width || y >= self.height {
+        if x + offset_x >= self.width || y >= self.height {
             return;
         }
 
         let coverage = FontRasterizer::get_glyph_coverage(ch);
-        let max_w = (x + FONT_WIDTH).min(self.width) - x;
+        let max_w = (x + offset_x + FONT_WIDTH).min(self.width) - (x + offset_x);
         let max_h = (y + FONT_HEIGHT).min(self.height) - y;
 
         for row in 0..max_h {
             let py = y + row;
             let row_offset = row * FONT_WIDTH;
-            let fb_offset = py * self.width + x;
+            let fb_offset = py * self.width + x + offset_x;
 
             for col in 0..max_w {
                 let alpha = coverage[row_offset + col];
@@ -392,7 +463,13 @@ impl Framebuffer {
                         Some(bg_color) => bg_color,
                         None => self.pixels[fb_offset + col],
                     };
-                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                    let eff_alpha = if self.stem_darkening && !is_box {
+                        let k = StemDarkener::compute_darkening_factor(dst, fg, self.font_size, self.stem_darkening_amount);
+                        StemDarkener::darken_alpha(alpha, k)
+                    } else {
+                        alpha
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, eff_alpha);
                 }
             }
         }
@@ -409,7 +486,22 @@ impl Framebuffer {
             return;
         }
 
-        let (w, h, coverage) = FontRasterizer::rasterize_glyph_sized(ch, self.font_family, target_w, target_h, self.font_weight);
+        let is_box = FontRasterizer::is_box_drawing(ch);
+        let ttf_cov;
+        let sdf_cov;
+        let font_cov;
+        let (w, h, coverage): (usize, usize, &[u8]) = if self.use_ttf_font && !is_box {
+            let font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+            let (cw, ch_h, cov) = crate::gfx::ttf::TtfRasterizer::rasterize_char_cached(&font, ch, target_w, target_h);
+            ttf_cov = cov;
+            (cw, ch_h, &ttf_cov)
+        } else if self.sdf_font_rendering && !is_box {
+            sdf_cov = SdfFontRasterizer::rasterize_glyph_sdf(ch, self.font_family, target_w, target_h, self.font_weight, 0.0);
+            (sdf_cov.0, sdf_cov.1, &sdf_cov.2)
+        } else {
+            font_cov = FontRasterizer::rasterize_glyph_sized(ch, self.font_family, target_w, target_h, self.font_weight);
+            (font_cov.0, font_cov.1, &font_cov.2)
+        };
         let max_w = (x + w).min(self.width) - x;
         let max_h = (y + h).min(self.height) - y;
 
@@ -431,7 +523,13 @@ impl Framebuffer {
                         Some(bg_color) => bg_color,
                         None => self.pixels[fb_offset + col],
                     };
-                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, alpha);
+                    let eff_alpha = if self.stem_darkening && !is_box {
+                        let k = StemDarkener::compute_darkening_factor(dst, fg, self.font_size, self.stem_darkening_amount);
+                        StemDarkener::darken_alpha(alpha, k)
+                    } else {
+                        alpha
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_gamma(dst, fg, eff_alpha);
                 }
             }
         }
@@ -452,20 +550,40 @@ impl Framebuffer {
             return;
         }
 
-        let (w, h, subpixel_cov) = if target_w == FONT_WIDTH
-            && target_h == FONT_HEIGHT
-            && self.font_family == FontFamily::Standard
-            && self.font_weight == FontWeight::Normal
-        {
-            (FONT_WIDTH, FONT_HEIGHT, FontRasterizer::get_glyph_subpixel(ch).to_vec())
-        } else {
-            FontRasterizer::rasterize_glyph_subpixel(
+        let is_box = FontRasterizer::is_box_drawing(ch);
+        let ttf_sub;
+        let sdf_sub;
+        let font_sub;
+        let (w, h, subpixel_cov): (usize, usize, &[[u8; 3]]) = if self.use_ttf_font && !is_box {
+            let font = crate::gfx::ttf::SystemFontLoader::get_active_font();
+            let (cw, ch_h, sub) = crate::gfx::ttf::TtfRasterizer::rasterize_char_subpixel_cached(&font, ch, target_w, target_h);
+            ttf_sub = sub;
+            (cw, ch_h, &ttf_sub)
+        } else if self.sdf_font_rendering && !is_box {
+            sdf_sub = SdfFontRasterizer::rasterize_glyph_sdf_subpixel(
                 ch,
                 self.font_family,
                 target_w,
                 target_h,
                 self.font_weight,
-            )
+                0.0,
+            );
+            (sdf_sub.0, sdf_sub.1, &sdf_sub.2)
+        } else if target_w == FONT_WIDTH
+            && target_h == FONT_HEIGHT
+            && self.font_family == FontFamily::Standard
+            && self.font_weight == FontWeight::Normal
+        {
+            (FONT_WIDTH, FONT_HEIGHT, FontRasterizer::get_glyph_subpixel(ch))
+        } else {
+            font_sub = FontRasterizer::rasterize_glyph_subpixel(
+                ch,
+                self.font_family,
+                target_w,
+                target_h,
+                self.font_weight,
+            );
+            (font_sub.0, font_sub.1, &font_sub.2)
         };
 
         let max_w = (x + w).min(self.width) - x;
@@ -489,7 +607,13 @@ impl Framebuffer {
                         Some(bg_color) => bg_color,
                         None => self.pixels[fb_offset + col],
                     };
-                    self.pixels[fb_offset + col] = blend_pixel_subpixel_gamma(dst, fg, ar, ag, ab);
+                    let [dr, dg, db] = if self.stem_darkening && !is_box {
+                        let k = StemDarkener::compute_darkening_factor(dst, fg, self.font_size, self.stem_darkening_amount);
+                        StemDarkener::darken_subpixel(ar, ag, ab, k)
+                    } else {
+                        [ar, ag, ab]
+                    };
+                    self.pixels[fb_offset + col] = blend_pixel_subpixel_gamma(dst, fg, dr, dg, db);
                 }
             }
         }
@@ -505,7 +629,7 @@ impl Framebuffer {
             }
             if self.subpixel_antialiasing {
                 self.draw_char_subpixel(ch, cur_x, y, fg, bg, char_w, char_h);
-            } else if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal {
+            } else if self.font_scale > 1 || self.font_size != 12 || self.font_family != FontFamily::Standard || self.font_weight != FontWeight::Normal || self.sdf_font_rendering || self.use_ttf_font {
                 self.draw_char_sized(ch, cur_x, y, fg, bg, char_w, char_h);
             } else {
                 self.draw_char(ch, cur_x, y, fg, bg);
