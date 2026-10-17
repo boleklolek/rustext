@@ -21,7 +21,13 @@ pub struct PieceTable {
     add: String,
     pieces: Vec<Piece>,
     total_chars: usize,
+    /// Sparse byte-offset checkpoints for `original` buffer (every CHECKPOINT_INTERVAL characters).
+    /// Used when `original` contains multi-byte UTF-8 characters to turn linear character
+    /// scanning into O(1) direct lookup + scanning at most CHECKPOINT_INTERVAL - 1 characters.
+    orig_checkpoints: Vec<u32>,
 }
+
+const CHECKPOINT_INTERVAL: usize = 256;
 
 impl PieceTable {
     /// Creates a new empty PieceTable.
@@ -31,6 +37,7 @@ impl PieceTable {
             add: String::new(),
             pieces: Vec::new(),
             total_chars: 0,
+            orig_checkpoints: Vec::new(),
         }
     }
 
@@ -48,11 +55,23 @@ impl PieceTable {
             char_len,
         };
 
+        let mut orig_checkpoints = Vec::new();
+        if text.len() != char_len && char_len > CHECKPOINT_INTERVAL {
+            let mut char_count = 0;
+            for (byte_idx, _) in text.char_indices() {
+                if char_count % CHECKPOINT_INTERVAL == 0 {
+                    orig_checkpoints.push(byte_idx as u32);
+                }
+                char_count += 1;
+            }
+        }
+
         Self {
             original: text.to_string(),
             add: String::new(),
             pieces: vec![piece],
             total_chars: char_len,
+            orig_checkpoints,
         }
     }
 
@@ -100,6 +119,48 @@ impl PieceTable {
         // O(1) fast-path: If byte length equals character length, the entire piece is ASCII
         if piece.length == piece.char_len {
             return char_offset;
+        }
+
+        // Fast-path using checkpoints for the Original buffer:
+        if piece.source == BufferSource::Original && !self.orig_checkpoints.is_empty() {
+            let piece_orig_char_start = if piece.start == 0 {
+                0
+            } else {
+                let cp_idx = match self.orig_checkpoints.binary_search(&(piece.start as u32)) {
+                    Ok(idx) => idx,
+                    Err(idx) => idx.saturating_sub(1),
+                };
+                let base_byte = self.orig_checkpoints[cp_idx] as usize;
+                let base_char = cp_idx * CHECKPOINT_INTERVAL;
+                let sub_text = &self.original[base_byte..piece.start];
+                base_char + sub_text.chars().count()
+            };
+
+            let target_char = piece_orig_char_start + char_offset;
+            let target_cp_idx = (target_char / CHECKPOINT_INTERVAL).min(self.orig_checkpoints.len().saturating_sub(1));
+            let cp_byte = self.orig_checkpoints[target_cp_idx] as usize;
+            let cp_char = target_cp_idx * CHECKPOINT_INTERVAL;
+
+            if cp_byte <= piece.start + piece.length {
+                let start_byte = cp_byte.max(piece.start);
+                let skipped_chars = if start_byte > cp_byte {
+                    self.original[cp_byte..start_byte].chars().count()
+                } else {
+                    0
+                };
+                let needed_chars = target_char.saturating_sub(cp_char + skipped_chars);
+                let scan_slice = &self.original[start_byte..piece.start + piece.length];
+                let mut count = 0;
+                for (b_idx, _) in scan_slice.char_indices() {
+                    if count == needed_chars {
+                        return (start_byte + b_idx) - piece.start;
+                    }
+                    count += 1;
+                }
+                if count == needed_chars {
+                    return (start_byte + scan_slice.len()) - piece.start;
+                }
+            }
         }
 
         let text = self.piece_text(piece);
@@ -318,7 +379,24 @@ impl PieceTable {
             };
 
             let byte_start = self.byte_offset_for_char(piece, piece_slice_start);
-            let byte_end = self.byte_offset_for_char(piece, piece_slice_end);
+            let byte_end = if piece_slice_end == piece_slice_start {
+                byte_start
+            } else if piece.length == piece.char_len {
+                piece_slice_end
+            } else {
+                let delta_chars = piece_slice_end - piece_slice_start;
+                let text_from_start = &text[byte_start..];
+                let mut delta_bytes = text_from_start.len();
+                let mut c = 0;
+                for (b_idx, _) in text_from_start.char_indices() {
+                    if c == delta_chars {
+                        delta_bytes = b_idx;
+                        break;
+                    }
+                    c += 1;
+                }
+                byte_start + delta_bytes
+            };
 
             result.push_str(&text[byte_start..byte_end]);
         }
@@ -348,7 +426,8 @@ impl PieceTable {
             if char_idx < next_accum {
                 let offset_in_piece = char_idx - accum_chars;
                 let text = self.piece_text(piece);
-                return text.chars().nth(offset_in_piece);
+                let byte_off = self.byte_offset_for_char(piece, offset_in_piece);
+                return text[byte_off..].chars().next();
             }
             accum_chars = next_accum;
         }

@@ -30,6 +30,7 @@ pub struct TextBuffer {
     line_starts: Vec<usize>,
     file_path: Option<PathBuf>,
     is_dirty: bool,
+    version: u64,
 }
 
 impl TextBuffer {
@@ -41,6 +42,7 @@ impl TextBuffer {
             line_starts: vec![0],
             file_path: None,
             is_dirty: false,
+            version: 0,
         };
         buf.rebuild_line_index();
         buf
@@ -54,6 +56,7 @@ impl TextBuffer {
             line_starts: vec![0],
             file_path: None,
             is_dirty: false,
+            version: 0,
         };
         buf.rebuild_line_index();
         buf
@@ -97,6 +100,7 @@ impl TextBuffer {
             }
 
             self.is_dirty = false;
+            self.version = self.version.wrapping_add(1);
             Ok(())
         } else {
             Err(io::Error::new(
@@ -151,7 +155,34 @@ impl TextBuffer {
 
     /// Explicitly sets the dirty state of the buffer.
     pub fn set_dirty(&mut self, dirty: bool) {
-        self.is_dirty = dirty;
+        if self.is_dirty != dirty {
+            self.is_dirty = dirty;
+            self.version = self.version.wrapping_add(1);
+        }
+    }
+
+    /// Returns the monotonic mutation version of this buffer.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Character length of line (excluding trailing newline), in O(1) time without allocating.
+    pub fn line_len_chars(&self, line_idx: usize) -> usize {
+        if line_idx >= self.line_starts.len() {
+            return 0;
+        }
+        let start = self.line_starts[line_idx];
+        let end = if line_idx + 1 < self.line_starts.len() {
+            self.line_starts[line_idx + 1].saturating_sub(1)
+        } else {
+            self.table.len_chars()
+        };
+        end.saturating_sub(start)
+    }
+
+    /// Read-only access to line starts index.
+    pub fn line_starts(&self) -> &[usize] {
+        &self.line_starts
     }
 
     /// Returns the file path if one is associated with this buffer.
@@ -206,6 +237,7 @@ impl TextBuffer {
         self.table.insert(char_idx, text);
         self.rebuild_line_index();
         self.is_dirty = true;
+        self.version = self.version.wrapping_add(1);
     }
 
     /// Inserts text at a specific Position (line, col).
@@ -222,6 +254,7 @@ impl TextBuffer {
         self.table.delete(start_char, end_char);
         self.rebuild_line_index();
         self.is_dirty = true;
+        self.version = self.version.wrapping_add(1);
     }
 
     /// Retrieves text within a character range.

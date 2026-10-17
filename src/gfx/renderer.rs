@@ -1207,6 +1207,8 @@ impl GfxRenderer {
             };
 
             let mut line_idx = 0;
+            let use_fast_density = total_lines > 1500;
+
             while line_idx < total_lines {
                 let my = if total_lines * 2 <= geom.height {
                     geom.y + line_idx * 2
@@ -1218,7 +1220,13 @@ impl GfxRenderer {
                     break;
                 }
 
-                if let Some(line_text) = doc.buffer.line(line_idx) {
+                if use_fast_density {
+                    let line_len = doc.buffer.line_len_chars(line_idx);
+                    if line_len > 0 {
+                        let draw_w = (line_len * 2).min(max_draw_w).max(2);
+                        fb.fill_rect(draw_x, my, draw_w, 1, self.colors.gutter_fg);
+                    }
+                } else if let Some(line_text) = doc.buffer.line(line_idx) {
                     let trimmed_left = line_text.trim_start();
                     let indent_chars = line_text.len().saturating_sub(trimmed_left.len());
                     let indent_px = (indent_chars / 2).min(max_draw_w / 3);

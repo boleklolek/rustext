@@ -658,46 +658,53 @@ impl Editor {
 
             // Navigation
             EditorAction::MoveLeft { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_left(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_left(&doc.buffer, select);
             }
             EditorAction::MoveRight { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_right(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_right(&doc.buffer, select);
             }
             EditorAction::MoveUp { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_up(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_up(&doc.buffer, select);
             }
             EditorAction::MoveDown { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_down(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_down(&doc.buffer, select);
             }
             EditorAction::MoveLineStart { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_to_line_start(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_to_line_start(&doc.buffer, select);
             }
             EditorAction::MoveLineEnd { select } => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.move_to_line_end(&buf, select);
+                let doc = self.doc_mut();
+                doc.cursors.move_to_line_end(&doc.buffer, select);
             }
 
             // Multi-cursors
             EditorAction::AddCursorAbove => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.add_cursor_above(&buf);
-                self.set_status(format!("Active cursors: {}", self.doc().cursors.cursors().len()));
+                let count = {
+                    let doc = self.doc_mut();
+                    doc.cursors.add_cursor_above(&doc.buffer);
+                    doc.cursors.cursors().len()
+                };
+                self.set_status(format!("Active cursors: {}", count));
             }
             EditorAction::AddCursorBelow => {
-                let buf = self.doc().buffer.clone();
-                self.doc_mut().cursors.add_cursor_below(&buf);
-                self.set_status(format!("Active cursors: {}", self.doc().cursors.cursors().len()));
+                let count = {
+                    let doc = self.doc_mut();
+                    doc.cursors.add_cursor_below(&doc.buffer);
+                    doc.cursors.cursors().len()
+                };
+                self.set_status(format!("Active cursors: {}", count));
             }
             EditorAction::SelectNextOccurrence => {
-                let buf = self.doc().buffer.clone();
-                let mut cs = self.doc().cursors.clone();
-                if SearchEngine::select_next_occurrence(&buf, &mut cs) {
-                    self.doc_mut().cursors = cs;
+                let found = {
+                    let doc = self.doc_mut();
+                    SearchEngine::select_next_occurrence(&doc.buffer, &mut doc.cursors)
+                };
+                if found {
                     self.set_status(format!("Cursors: {}", self.doc().cursors.cursors().len()));
                 } else {
                     self.set_status("No further occurrences found");
@@ -1896,16 +1903,20 @@ impl Editor {
         if input.is_empty() {
             return;
         }
-        let current_head = self.doc().cursors.primary().head;
-        let buf = self.doc().buffer.clone();
-        let search_from = if self.doc().cursors.primary().has_selection() {
-            self.doc().cursors.primary().selection_range().end
-        } else {
-            current_head
+        let matched = {
+            let doc = self.doc();
+            let current_head = doc.cursors.primary().head;
+            let search_from = if doc.cursors.primary().has_selection() {
+                doc.cursors.primary().selection_range().end
+            } else {
+                current_head
+            };
+            SearchEngine::find_next(&doc.buffer, input, search_from, false)
         };
-        if let Some((start, end)) = SearchEngine::find_next(&buf, input, search_from, false) {
-            self.doc_mut().cursors.set_single(start);
-            self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
+        if let Some((start, end)) = matched {
+            let doc = self.doc_mut();
+            doc.cursors.set_single(start);
+            doc.cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
             self.set_status(format!("Coincidencia en offset {}", start));
         } else {
             self.set_status(format!("No se encontró: '{}'", input));
@@ -1918,16 +1929,20 @@ impl Editor {
         if input.is_empty() {
             return;
         }
-        let current_head = self.doc().cursors.primary().head;
-        let buf = self.doc().buffer.clone();
-        let search_from = if self.doc().cursors.primary().has_selection() {
-            self.doc().cursors.primary().selection_range().start
-        } else {
-            current_head
+        let matched = {
+            let doc = self.doc();
+            let current_head = doc.cursors.primary().head;
+            let search_from = if doc.cursors.primary().has_selection() {
+                doc.cursors.primary().selection_range().start
+            } else {
+                current_head
+            };
+            SearchEngine::find_prev(&doc.buffer, input, search_from, false)
         };
-        if let Some((start, end)) = SearchEngine::find_prev(&buf, input, search_from, false) {
-            self.doc_mut().cursors.set_single(start);
-            self.doc_mut().cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
+        if let Some((start, end)) = matched {
+            let doc = self.doc_mut();
+            doc.cursors.set_single(start);
+            doc.cursors.cursors_mut()[0] = Cursor::with_selection(start, end);
             self.set_status(format!("Coincidencia anterior en offset {}", start));
         } else {
             self.set_status(format!("No se encontró: '{}'", input));
@@ -3015,6 +3030,9 @@ impl Editor {
         let mut adjust_viewport = true;
         let mut needs_redraw = true;
         let mut cached_title = String::new();
+        let mut cached_primary_git: Option<(Option<PathBuf>, u64, crate::editor::git::GitGutterDiff)> = None;
+        let mut cached_secondary_git: Option<(Option<PathBuf>, u64, crate::editor::git::GitGutterDiff)> = None;
+        let mut cached_git_statuses: Option<std::collections::HashMap<PathBuf, crate::editor::git::GitFileStatus>> = None;
 
         while !self.should_quit && !window.should_close() {
             // Check dynamic config changes
@@ -4488,17 +4506,51 @@ impl Editor {
                 None
             };
 
-            let primary_text = primary_doc.buffer.to_string();
             let primary_git_diff = if self.config.gui.git_gutter {
-                Some(self.git.diff_document(primary_doc.buffer.file_path(), &primary_text))
+                let path = primary_doc.buffer.file_path().map(|p| p.to_path_buf());
+                let ver = primary_doc.buffer.version();
+                if primary_doc.buffer.len_bytes() > 2 * 1024 * 1024 {
+                    Some(crate::editor::git::GitGutterDiff::default())
+                } else if let Some((ref cp, cv, ref diff)) = cached_primary_git {
+                    if cp == &path && cv == ver {
+                        Some(diff.clone())
+                    } else {
+                        let text = primary_doc.buffer.to_string();
+                        let diff = self.git.diff_document(path.as_deref(), &text);
+                        cached_primary_git = Some((path, ver, diff.clone()));
+                        Some(diff)
+                    }
+                } else {
+                    let text = primary_doc.buffer.to_string();
+                    let diff = self.git.diff_document(path.as_deref(), &text);
+                    cached_primary_git = Some((path, ver, diff.clone()));
+                    Some(diff)
+                }
             } else {
                 None
             };
 
             let secondary_git_diff = if self.config.gui.git_gutter {
                 if let Some(sec_doc) = secondary_doc {
-                    let sec_text = sec_doc.buffer.to_string();
-                    Some(self.git.diff_document(sec_doc.buffer.file_path(), &sec_text))
+                    let path = sec_doc.buffer.file_path().map(|p| p.to_path_buf());
+                    let ver = sec_doc.buffer.version();
+                    if sec_doc.buffer.len_bytes() > 2 * 1024 * 1024 {
+                        Some(crate::editor::git::GitGutterDiff::default())
+                    } else if let Some((ref cp, cv, ref diff)) = cached_secondary_git {
+                        if cp == &path && cv == ver {
+                            Some(diff.clone())
+                        } else {
+                            let text = sec_doc.buffer.to_string();
+                            let diff = self.git.diff_document(path.as_deref(), &text);
+                            cached_secondary_git = Some((path, ver, diff.clone()));
+                            Some(diff)
+                        }
+                    } else {
+                        let text = sec_doc.buffer.to_string();
+                        let diff = self.git.diff_document(path.as_deref(), &text);
+                        cached_secondary_git = Some((path, ver, diff.clone()));
+                        Some(diff)
+                    }
                 } else {
                     None
                 }
@@ -4509,7 +4561,11 @@ impl Editor {
             renderer.git_diff = primary_git_diff;
             renderer.secondary_git_diff = secondary_git_diff;
             renderer.git_branch = self.git.branch.clone();
-            renderer.git_statuses = Some(self.git.file_statuses.clone());
+            let git_statuses_len = self.git.file_statuses.len();
+            if cached_git_statuses.as_ref().map(|s| s.len()) != Some(git_statuses_len) {
+                cached_git_statuses = Some(self.git.file_statuses.clone());
+            }
+            renderer.git_statuses = cached_git_statuses.clone();
             renderer.git_gutter_enabled = self.config.gui.git_gutter;
             renderer.terminal_inset = term_inset;
 
