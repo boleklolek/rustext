@@ -204,12 +204,35 @@ impl Default for GuiSettings {
     }
 }
 
+/// Language Server Protocol (LSP) settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspSettings {
+    pub enabled: bool,
+    pub auto_start: bool,
+    pub rust_server: String,
+    pub python_server: String,
+    pub c_server: String,
+}
+
+impl Default for LspSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_start: true,
+            rust_server: "rust-analyzer".to_string(),
+            python_server: "pylsp".to_string(),
+            c_server: "clangd".to_string(),
+        }
+    }
+}
+
 /// Master configuration model for Rustext.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EditorConfig {
     pub editor: EditorSettings,
     pub theme: ThemeSettings,
     pub gui: GuiSettings,
+    pub lsp: LspSettings,
     pub config_path: Option<PathBuf>,
 }
 
@@ -389,6 +412,22 @@ use_ttf_font = false
 
 ; Ruta personalizada a archivo de fuente TrueType .ttf (vacío para usar fuentes del sistema o sintetizada integrada)
 ttf_font_path = 
+
+[lsp]
+; Habilitar o deshabilitar integración con servidores LSP (Language Server Protocol)
+enabled = true
+
+; Iniciar automáticamente el servidor LSP al abrir archivos compatibles (.rs, .py, .c, .cpp)
+auto_start = true
+
+; Binario o comando para el servidor LSP de Rust
+rust_server = rust-analyzer
+
+; Binario o comando para el servidor LSP de Python
+python_server = pylsp
+
+; Binario o comando para el servidor LSP de C / C++
+c_server = clangd
 "#
     }
 
@@ -465,6 +504,13 @@ sdf_font_rendering = {}
 optical_punctuation_spacing = {}
 use_ttf_font = {}
 ttf_font_path = {}
+
+[lsp]
+enabled = {}
+auto_start = {}
+rust_server = {}
+python_server = {}
+c_server = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -529,6 +575,11 @@ ttf_font_path = {}
             self.gui.optical_punctuation_spacing,
             self.gui.use_ttf_font,
             self.gui.ttf_font_path,
+            self.lsp.enabled,
+            self.lsp.auto_start,
+            self.lsp.rust_server,
+            self.lsp.python_server,
+            self.lsp.c_server,
         )
     }
 
@@ -902,6 +953,34 @@ ttf_font_path = {}
                         }
                         "ttf_font_path" => {
                             config.gui.ttf_font_path = val_unquoted.to_string();
+                        }
+                        _ => {}
+                    },
+                    "lsp" => match key.as_str() {
+                        "enabled" => {
+                            if let Some(b) = as_bool {
+                                config.lsp.enabled = b;
+                            }
+                        }
+                        "auto_start" => {
+                            if let Some(b) = as_bool {
+                                config.lsp.auto_start = b;
+                            }
+                        }
+                        "rust_server" => {
+                            if !val_unquoted.is_empty() {
+                                config.lsp.rust_server = val_unquoted.to_string();
+                            }
+                        }
+                        "python_server" => {
+                            if !val_unquoted.is_empty() {
+                                config.lsp.python_server = val_unquoted.to_string();
+                            }
+                        }
+                        "c_server" => {
+                            if !val_unquoted.is_empty() {
+                                config.lsp.c_server = val_unquoted.to_string();
+                            }
                         }
                         _ => {}
                     },

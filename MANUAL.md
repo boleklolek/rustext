@@ -834,7 +834,23 @@ Alinea el archivo utilizando el formateador del lenguaje disponible en el sistem
 - Shell / Bash: `shfmt`
 - Go: `gofmt`
 
-### 4. Automatización al Guardar:
+### 4. Ondulaciones Wavy Squiggles de Diagnóstico:
+Rustext dibuja subrayados ondulados realistas (sinusoidales/zigzag) bajo el rango exacto de columnas donde el compilador o servidor de lenguaje reporta un problema:
+- **Rojo (`0xFFFF5555`)**: Errores sintácticos o de compilación (`DiagnosticSeverity::Error`).
+- **Amarillo / Ámbar (`0xFFFFB86C`)**: Advertencias del linter o compilador (`DiagnosticSeverity::Warning`).
+- **Azul Claro (`0xFF8BE9FD`)**: Sugerencias informativas (`DiagnosticSeverity::Info`).
+- **Soporte Completo**: Las ondulaciones se calculan y adaptan matemáticamente a resoluciones HiDPI, ajuste de línea envolvente (Soft Wrap), paneles divididos (Split Editor) y encabezados fijos de Sticky Scroll.
+
+### 5. Cliente LSP Nativo (Language Server Protocol) y `rust-analyzer`:
+Rustext implementa un cliente **LSP (Language Server Protocol) nativo conforme a la especificación JSON-RPC 2.0**, construido puramente con la biblioteca estándar de Rust (`std::*`), sin dependencias de terceros:
+- **Servidores Soportados**: `rust-analyzer` (Rust), `pylsp` (Python) y `clangd` (C / C++).
+- **Diagnósticos Push Asíncronos (`textDocument/publishDiagnostics`)**: Actualiza en segundo plano los errores y advertencias en el gutter y las ondulaciones wavy squiggles mientras edita el código.
+- **Ir a Definición (`F12`, `textDocument/definition`)**: Salta de inmediato al archivo, línea y columna exactos donde fue definido el símbolo bajo el cursor.
+- **Información de Tipo y Documentación (Hover, `F2` o `Alt + K`, `textDocument/hover`)**: Muestra en la barra de estado la firma de tipo, parámetros y documentación del símbolo activo.
+- **Autocompletado Semántico Enriquecido (`textDocument/completion`)**: Combina el catálogo de palabras y snippets locales con las sugerencias semánticas del servidor de lenguaje en la ventana flotante de autocompletado.
+- **Sincronización Incremental de Documentos**: Envía notificaciones automáticas `didOpen`, `didChange`, `didSave` y `didClose` para mantener el árbol sintáctico del servidor sincronizado con las transacciones del editor.
+
+### 6. Automatización al Guardar:
 Configure en `config.ini` `format_on_save = true` o `check_on_save = true` para formatear y verificar el código automáticamente al presionar `Ctrl + S`.
 
 ---
@@ -889,6 +905,8 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `F7` | Comprobar Errores (Check / Lint)| Herramientas > Comprobar Errores |
 | `F8` | Saltar al Siguiente Error | Herramientas > Siguiente Error |
 | `Shift + F8` | Saltar al Error Anterior | Herramientas > Error Anterior |
+| `F12` | **LSP: Ir a Definición** | Herramientas > LSP: Ir a Definición |
+| `F2` / `Alt + K` | **LSP: Información de Tipo (Hover)** | Herramientas > LSP: Información de Tipo (Hover) |
 | `F1` | Ventana Acerca de Rustext | Ayuda > Acerca de Rustext |
 
 ---
@@ -948,6 +966,13 @@ font_hinting = medium    # Nivel de alineación a la rejilla de píxeles: none, 
 smooth_shadows = true    # Sombras suaves gaussianas O(1) y efecto frosted glass acrílico
 animation_enabled = true # Animaciones fluidas, easing y físicas de resorte
 edge_perception = true   # Ajuste adaptativo de contraste perceptual de bordes (Weber-Fechner)
+
+[lsp]
+enabled = true           # Integración con servidores LSP (Language Server Protocol)
+auto_start = true        # Iniciar automáticamente el servidor según el lenguaje activo
+rust_server = rust-analyzer  # Binario del servidor de lenguaje para Rust
+python_server = pylsp        # Binario del servidor de lenguaje para Python
+c_server = clangd            # Binario del servidor de lenguaje para C / C++
 ```
 
 ---

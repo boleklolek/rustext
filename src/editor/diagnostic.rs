@@ -40,6 +40,7 @@ pub struct Diagnostic {
     pub file: Option<PathBuf>,
     pub line: usize,   // 1-indexed
     pub col: usize,    // 1-indexed
+    pub end_col: Option<usize>, // 1-indexed column end
     pub severity: DiagnosticSeverity,
     pub message: String,
     pub code: Option<String>,
@@ -58,10 +59,17 @@ impl Diagnostic {
             file,
             line: line.max(1),
             col: col.max(1),
+            end_col: None,
             severity,
             message,
             code,
         }
+    }
+
+    /// Sets the ending column (1-indexed, inclusive or exclusive) for the diagnostic span.
+    pub fn with_end_col(mut self, end_col: usize) -> Self {
+        self.end_col = Some(end_col.max(self.col));
+        self
     }
 
     /// Formats diagnostic for single-line display in status bar or command palette.
@@ -103,6 +111,19 @@ impl DiagnosticCollection {
         self.diagnostics.sort_by_key(|d| (d.line, d.col, d.severity));
     }
 
+    /// Replaces diagnostics for a specific file, preserving diagnostics for other files.
+    pub fn update_for_file(&mut self, file: &Path, new_diags: Vec<Diagnostic>) {
+        self.diagnostics.retain(|d| {
+            if let Some(df) = &d.file {
+                !(df == file || file.ends_with(df) || df.ends_with(file))
+            } else {
+                false
+            }
+        });
+        self.diagnostics.extend(new_diags);
+        self.diagnostics.sort_by_key(|d| (d.line, d.col, d.severity));
+    }
+
     pub fn add(&mut self, diag: Diagnostic) {
         self.diagnostics.push(diag);
         self.diagnostics.sort_by_key(|d| (d.line, d.col, d.severity));
@@ -139,6 +160,25 @@ impl DiagnosticCollection {
     /// Returns the most critical diagnostic on a specific 1-indexed line.
     pub fn for_line(&self, line: usize) -> Option<&Diagnostic> {
         self.diagnostics.iter().find(|d| d.line == line)
+    }
+
+    /// Returns all diagnostics on a specific 1-indexed line matching the given file path.
+    pub fn for_line_and_file(&self, line: usize, doc_path: Option<&Path>) -> Vec<&Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|d| {
+                if d.line != line {
+                    return false;
+                }
+                match (&d.file, doc_path) {
+                    (Some(df), Some(p)) => {
+                        df == p || p.ends_with(df) || df.ends_with(p)
+                    }
+                    (None, _) => true,
+                    _ => false,
+                }
+            })
+            .collect()
     }
 
     /// Finds the next diagnostic after the given line.
@@ -339,16 +379,20 @@ impl DiagnosticCollection {
             let code = Self::extract_json_nested_code(line);
 
             // Extract primary span
-            let (file, line_num, col_num) = Self::extract_primary_span(line);
+            let (file, line_num, col_num, col_end) = Self::extract_primary_span(line);
 
-            result.push(Diagnostic::new(
+            let mut diag = Diagnostic::new(
                 file.map(PathBuf::from),
                 line_num,
                 col_num,
                 severity,
                 msg,
                 code,
-            ));
+            );
+            if let Some(ec) = col_end {
+                diag = diag.with_end_col(ec);
+            }
+            result.push(diag);
         }
 
         result
@@ -425,7 +469,7 @@ impl DiagnosticCollection {
         None
     }
 
-    fn extract_primary_span(json: &str) -> (Option<String>, usize, usize) {
+    fn extract_primary_span(json: &str) -> (Option<String>, usize, usize, Option<usize>) {
         // Find "is_primary":true
         if let Some(primary_idx) = json.find(r#""is_primary":true"#) {
             let window_start = primary_idx.saturating_sub(250);
@@ -435,10 +479,11 @@ impl DiagnosticCollection {
             let file_name = Self::extract_json_str(window, r#""file_name":"#);
             let line_start = Self::extract_json_number(window, r#""line_start":"#).unwrap_or(1);
             let col_start = Self::extract_json_number(window, r#""column_start":"#).unwrap_or(1);
+            let col_end = Self::extract_json_number(window, r#""column_end":"#);
 
-            (file_name, line_start, col_start)
+            (file_name, line_start, col_start, col_end)
         } else {
-            (None, 1, 1)
+            (None, 1, 1, None)
         }
     }
 

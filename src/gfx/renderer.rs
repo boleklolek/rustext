@@ -1777,6 +1777,7 @@ impl GfxRenderer {
             let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
             let tokens = crate::core::syntax::SyntaxHighlighter::tokenize_line(&line_cow, doc.language);
             self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.sticky_header_bg);
+            self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, &line_cow, text_start_x, text_y, max_code_x, 0, None, doc.scroll_col);
 
             // 4. Row separator (gutter_border) or bottom border on the last sticky line (accent)
             let is_last = idx + 1 == count;
@@ -1789,6 +1790,86 @@ impl GfxRenderer {
         }
 
         count
+    }
+
+    /// Draws wavy squiggles (sinusoidal/zigzag underline) for compiler diagnostics matching `line_idx`.
+    pub fn render_diagnostic_squiggles_for_line(
+        &self,
+        fb: &mut Framebuffer,
+        doc: &Document,
+        line_idx: usize,
+        line_text: &str,
+        text_start_x: usize,
+        text_y: usize,
+        max_code_x: usize,
+        char_start_offset: usize,
+        char_end_bound: Option<usize>,
+        scroll_col: usize,
+    ) {
+        let dc = match &self.diagnostics {
+            Some(dc) if !dc.is_empty() => dc,
+            _ => return,
+        };
+
+        let doc_path = doc.buffer.file_path();
+        let diags = dc.for_line_and_file(line_idx + 1, doc_path);
+        if diags.is_empty() {
+            return;
+        }
+
+        let squiggle_y = text_y + self.char_height().saturating_sub(self.scale_coord(1));
+        let line_chars: Vec<char> = line_text.chars().collect();
+
+        for d in diags {
+            let start_col = d.col.saturating_sub(1);
+            let end_col = if let Some(ec) = d.end_col {
+                ec.saturating_sub(1).max(start_col + 1)
+            } else {
+                let word_len = line_chars
+                    .iter()
+                    .skip(start_col)
+                    .take_while(|&&c| c.is_alphanumeric() || c == '_')
+                    .count()
+                    .max(1);
+                start_col + word_len
+            };
+
+            let bound = char_end_bound.unwrap_or(usize::MAX);
+            if end_col <= char_start_offset || start_col >= bound {
+                continue;
+            }
+
+            let seg_start = start_col.max(char_start_offset);
+            let seg_end = end_col.min(bound);
+
+            if seg_end <= seg_start {
+                continue;
+            }
+
+            let col_in_slice_start = seg_start - char_start_offset;
+            let col_in_slice_end = seg_end - char_start_offset;
+
+            if col_in_slice_end <= scroll_col {
+                continue;
+            }
+
+            let vis_start = col_in_slice_start.saturating_sub(scroll_col);
+            let vis_end = col_in_slice_end.saturating_sub(scroll_col);
+
+            let sx = text_start_x + vis_start * self.char_width();
+            let ex = text_start_x + vis_end * self.char_width();
+
+            if sx >= max_code_x {
+                continue;
+            }
+
+            let clamped_sx = sx.max(text_start_x);
+            let clamped_ex = ex.min(max_code_x);
+
+            if clamped_ex > clamped_sx {
+                fb.draw_wavy_squiggle(clamped_sx, clamped_ex, squiggle_y, d.severity.color_hex(), self.font_scale);
+            }
+        }
     }
 
     /// Renders an individual editor pane (header, gutter, code lines, minimap, scrollbar, focus outline).
@@ -2079,6 +2160,7 @@ impl GfxRenderer {
                     // Syntax Highlighted Tokens
                     let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
                     self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+                    self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, line_text, text_start_x, text_y, max_code_x, 0, None, doc.scroll_col);
 
                     // Folded line indicator badge: " ··· "
                     if doc.folding.fold_end_for_line(line_idx).is_some() {
@@ -2306,6 +2388,7 @@ impl GfxRenderer {
                     }
 
                     self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
+                    self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, line_text, text_start_x, text_y, max_code_x, sub.char_start, Some(sub.char_end), 0);
 
                     // Folded line indicator badge: " ··· "
                     if sub_idx + 1 == sublines.len() && doc.folding.fold_end_for_line(line_idx).is_some() {
@@ -2692,6 +2775,7 @@ impl GfxRenderer {
 
                         let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
                         self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
+                        self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, line_text, text_start_x, text_y, max_code_x, 0, None, doc.scroll_col);
 
                         // Folded line indicator badge: " ··· "
                         if doc.folding.fold_end_for_line(line_idx).is_some() {
@@ -2911,6 +2995,7 @@ impl GfxRenderer {
                         }
 
                         self.render_token_line(fb, &sub_tokens, text_start_x, text_y, max_code_x, 0, self.colors.background);
+                        self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, line_text, text_start_x, text_y, max_code_x, sub.char_start, Some(sub.char_end), 0);
 
                         // Folded line indicator badge: " ··· "
                         if sub_idx + 1 == sublines.len() && doc.folding.fold_end_for_line(line_idx).is_some() {

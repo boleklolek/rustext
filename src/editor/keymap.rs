@@ -95,6 +95,10 @@ pub enum EditorAction {
     ToggleFold,
     FoldAll,
     UnfoldAll,
+    // Language Server Protocol (LSP)
+    LspGoToDefinition,
+    LspHover,
+    RestartLspServer,
     Quit,
     None,
 }
@@ -183,6 +187,10 @@ impl Keymap {
             // Tools & Diagnostics
             Key::F(7) => EditorAction::CheckDocument,
             Key::F(8) => EditorAction::NextDiagnostic,
+
+            // Language Server Protocol (LSP)
+            Key::F(12) => EditorAction::LspGoToDefinition,
+            Key::F(2) | Key::Alt('k') | Key::Alt('K') => EditorAction::LspHover,
 
             // Autocomplete trigger (Ctrl+Space)
             Key::Ctrl(' ') | Key::Ctrl('@') => EditorAction::TriggerAutocomplete,

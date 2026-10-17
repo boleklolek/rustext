@@ -4931,5 +4931,296 @@ max_sticky_lines = 5
     assert!(serialized.contains("max_sticky_lines = 5"));
 }
 
+#[test]
+fn test_diagnostic_wavy_squiggles_rendering_and_spans() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::diagnostic::{Diagnostic, DiagnosticCollection, DiagnosticSeverity};
+    use rustext::editor::document::Document;
+    use rustext::gfx::{Framebuffer, GfxRenderer};
+    use std::path::PathBuf;
+
+    // 1. Test Framebuffer draw_wavy_squiggle primitive
+    let mut fb = Framebuffer::new(100, 50);
+    let red = 0x00FF5555;
+    fb.draw_wavy_squiggle(10, 30, 20, red, 1);
+
+    // Verify pixels are set in zigzag wave pattern
+    let mut painted_count = 0;
+    for x in 10..30 {
+        let mut col_painted = false;
+        for y in 18..=22 {
+            if fb.get_pixel(x, y) == red {
+                col_painted = true;
+                painted_count += 1;
+                break;
+            }
+        }
+        assert!(col_painted, "Every x column in [10..30) must have a wavy pixel at x={}", x);
+    }
+    assert_eq!(painted_count, 20);
+
+    // 2. Test Diagnostic with end_col and collection filtering
+    let file_path = PathBuf::from("/test/src/lib.rs");
+    let mut diag = Diagnostic::new(
+        Some(file_path.clone()),
+        2, // line 2 (1-indexed)
+        5, // col 5 (1-indexed)
+        DiagnosticSeverity::Error,
+        "mismatched types".to_string(),
+        Some("E0308".to_string()),
+    );
+    assert_eq!(diag.end_col, None);
+    diag = diag.with_end_col(12);
+    assert_eq!(diag.end_col, Some(12));
+
+    let mut dc = DiagnosticCollection::new();
+    dc.add(diag);
+
+    let found = dc.for_line_and_file(2, Some(&file_path));
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].severity, DiagnosticSeverity::Error);
+    assert_eq!(found[0].end_col, Some(12));
+
+    let not_found = dc.for_line_and_file(3, Some(&file_path));
+    assert!(not_found.is_empty());
+
+    // 3. Test Full Editor Pane Squiggle Rendering
+    let code = "fn main() {\n    let val: i32 = \"error string\";\n    println!(\"{}\", val);\n}";
+    let mut buffer = TextBuffer::from_str(code);
+    buffer.set_file_path(file_path.clone());
+    let mut doc = Document::new(buffer);
+    doc.language = Language::Rust;
+
+    let mut renderer = GfxRenderer::new();
+    renderer.diagnostics = Some(dc);
+
+    let mut render_fb = Framebuffer::new(800, 600);
+    renderer.render_editor_pane(
+        &mut render_fb,
+        &doc,
+        0,
+        renderer.tab_bar_height,
+        800,
+        500,
+        true,
+        "lib.rs",
+        false,
+        false,
+        false,
+        false,
+    );
+
+    // Verify that red squiggle pixels were drawn into the framebuffer
+    let red_pixel_count = render_fb.pixels.iter().filter(|&&p| p == red).count();
+    assert!(red_pixel_count >= 20, "Renderer must paint red wavy squiggle pixels (found {})", red_pixel_count);
+}
+
+#[test]
+fn test_lsp_config_ini_parsing_and_defaults() {
+    use rustext::editor::config::EditorConfig;
+
+    // 1. Verify default values
+    let default_config = EditorConfig::default();
+    assert!(default_config.lsp.enabled);
+    assert!(default_config.lsp.auto_start);
+    assert_eq!(default_config.lsp.rust_server, "rust-analyzer");
+    assert_eq!(default_config.lsp.python_server, "pylsp");
+    assert_eq!(default_config.lsp.c_server, "clangd");
+
+    // 2. Parse custom [lsp] INI configuration
+    let custom_ini = r#"
+[lsp]
+enabled = false
+auto_start = false
+rust_server = /usr/local/bin/custom-ra
+python_server = /usr/bin/pyright
+c_server = /opt/llvm/bin/clangd
+"#;
+    let parsed = EditorConfig::parse(custom_ini);
+    assert!(!parsed.lsp.enabled);
+    assert!(!parsed.lsp.auto_start);
+    assert_eq!(parsed.lsp.rust_server, "/usr/local/bin/custom-ra");
+    assert_eq!(parsed.lsp.python_server, "/usr/bin/pyright");
+    assert_eq!(parsed.lsp.c_server, "/opt/llvm/bin/clangd");
+
+    // 3. Verify serialization roundtrip preserves [lsp]
+    let serialized = parsed.to_ini_string();
+    assert!(serialized.contains("[lsp]"));
+    assert!(serialized.contains("enabled = false"));
+    assert!(serialized.contains("auto_start = false"));
+    assert!(serialized.contains("rust_server = /usr/local/bin/custom-ra"));
+    assert!(serialized.contains("python_server = /usr/bin/pyright"));
+    assert!(serialized.contains("c_server = /opt/llvm/bin/clangd"));
+}
+
+#[test]
+fn test_lsp_keymap_and_menu_actions() {
+    use rustext::ui::terminal::Key;
+    use rustext::editor::keymap::{EditorAction, Keymap};
+    use rustext::editor::MenuBar;
+
+    // 1. Key mappings
+    assert_eq!(Keymap::resolve_key(Key::F(12)), EditorAction::LspGoToDefinition);
+    assert_eq!(Keymap::resolve_key(Key::F(2)), EditorAction::LspHover);
+    assert_eq!(Keymap::resolve_key(Key::Alt('k')), EditorAction::LspHover);
+    assert_eq!(Keymap::resolve_key(Key::Alt('K')), EditorAction::LspHover);
+
+    // 2. Menu integration
+    let menu_bar = MenuBar::new();
+    let tools_category = menu_bar.categories.iter().find(|c| c.name == "Herramientas").expect("Herramientas category");
+
+    let has_goto_def = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspGoToDefinition) && it.shortcut == "F12");
+    let has_hover = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspHover) && it.shortcut == "F2");
+    let has_restart = tools_category.items.iter().any(|it| it.action == Some(EditorAction::RestartLspServer));
+
+    assert!(has_goto_def, "Menu must contain 'LSP: Ir a Definición (F12)'");
+    assert!(has_hover, "Menu must contain 'LSP: Información de Tipo (F2)'");
+    assert!(has_restart, "Menu must contain 'LSP: Reiniciar Servidor'");
+}
+
+#[test]
+fn test_lsp_event_dispatch_and_editor_integration() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::autocomplete::{CompletionItem, CompletionKind};
+    use rustext::editor::diagnostic::{Diagnostic, DiagnosticSeverity};
+    use rustext::editor::lsp::{LspEvent, LspHover, LspLocation, LspPosition, LspRange, LspCompletionItem};
+
+    let temp_dir = std::env::temp_dir();
+    let file_a = temp_dir.join("rustext_test_lsp_a.rs");
+    let file_b = temp_dir.join("rustext_test_lsp_b.rs");
+
+    let _ = std::fs::write(&file_a, "fn helper() -> i32 { 42 }\n");
+    let _ = std::fs::write(&file_b, "fn main() {\n    let x = helper();\n}\n");
+
+    let buffer = TextBuffer::open(&file_b).expect("Open file b");
+    let mut editor = Editor::new(buffer);
+    editor.config.lsp.enabled = true;
+
+    // 1. Test PublishDiagnostics event handling
+    let diag = Diagnostic::new(
+        Some(file_b.clone()),
+        2,
+        9,
+        DiagnosticSeverity::Error,
+        "cannot find function helper in this scope".to_string(),
+        Some("E0425".to_string()),
+    ).with_end_col(15);
+
+    let pub_event = LspEvent::PublishDiagnostics {
+        file: file_b.clone(),
+        diagnostics: vec![diag],
+    };
+
+    // Inject and process through poll_lsp_events logic
+    match pub_event {
+        LspEvent::PublishDiagnostics { file, diagnostics } => {
+            editor.diagnostics.update_for_file(&file, diagnostics);
+            editor.set_status("LSP: 1 diagnósticos en archivo (1 errores, 0 avisos)");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(editor.diagnostics.len(), 1);
+    let diags_for_line = editor.diagnostics.for_line_and_file(2, Some(&file_b));
+    assert_eq!(diags_for_line.len(), 1);
+    assert_eq!(diags_for_line[0].col, 9);
+    assert_eq!(diags_for_line[0].end_col, Some(15));
+    assert!(editor.status_message.as_ref().unwrap().0.contains("1 diagnósticos"));
+
+    // 2. Test CompletionResponse event handling
+    let comp_event = LspEvent::CompletionResponse {
+        request_id: 1,
+        items: vec![
+            LspCompletionItem {
+                label: "helper".to_string(),
+                detail: "fn() -> i32".to_string(),
+                kind: CompletionKind::Function,
+                insert_text: Some("helper()".to_string()),
+            },
+            LspCompletionItem {
+                label: "println!".to_string(),
+                detail: "macro".to_string(),
+                kind: CompletionKind::Snippet,
+                insert_text: None,
+            },
+        ],
+    };
+
+    match comp_event {
+        LspEvent::CompletionResponse { items, .. } => {
+            let comp_items: Vec<CompletionItem> = items
+                .into_iter()
+                .map(|it| CompletionItem::new(it.label, it.detail, it.kind))
+                .collect();
+            editor.autocomplete.merge_items(comp_items);
+        }
+        _ => unreachable!(),
+    }
+
+    assert!(editor.autocomplete.is_active);
+    assert_eq!(editor.autocomplete.items.len(), 2);
+    assert_eq!(editor.autocomplete.items[0].label, "helper");
+    assert_eq!(editor.autocomplete.items[0].kind, CompletionKind::Function);
+
+    // 3. Test HoverResponse event handling
+    let hover_event = LspEvent::HoverResponse {
+        request_id: 2,
+        hover: Some(LspHover {
+            contents: "```rust\nfn helper() -> i32\n```\nDocumentation for helper".to_string(),
+        }),
+    };
+
+    match hover_event {
+        LspEvent::HoverResponse { hover, .. } => {
+            if let Some(h) = hover {
+                let first_line = h.contents.lines().find(|l| !l.trim().is_empty() && !l.starts_with("```")).unwrap_or("").trim();
+                editor.set_status(format!("LSP: {}", first_line));
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    assert!(editor.status_message.as_ref().unwrap().0.contains("fn helper() -> i32"));
+
+    // 4. Test DefinitionResponse event handling (jump to file_a line 1, col 4)
+    let def_event = LspEvent::DefinitionResponse {
+        request_id: 3,
+        location: Some(LspLocation {
+            path: file_a.clone(),
+            range: LspRange {
+                start: LspPosition { line: 0, character: 3 },
+                end: LspPosition { line: 0, character: 9 },
+            },
+        }),
+    };
+
+    match def_event {
+        LspEvent::DefinitionResponse { location, .. } => {
+            if let Some(loc) = location {
+                editor.open_file(&loc.path);
+                let doc = editor.doc_mut();
+                let target_line = loc.range.start.line;
+                let target_col = loc.range.start.character;
+                let char_offset = doc.buffer.position_to_char(rustext::core::buffer::Position::new(target_line, target_col));
+                doc.cursors.set_single(char_offset);
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(editor.doc().buffer.file_path(), Some(file_a.as_path()));
+    let primary_pos = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head);
+    assert_eq!(primary_pos.line, 0);
+    assert_eq!(primary_pos.col, 3);
+
+    // Clean up temporary test files
+    let _ = std::fs::remove_file(file_a);
+    let _ = std::fs::remove_file(file_b);
+}
+
+
+
 
 

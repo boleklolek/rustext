@@ -843,6 +843,36 @@ impl Framebuffer {
         }
     }
 
+    /// Draws a wavy squiggle (sinusoidal/zigzag line) commonly used for compiler diagnostics and linting.
+    /// Spans from `x_start` to `x_end` along horizontal baseline `y`.
+    /// Coordinates are bounds-checked and scaled according to `scale`.
+    pub fn draw_wavy_squiggle(&mut self, x_start: usize, x_end: usize, y: usize, color: u32, scale: usize) {
+        if x_start >= x_end || x_start >= self.width || y >= self.height {
+            return;
+        }
+
+        let sc = scale.max(1);
+        let end_x = x_end.min(self.width);
+
+        for x in x_start..end_x {
+            let phase = (x / sc) % 4;
+            let dy: isize = match phase {
+                0 => 0,
+                1 => -(sc as isize),
+                2 => 0,
+                _ => sc as isize,
+            };
+
+            let py = (y as isize + dy).max(0) as usize;
+            for thick in 0..sc {
+                let target_y = py + thick;
+                if target_y < self.height {
+                    self.set_pixel(x, target_y, color);
+                }
+            }
+        }
+    }
+
     /// Analytical geometric anti-aliased line with subpixel coordinates and thickness.
     #[inline]
     pub fn draw_line_aa(&mut self, x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: u32) {

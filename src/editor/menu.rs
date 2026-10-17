@@ -166,6 +166,10 @@ impl MenuBar {
                     MenuItem::separator(),
                     MenuItem::action("Actualizar Estado Git", "Ctrl+Shift+G", EditorAction::RefreshGit),
                     MenuItem::action("Alternar Git Gutter", "", EditorAction::ToggleGitGutter),
+                    MenuItem::separator(),
+                    MenuItem::action("LSP: Ir a Definición", "F12", EditorAction::LspGoToDefinition),
+                    MenuItem::action("LSP: Información de Tipo (Hover)", "F2", EditorAction::LspHover),
+                    MenuItem::action("LSP: Reiniciar Servidor", "", EditorAction::RestartLspServer),
                 ],
             },
             MenuCategory {

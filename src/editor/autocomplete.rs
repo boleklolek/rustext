@@ -116,6 +116,21 @@ impl AutocompleteState {
         self.anchor_char = 0;
     }
 
+    /// Merges new items (e.g. from LSP completion) without duplicates.
+    pub fn merge_items(&mut self, new_items: Vec<CompletionItem>) {
+        if new_items.is_empty() {
+            return;
+        }
+        for item in new_items {
+            if !self.items.iter().any(|existing| existing.label == item.label) {
+                self.items.push(item);
+            }
+        }
+        if !self.items.is_empty() {
+            self.is_active = true;
+        }
+    }
+
     /// Cycles forward to the next candidate (with wrap-around).
     pub fn select_next(&mut self) {
         if self.items.is_empty() {

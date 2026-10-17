@@ -133,6 +133,7 @@ pub struct Editor {
     pub word_wrap: bool,
     pub last_code_cols: usize,
     pub should_quit: bool,
+    pub lsp: crate::editor::lsp::LspClient,
 }
 
 impl Editor {
@@ -183,7 +184,7 @@ impl Editor {
             terminal.shell_name = config.gui.terminal_shell.clone();
         }
 
-        Self {
+        let mut editor = Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
             clipboard: Clipboard::new(),
@@ -213,7 +214,15 @@ impl Editor {
             word_wrap,
             last_code_cols: 80,
             should_quit: false,
+            lsp: crate::editor::lsp::LspClient::new(),
+        };
+
+        if editor.config.lsp.enabled && editor.config.lsp.auto_start {
+            editor.lsp_ensure_server_for_doc();
+            editor.lsp_notify_open_active_doc();
         }
+
+        editor
     }
 
     /// Reference to the active document.
@@ -243,6 +252,7 @@ impl Editor {
 
             let key = TerminalGuard::read_key()?;
             self.handle_key(key);
+            self.poll_lsp_events();
         }
 
         let _ = self.save_session();
@@ -664,6 +674,21 @@ impl Editor {
 
     /// Executes high-level editor actions.
     pub fn execute_action(&mut self, action: EditorAction) {
+        let was_edit = matches!(
+            &action,
+            EditorAction::InsertChar(_)
+                | EditorAction::InsertNewline
+                | EditorAction::InsertTab
+                | EditorAction::PreviousTabstop
+                | EditorAction::InsertSnippet(_)
+                | EditorAction::Backspace
+                | EditorAction::Delete
+                | EditorAction::Cut
+                | EditorAction::Paste
+                | EditorAction::Undo
+                | EditorAction::Redo
+        );
+
         match action {
             // Text editing
             EditorAction::InsertChar(c) => self.insert_char_multicursor(c),
@@ -1207,7 +1232,22 @@ impl Editor {
                 self.set_status("Todos los bloques desplegados");
             }
 
+            // Language Server Protocol (LSP)
+            EditorAction::LspGoToDefinition => {
+                self.lsp_go_to_definition();
+            }
+            EditorAction::LspHover => {
+                self.lsp_hover();
+            }
+            EditorAction::RestartLspServer => {
+                self.lsp_restart();
+            }
+
             EditorAction::None => {}
+        }
+
+        if was_edit {
+            self.lsp_notify_change_active_doc();
         }
     }
 
@@ -1619,6 +1659,236 @@ impl Editor {
         }
     }
 
+    // ========================================================================
+    // Language Server Protocol (LSP) Integration
+    // ========================================================================
+
+    /// Selects the LSP server command for the active document's language according to config.
+    pub fn lsp_server_cmd_for_lang(&self, lang: crate::core::syntax::Language) -> Option<String> {
+        match lang {
+            crate::core::syntax::Language::Rust => Some(self.config.lsp.rust_server.clone()),
+            crate::core::syntax::Language::Python => Some(self.config.lsp.python_server.clone()),
+            crate::core::syntax::Language::C => Some(self.config.lsp.c_server.clone()),
+            _ => None,
+        }
+    }
+
+    /// Ensures that an LSP server is running for the active document's language and project root.
+    pub fn lsp_ensure_server_for_doc(&mut self) {
+        if !self.config.lsp.enabled {
+            return;
+        }
+        let lang = self.doc().language;
+        let server_cmd = match self.lsp_server_cmd_for_lang(lang) {
+            Some(cmd) if !cmd.trim().is_empty() => cmd,
+            _ => return,
+        };
+
+        let root_dir = self.sidebar.root_dir.clone();
+
+        // If server is not running or running with different language, start it
+        if !self.lsp.is_running() || self.lsp.active_language != lang {
+            if let Err(e) = self.lsp.start(&server_cmd, &root_dir, lang) {
+                eprintln!("[Rustext LSP] Warning: {}", e);
+            }
+        }
+    }
+
+    /// Sends didOpen notification for the active document if supported.
+    pub fn lsp_notify_open_active_doc(&mut self) {
+        if !self.config.lsp.enabled || !self.lsp.is_running() {
+            return;
+        }
+        let (path, lang, text) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => return,
+            };
+            let lang_id = match doc.language {
+                crate::core::syntax::Language::Rust => "rust",
+                crate::core::syntax::Language::Python => "python",
+                crate::core::syntax::Language::C => "c",
+                _ => return,
+            };
+            (path, lang_id, doc.buffer.to_string())
+        };
+
+        self.lsp.notify_did_open(&path, lang, &text);
+    }
+
+    /// Sends didChange notification for the active document.
+    pub fn lsp_notify_change_active_doc(&mut self) {
+        if !self.config.lsp.enabled || !self.lsp.is_running() {
+            return;
+        }
+        let (path, text) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => return,
+            };
+            (path, doc.buffer.to_string())
+        };
+
+        self.lsp.notify_did_change(&path, &text);
+    }
+
+    /// Sends didOpen for all open documents.
+    pub fn lsp_sync_open_documents(&mut self) {
+        if !self.config.lsp.enabled || !self.lsp.is_running() {
+            return;
+        }
+        for doc in &self.documents {
+            if let Some(path) = doc.buffer.file_path() {
+                let lang_id = match doc.language {
+                    crate::core::syntax::Language::Rust => "rust",
+                    crate::core::syntax::Language::Python => "python",
+                    crate::core::syntax::Language::C => "c",
+                    _ => continue,
+                };
+                self.lsp.notify_did_open(path, lang_id, &doc.buffer.to_string());
+            }
+        }
+    }
+
+    /// Requests Go to Definition at the primary cursor position.
+    pub fn lsp_go_to_definition(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let (path, line, col) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para usar Ir a Definición");
+                    return;
+                }
+            };
+            let head = doc.cursors.primary().head;
+            let pos = doc.buffer.char_to_position(head);
+            (path, pos.line, pos.col)
+        };
+
+        self.lsp.request_definition(&path, line, col);
+        self.set_status("LSP: Buscando definición...");
+    }
+
+    /// Requests Hover type info at the primary cursor position.
+    pub fn lsp_hover(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let (path, line, col) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para consultar Hover");
+                    return;
+                }
+            };
+            let head = doc.cursors.primary().head;
+            let pos = doc.buffer.char_to_position(head);
+            (path, pos.line, pos.col)
+        };
+
+        self.lsp.request_hover(&path, line, col);
+        self.set_status("LSP: Consultando tipo e información...");
+    }
+
+    /// Restarts the LSP server.
+    pub fn lsp_restart(&mut self) {
+        self.lsp.stop();
+        self.lsp_ensure_server_for_doc();
+        self.set_status("LSP: Servidor reiniciado");
+    }
+
+    /// Polls incoming events from the background LSP thread.
+    /// Returns true if state changed and redraw is required.
+    pub fn poll_lsp_events(&mut self) -> bool {
+        let events = self.lsp.poll_events();
+        if events.is_empty() {
+            return false;
+        }
+
+        let mut needs_redraw = false;
+
+        for ev in events {
+            match ev {
+                crate::editor::lsp::LspEvent::ServerStarted { server_name } => {
+                    self.set_status(format!("LSP: Servidor '{}' iniciado", server_name));
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::Initialized => {
+                    self.set_status(format!("LSP: Servidor '{}' inicializado y listo", self.lsp.server_name));
+                    self.lsp_sync_open_documents();
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::PublishDiagnostics { file, diagnostics } => {
+                    let errs = diagnostics.iter().filter(|d| d.severity == crate::editor::diagnostic::DiagnosticSeverity::Error).count();
+                    let warns = diagnostics.iter().filter(|d| d.severity == crate::editor::diagnostic::DiagnosticSeverity::Warning).count();
+                    self.diagnostics.update_for_file(&file, diagnostics);
+                    let fname = file.file_name().and_then(|n| n.to_str()).unwrap_or("archivo");
+                    self.set_status(format!("LSP: {} diagnósticos en {} ({} errores, {} avisos)", errs + warns, fname, errs, warns));
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::CompletionResponse { items, .. } => {
+                    if !items.is_empty() {
+                        let comp_items: Vec<crate::editor::autocomplete::CompletionItem> = items
+                            .into_iter()
+                            .map(|it| crate::editor::autocomplete::CompletionItem::new(it.label, it.detail, it.kind))
+                            .collect();
+                        self.autocomplete.merge_items(comp_items);
+                        needs_redraw = true;
+                    }
+                }
+                crate::editor::lsp::LspEvent::HoverResponse { hover, .. } => {
+                    if let Some(h) = hover {
+                        let first_line = h.contents.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                        self.set_status(format!("LSP: {}", first_line));
+                    } else {
+                        self.set_status("LSP: Sin información de tipo en esta posición");
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::DefinitionResponse { location, .. } => {
+                    if let Some(loc) = location {
+                        let path = loc.path.clone();
+                        self.open_file(&path);
+                        let doc = self.doc_mut();
+                        let total_lines = doc.buffer.len_lines();
+                        let target_line = loc.range.start.line.min(total_lines.saturating_sub(1));
+                        let line_len = doc.buffer.line_len(target_line);
+                        let target_col = loc.range.start.character.min(line_len);
+                        let char_offset = doc.buffer.position_to_char(crate::core::buffer::Position::new(target_line, target_col));
+                        doc.cursors.set_single(char_offset);
+                        let fname = loc.path.file_name().and_then(|n| n.to_str()).unwrap_or("archivo");
+                        self.set_status(format!("LSP: Definición en {}:{}:{}", fname, loc.range.start.line + 1, loc.range.start.character + 1));
+                    } else {
+                        self.set_status("LSP: No se encontró la definición del símbolo");
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::ServerExited { code } => {
+                    self.set_status(format!("LSP: Servidor detenido (código: {:?})", code));
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::Error { message } => {
+                    self.set_status(format!("LSP Error: {}", message));
+                    needs_redraw = true;
+                }
+            }
+        }
+
+        needs_redraw
+    }
+
     /// Executes an extension command on the current selection or entire document buffer.
     pub fn execute_extension_command(&mut self, cmd_id: &str) {
         let has_sel = self.doc().cursors.primary().has_selection();
@@ -1862,6 +2132,9 @@ impl Editor {
         if idx >= self.documents.len() {
             return;
         }
+        if let Some(p) = self.documents[idx].buffer.file_path() {
+            self.lsp.notify_did_close(p);
+        }
         if self.documents.len() > 1 {
             self.documents.remove(idx);
             if self.active_doc_idx >= self.documents.len() {
@@ -1993,6 +2266,10 @@ impl Editor {
             self.active_doc_idx = (self.active_doc_idx + 1) % self.documents.len();
             self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+            if self.config.lsp.enabled && self.config.lsp.auto_start {
+                self.lsp_ensure_server_for_doc();
+                self.lsp_notify_open_active_doc();
+            }
         }
     }
 
@@ -2006,6 +2283,10 @@ impl Editor {
             };
             self.sync_split_doc_indices();
             self.set_status(format!("Tab {}/{}", self.active_doc_idx + 1, self.documents.len()));
+            if self.config.lsp.enabled && self.config.lsp.auto_start {
+                self.lsp_ensure_server_for_doc();
+                self.lsp_notify_open_active_doc();
+            }
         }
     }
 
@@ -2167,6 +2448,10 @@ impl Editor {
             self.active_doc_idx = pos;
             self.sync_split_doc_indices();
             self.set_status(format!("Switched to tab {}", pos + 1));
+            if self.config.lsp.enabled && self.config.lsp.auto_start {
+                self.lsp_ensure_server_for_doc();
+                self.lsp_notify_open_active_doc();
+            }
             return;
         }
 
@@ -2177,6 +2462,10 @@ impl Editor {
                 self.active_doc_idx = self.documents.len() - 1;
                 self.sync_split_doc_indices();
                 self.set_status(format!("Opened {}", path.display()));
+                if self.config.lsp.enabled && self.config.lsp.auto_start {
+                    self.lsp_ensure_server_for_doc();
+                    self.lsp_notify_open_active_doc();
+                }
             }
             Err(e) => {
                 self.set_status(format!("Could not open file: {}", e));
@@ -2474,6 +2763,11 @@ impl Editor {
 
                 // Refresh Git status and gutter diffs on save
                 self.git.refresh_statuses();
+
+                // Notify LSP server of saved document
+                if let Some(ref p) = saved_path {
+                    self.lsp.notify_did_save(p);
+                }
 
                 // Auto-reload configuration if saving config.ini
                 if let Some(p) = saved_path {
@@ -2964,6 +3258,17 @@ impl Editor {
             return;
         }
 
+        // Query LSP completion asynchronously if server is running and document has a file path
+        if self.lsp.is_running() {
+            let req_info = {
+                let doc = self.doc();
+                doc.buffer.file_path().map(|p| (p.to_path_buf(), doc.buffer.char_to_position(head)))
+            };
+            if let Some((path, pos)) = req_info {
+                self.lsp.request_completion(&path, pos.line, pos.col);
+            }
+        }
+
         let candidates = crate::editor::autocomplete::AutocompleteState::collect_candidates(
             self.doc(),
             &self.documents,
@@ -3056,6 +3361,7 @@ impl Editor {
             doc.history.record(tx);
         }
 
+        self.lsp_notify_change_active_doc();
         true
     }
 
@@ -3554,6 +3860,11 @@ impl Editor {
             }
             // Poll background terminal output if active
             if self.terminal.is_visible && self.terminal.poll_output() {
+                needs_redraw = true;
+            }
+
+            // Poll background LSP events
+            if self.poll_lsp_events() {
                 needs_redraw = true;
             }
 
