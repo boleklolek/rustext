@@ -1,6 +1,14 @@
 # 📖 Manual de Usuario y Referencia Técnica de Rustext
 
-**Rustext** es un editor de texto y código fuente nativo de alto rendimiento, escrito **100% en Rust puro utilizando exclusivamente la biblioteca estándar (`std`)**, sin dependencias externas ni crates de terceros.
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust)](Cargo.toml)
+[![Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg)](Cargo.toml)
+[![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
+[![Tests](https://img.shields.io/badge/Tests-207%20passed-success.svg)](tests/)
+[![Platforms](https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
+[![LSP](https://img.shields.io/badge/LSP-rust--analyzer%20%7C%20pylsp%20%7C%20clangd-blueviolet.svg)](#)
+
+**Rustext** es un editor de texto y código fuente nativo de ultra-baja latencia y alto rendimiento, licenciado bajo la **GNU Affero General Public License v3.0 (AGPLv3)**, escrito **100% en Rust puro utilizando exclusivamente la biblioteca estándar (`std`)**, sin dependencias externas ni crates de terceros.
 
 Este manual ofrece una guía exhaustiva de operación, arquitectura interna, atajos de teclado, configuración, herramientas de desarrollo y los resultados del **profiling de memoria y benchmarks de rendimiento**.
 
@@ -23,18 +31,25 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
-7. [Motor de Edición y Multicursor](#7-motor-de-edición-y-multicursor)
+7. [Motor de Edición, Multicursor, Soft Wrap y Code Folding](#7-motor-de-edición-multicursor-soft-wrap-y-code-folding)
+   - [7.1 Operaciones Multicursor](#71-operaciones-multicursor)
+   - [7.2 Sincronización y Desplazamiento Vectorial](#72-sincronización-y-desplazamiento-vectorial)
+   - [7.3 Transacciones Atómicas de Deshacer / Rehacer](#73-transacciones-atómicas-de-deshacer--rehacer)
+   - [7.4 Auto-Cierre y Envoltorio de Pares (Auto-Surround)](#74-auto-cierre-y-envoltorio-de-pares-auto-surround)
+   - [7.5 Ajuste de Línea Envolvente (Soft Wrap / Word Wrap, Alt+Z)](#75-ajuste-de-línea-envolvente-soft-wrap--word-wrap-altz)
+   - [7.6 Plegado de Código Estructurado (Code Folding, Alt+[, Alt+0, Alt+J)](#76-plegado-de-código-estructurado-code-folding-alt-alt0-altj)
 8. [Autocompletado Contextual Inteligente](#8-autocompletado-contextual-inteligente)
 9. [Búsqueda Global en Todo el Proyecto](#9-búsqueda-global-en-todo-el-proyecto)
 10. [Sistema de Snippets, Sintaxis y Bracket Pair Colorization](#10-sistema-de-snippets-sintaxis-y-bracket-pair-colorization)
-11. [Diagnósticos en Vivo, Linter y Formato de Código](#11-diagnósticos-en-vivo-linter-y-formato-de-código)
-12. [Paleta de Comandos y Atajos de Teclado](#12-paleta-de-comandos-y-atajos-de-teclado)
+11. [Diagnósticos en Vivo, Ondulaciones Wavy Squiggles y Cliente LSP](#11-diagnósticos-en-vivo-ondulaciones-wavy-squiggles-y-cliente-lsp)
+12. [Búsqueda Rápida de Archivos (Ctrl+P), Paleta de Comandos y Atajos](#12-búsqueda-rápida-de-archivos-ctrlp-paleta-de-comandos-y-atajos)
 13. [Sistema de Configuración (`config.ini`)](#13-sistema-de-configuración-configini)
 14. [Sistema de Plugins y Extensiones](#14-sistema-de-plugins-y-extensiones)
 15. [Perfil de Memoria y Benchmarks Comparativos](#15-perfil-de-memoria-y-benchmarks-comparativos)
 16. [Preguntas Frecuentes y Solución de Problemas](#16-preguntas-frecuentes-y-solución-de-problemas)
 17. [Motor de Cajas Flexibles (Flexbox) y Paradigmas de UI (Reactivo vs. Retained)](#17-motor-de-cajas-flexibles-flexbox-y-paradigmas-de-ui-reactivo-vs-retained)
 18. [Auditoría Integral de Seguridad, Modelo de Amenazas y Directrices Defensivas](#18-auditoría-integral-de-seguridad-modelo-de-amenazas-y-directrices-defensivas)
+19. [Licencia y Términos de Distribución (GNU AGPLv3)](#19-licencia-y-términos-de-distribución-gnu-agplv3)
 
 ---
 
@@ -649,11 +664,11 @@ Rustext cuenta con un subsistema nativo de control de versiones Git que opera de
 
 ---
 
-## 7. Motor de Edición y Multicursor
+## 7. Motor de Edición, Multicursor, Soft Wrap y Code Folding
 
-Rustext incluye un motor multicursor vectorial de primera clase:
+Rustext incluye un motor de edición avanzado de ultra-baja latencia respaldado por un Piece Table $\mathcal{O}(\log N)$, multicursor vectorial y navegación visual de sublíneas:
 
-### Operaciones Multicursor:
+### 7.1 Operaciones Multicursor
 - `Ctrl + D`: **Selección Inteligente / Siguiente Ocurrencia**:
   - Si no hay selección, selecciona la palabra bajo el cursor.
   - Si se presiona nuevamente, busca la siguiente ocurrencia en el archivo y añade un cursor adicional en ella.
@@ -661,20 +676,44 @@ Rustext incluye un motor multicursor vectorial de primera clase:
 - `Ctrl + J`: Añadir un cursor en la misma columna de la línea inferior.
 - `Esc`: Colapsa todos los cursores al cursor principal.
 
-### Sincronización y Desplazamiento Vectorial:
+### 7.2 Sincronización y Desplazamiento Vectorial
 Cuando múltiples cursores escriben simultáneamente:
 - Todas las inserciones se calculan en paralelo.
 - El motor calcula el desplazamiento acumulativo (`offset shift`) para que los cursores posteriores mantengan su alineación exacta.
 - Los cursores que colisionan o se solapan se fusionan automáticamente sin duplicaciones.
 
-### Transacciones Atómicas de Deshacer / Rehacer (`Ctrl+Z` / `Ctrl+Y`):
+### 7.3 Transacciones Atómicas de Deshacer / Rehacer (`Ctrl+Z` / `Ctrl+Y`)
 - Todas las operaciones realizadas por 10 o 50 cursores en una pulsación se empaquetan en una única transacción atómica.
 - Al pulsar `Ctrl+Z`, se revierte el texto y se restauran las posiciones exactas de todos los cursores previos.
 
-### Auto-Cierre y Envoltorio de Pares (Auto-Surround):
+### 7.4 Auto-Cierre y Envoltorio de Pares (Auto-Surround)
 - Al escribir `(`, `[`, `{`, `"`, `'`, el editor inserta automáticamente el carácter de cierre.
 - Al presionar `Backspace` dentro de un par vacío (`|`), ambos caracteres se eliminan.
 - **Envoltorio de Selección**: Si selecciona texto y presiona `(` o `"`, el texto seleccionado se envuelve automáticamente entre los delimitadores.
+
+### 7.5 Ajuste de Línea Envolvente (Soft Wrap / Word Wrap, Alt+Z)
+El sistema de **Ajuste de Línea Envolvente (Soft Wrap)** formatea dinámicamente las líneas que sobrepasan el ancho visible de la ventana en sublíneas virtuales sin insertar saltos de línea físicos ni mutar el búfer de texto:
+- **Activación Inmediata**: Conmute con `Alt + Z` o desde el menú **Ver > Ajuste de Línea (Word Wrap)**. Se persiste en `config.ini` bajo `[editor] word_wrap = true/false`.
+- **Segmentación por Límites de Palabras**: Rompe visualmente el texto respetando espacios en blanco y delimitadores léxicos, evitando partir identificadores o palabras a mitad de sílaba a menos que una palabra individual exceda el ancho total del viewport.
+- **Navegación Vertical por Sublíneas Virtuales**: Las flechas `↑` y `↓` navegan intuitivamente a través de las sublíneas envueltas de la misma línea lógica antes de pasar a la línea anterior o siguiente.
+- **Mapeo Geométrico de Clics de Ratón**: El algoritmo de hit-testing calcula la sublínea y columna visuales del clic, mapeándolas con precisión exacta $\mathcal{O}(1)$ al offset de carácter real en el Piece Table.
+- **Integración Transparente**: La numeración de líneas en el gutter permanece fija en la primera sublínea (las sublíneas subsecuentes muestran un gutter limpio), y las ondulaciones de diagnóstico (wavy squiggles) se segmentan adecuadamente por sublínea.
+
+### 7.6 Plegado de Código Estructurado (Code Folding, Alt+[, Alt+0, Alt+J)
+El motor de **Code Folding** permite colapsar y expandir regiones jerárquicas de código fuente para maximizar la legibilidad en archivos densos:
+- **Detección Políglota de Regiones**:
+  - **Basado en Delimitadores / Llaves `{ ... }`**: Para Rust, C/C++, JavaScript, TypeScript, Go y lenguajes similares, calcula el emparejamiento de llaves ignorando llaves dentro de cadenas de texto y comentarios.
+  - **Basado en Indentación**: Para Python y YAML, detecta cambios en el nivel de sangrado de bloques subsiguientes.
+- **Indicadores Visuales en el Gutter**: Dibuja chevrons interactivos en el margen izquierdo:
+  - `▼` (Triángulo hacia abajo): Bloque expandido listo para ser colapsado.
+  - `▶` (Triángulo hacia la derecha): Bloque plegado.
+  - Al hacer clic con el ratón directamente sobre el chevron del gutter, el bloque se pliega o despliega al instante.
+- **Atajos de Teclado**:
+  - `Alt + [` / `Ctrl + Shift + [` / `F9`: Alternar el plegado del bloque bajo la posición actual del cursor.
+  - `Alt + 0`: Plegar todas las regiones del archivo.
+  - `Alt + J`: Desplegar todas las regiones del archivo.
+- **Despliegue Inteligente por Navegación (`unfold_to_reveal`)**: Si el usuario navega con el cursor hacia una línea oculta, o si un salto de Búsqueda Global (`Ctrl + Shift + F`), siguiente error (`F8`) o "Ir a Definición" de LSP (`F12`) aterriza en una línea plegada, Rustext expande automáticamente el bloque contenedor para garantizar visibilidad inmediata.
+- **Sincronización con Encabezados Fijos (Sticky Scroll)**: Las cabeceras de bloques plegados se gestionan limpiamente para evitar redundancias visuales en la zona de scroll pegajoso.
 
 ---
 
@@ -888,6 +927,11 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + J` | Añadir cursor abajo | Selección > Añadir Cursor Abajo |
 | `Esc` | Cursor único / Cancelar modal | Selección > Cursor Único |
 | `Ctrl + B` | Alternar Explorador Lateral | Ver > Explorador Lateral |
+| `Alt + Z` | **Alternar Ajuste de Línea (Word Wrap)** | Ver > Ajuste de Línea (Word Wrap) |
+| `Alt + I` | **Alternar Guías de Indentación** | Ver > Guías de Indentación |
+| `Alt + [` / `F9` | **Plegar/Desplegar Bloque (Toggle Fold)** | Ver > Plegar/Desplegar Bloque |
+| `Alt + 0` | **Plegar Todo (Fold All)** | Ver > Plegar Todo |
+| `Alt + J` | **Desplegar Todo (Unfold All)** | Ver > Desplegar Todo |
 | `Ctrl + M` | **Alternar Minimapa Gráfico** | Ver > Minimapa |
 | `Ctrl + \`` / `Ctrl + ~` | **Alternar Terminal Integrado Nativo** | Ver > Terminal Integrado |
 | `Ctrl + \` | **Alternar División Vertical (Split)** | Ver > Dividir Verticalmente |
@@ -928,6 +972,7 @@ auto_indent = true
 auto_close_brackets = true
 auto_surround = true
 show_line_numbers = true
+word_wrap = false            # Ajuste de línea envolvente (Soft Wrap, conmutable con Alt+Z)
 format_on_save = false
 check_on_save = false
 restore_session = true       # Restaurar pestañas, cursores y split al iniciar
@@ -1251,5 +1296,18 @@ Para cada uno de los vectores identificados, se han formalizado las siguientes d
 | **Inmunidad a ReDoS (Expresiones Regulares)** | **Inmune (Matchers deterministas $\mathcal{O}(N)$)** | Vulnerable en regexes de extensiones JS | Inmune en sintaxis nativa (Oniguruma / C++) | Moderada (motor regex clásico con backtracking) | Inmune (Tree-sitter grammars) |
 | **Guardado Atómico de Archivos** | **Implementado (SEC-02: atomic save vía tmp + rename)** | Implementado (atomic save vía tmp rename) | Implementado (atomic save vía tmp rename) | Implementado (`set backupcopy=...`) | Implementado (atomic write) |
 | **Telemetría y Recolección de Datos** | **0.0% (Cero llamadas de red / Cero telemetría)** | Telemetría integrada por defecto (desactivable) | Comprobación de licencias y updates remotos | 0.0% | 0.0% |
+
+---
+
+## 19. Licencia y Términos de Distribución (GNU AGPLv3)
+
+Rustext se distribuye como software libre de código abierto bajo los términos de la **GNU Affero General Public License Version 3 (GNU AGPLv3)**.
+
+### Principios y Garantías:
+- **Libertad y Transparencia**: Todo usuario, desarrollador u organización tiene el derecho inalienable de ejecutar, estudiar, auditar, modificar y redistribuir el código fuente para cualquier propósito.
+- **Copyleft Fuerte en Red (Cláusula Affero)**: Si modifica Rustext o lo integra como parte de una solución o servicio accesible remotamente a través de una red o servidor, está legalmente obligado a poner a disposición de los usuarios de dicha red el código fuente completo correspondiente bajo esta misma licencia GNU AGPLv3.
+- **Cero Dependencias y Pureza Legal**: Al no incorporar ningún crate externo ni librerías de terceros (100% Rust `std`), Rustext garantiza una procedencia limpia y auditada, libre de vulnerabilidades de licencias encubiertas, componentes propietarios, DRM o telemetría.
+- **Términos Completos**: Para consultar el texto oficial completo e íntegro de la licencia, revise el archivo [`LICENSE`](LICENSE) ubicado en la raíz del repositorio o visite <https://www.gnu.org/licenses/agpl-3.0.html>.
+
 
 
