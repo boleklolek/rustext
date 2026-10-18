@@ -517,8 +517,9 @@ cargo run --release --bin memory_profile
 
 ## 📚 Documentación Adicional
 
-Para más detalles sobre la arquitectura interna, diseño del Piece Table, protocolo de plugins externos y guía de desarrollo, revise el documento:
+Para más detalles sobre la arquitectura interna, diseño del Piece Table, protocolo de plugins externos y guía de desarrollo, revise los documentos:
 - [**MANUAL.md - Manual de Usuario y Referencia Técnica**](MANUAL.md)
+- [**MANUAL_TEMAS_Y_EXTENSIONES.md - Manual de Creación de Temas y Extensiones**](MANUAL_TEMAS_Y_EXTENSIONES.md)
 
 ---
 

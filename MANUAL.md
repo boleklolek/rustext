@@ -49,7 +49,7 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
 11. [Diagnósticos en Vivo, Ondulaciones Wavy Squiggles y Cliente LSP](#11-diagnósticos-en-vivo-ondulaciones-wavy-squiggles-y-cliente-lsp)
 12. [Búsqueda Rápida de Archivos (Ctrl+P), Paleta de Comandos y Atajos](#12-búsqueda-rápida-de-archivos-ctrlp-paleta-de-comandos-y-atajos)
 13. [Sistema de Configuración (`config.ini`)](#13-sistema-de-configuración-configini)
-14. [Sistema de Plugins y Extensiones](#14-sistema-de-plugins-y-extensiones)
+14. [Sistema de Plugins, Temas y Extensiones](#14-sistema-de-plugins-temas-y-extensiones)
 15. [Perfil de Memoria y Benchmarks Comparativos](#15-perfil-de-memoria-y-benchmarks-comparativos)
 16. [Preguntas Frecuentes y Solución de Problemas](#16-preguntas-frecuentes-y-solución-de-problemas)
 17. [Motor de Cajas Flexibles (Flexbox) y Paradigmas de UI (Reactivo vs. Retained)](#17-motor-de-cajas-flexibles-flexbox-y-paradigmas-de-ui-reactivo-vs-retained)
@@ -1177,37 +1177,63 @@ inlay_hints = true           # Mostrar sugerencias de tipo y parámetros en lín
 
 ---
 
-## 14. Sistema de Plugins y Extensiones
+## 14. Sistema de Plugins, Temas y Extensiones
 
-Rustext proporciona una arquitectura de extensiones extensible sin sacrificar la filosofía de cero dependencias externas.
+Rustext proporciona una arquitectura extensible sin sacrificar la filosofía de cero dependencias externas ni arriesgar la estabilidad del editor.
 
-### 1. Extensiones en el Proceso (`Plugin` Trait):
-Permite interceptar eventos del editor:
-```rust
-pub trait Plugin: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn on_init(&mut self, ctx: &mut PluginContext) {}
-    fn on_before_save(&mut self, ctx: &mut PluginContext) {}
-    fn on_after_save(&mut self, ctx: &mut PluginContext) {}
-    fn on_command(&mut self, command: &str, ctx: &mut PluginContext) -> bool { false }
-}
-```
+> [!NOTE]
+> Para una guía detallada paso a paso con tutoriales en Python, Bash y Node.js, consulte el [**Manual de Creación de Temas y Extensiones**](file:///home/bolek/Proyectos/rustext/MANUAL_TEMAS_Y_EXTENSIONES.md).
 
-### 2. Extensiones por Archivo de Manifiesto (`extension.conf`):
-En el directorio `~/.config/rustext/extensions/` cree una subcarpeta con un archivo `extension.conf`:
+### 1. Administrador Visual de Extensiones (`Ctrl + Shift + X`)
+* Presione `Ctrl + Shift + X` (o acceda desde **Extensiones > Administrador de Extensiones...**).
+* **`Espacio`**: Activar / Desactivar la extensión seleccionada (se persiste en disco automáticamente).
+* **`R`**: Recargar todas las extensiones en caliente desde disco.
+* **`N`**: Crear una extensión de ejemplo lista para modificar.
+
+### 2. Extensiones por Manifiesto (`extension.conf`):
+Rustext descubre extensiones automáticamente en:
+* **Global de usuario**: `~/.rustext/extensions/<nombre_extension>/`
+* **Local de espacio de trabajo**: `./.rustext/extensions/<nombre_extension>/`
+
+Estructura de `extension.conf`:
 ```ini
-[extension]
 id = mi_herramienta
 name = Mi Herramienta Personalizada
 version = 1.0.0
-author = Bolek
-
-[command.contar]
-title = Contar Palabras del Documento
-executable = wc
-args = -w
+author = Desarrollador
+description = Transforma o formatea texto vía subprocesos aislados
+enabled = true
+commands = mi_comando:Ejecutar Mi Herramienta
+exec = python3
+args = run.py
+on_save = false
 ```
-Al presionar `Ctrl + Shift + P` (o escribir `>` en `Ctrl + P`), el comando estará disponible instantáneamente en la Paleta de Comandos.
+
+Al abrir la Paleta de Comandos (`Ctrl + P`), aparecerá automáticamente como:
+`[Ext] Ejecutar Mi Herramienta`
+
+### 3. Extensiones en el Proceso (`Plugin` Trait):
+Para integraciones ultra-rápidas en el código nativo:
+```rust
+pub trait Plugin {
+    fn name(&self) -> &str;
+    fn on_init(&mut self, ctx: &mut PluginContext) {}
+    fn on_open(&mut self, ctx: &mut PluginContext, path: &Option<PathBuf>) {}
+    fn on_before_save(&mut self, ctx: &mut PluginContext, content: &mut String) {}
+    fn on_after_save(&mut self, ctx: &mut PluginContext) {}
+    fn on_command(&mut self, ctx: &mut PluginContext, command: &str) -> bool { false }
+}
+```
+
+### 4. Temas Visuales y Recarga en Caliente
+Rustext incluye 8 paletas oficiales (`tokyo-night`, `catppuccin`, `onedark`, `dark`, `monokai`, `solarized`, `light`, `high-contrast`).
+* Selección rápida: `Ctrl + P` -> `Tema: ...` o menú **Preferencias > Tema**.
+* Configuración en `~/.config/rustext/config.ini`:
+  ```ini
+  [theme]
+  name = tokyo-night
+  ```
+* Se recarga automáticamente al guardar el archivo sin reiniciar el editor. Consultar [`MANUAL_TEMAS_Y_EXTENSIONES.md`](file:///home/bolek/Proyectos/rustext/MANUAL_TEMAS_Y_EXTENSIONES.md) para añadir temas personalizados en el código.
 
 ---
 
