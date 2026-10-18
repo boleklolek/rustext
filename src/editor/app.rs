@@ -129,6 +129,9 @@ pub struct Editor {
     pub git: crate::editor::git::GitManager,
     pub session_manager: crate::editor::session::SessionManager,
     pub recent_files: Vec<PathBuf>,
+    pub project_registry: crate::editor::workspace::ProjectRegistry,
+    pub recent_projects: Vec<crate::editor::workspace::WorkspaceItem>,
+    pub active_workspace: Option<PathBuf>,
     pub terminal: crate::editor::terminal_panel::TerminalPanel,
     pub word_wrap: bool,
     pub last_code_cols: usize,
@@ -181,11 +184,20 @@ impl Editor {
             crate::editor::session::SessionManager::add_recent_file(&mut recent_files, fp.to_path_buf(), config.editor.max_recent_files);
         }
 
-        let mut terminal = crate::editor::terminal_panel::TerminalPanel::new(root_dir);
+        let mut terminal = crate::editor::terminal_panel::TerminalPanel::new(root_dir.clone());
         terminal.height = config.gui.terminal_height;
         if !config.gui.terminal_shell.is_empty() {
             terminal.shell_name = config.gui.terminal_shell.clone();
         }
+
+        let project_registry = crate::editor::workspace::ProjectRegistry::new();
+        let mut recent_projects = project_registry.load_recent_projects();
+        let active_workspace = if root_dir.exists() && root_dir.is_dir() {
+            project_registry.add_recent_project(&mut recent_projects, root_dir.clone(), 20);
+            Some(root_dir.clone())
+        } else {
+            None
+        };
 
         let mut editor = Self {
             documents: vec![initial_doc],
@@ -213,6 +225,9 @@ impl Editor {
             git,
             session_manager,
             recent_files,
+            project_registry,
+            recent_projects,
+            active_workspace,
             terminal,
             word_wrap,
             last_code_cols: 80,
@@ -452,7 +467,22 @@ impl Editor {
                             return;
                         }
                     }
+                    if modal.kind == PromptKind::RecentProjects {
+                        let matches = modal.matching_projects();
+                        if let Some(proj) = matches.get(modal.selected_idx) {
+                            let path = proj.path.clone();
+                            self.mode = EditorMode::Normal;
+                            self.open_workspace(path);
+                            return;
+                        }
+                    }
                     if modal.is_file_dialog() {
+                        if modal.kind == PromptKind::OpenFolder && modal.input.trim().is_empty() {
+                            let folder = modal.current_dir.clone();
+                            self.mode = EditorMode::Normal;
+                            self.open_workspace(folder);
+                            return;
+                        }
                         let resolved = modal.resolve_full_path();
                         if resolved.is_dir() {
                             modal.navigate_to(resolved);
@@ -508,6 +538,11 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::RecentProjects {
+                        let count = modal.matching_projects().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
+                        }
                     } else if modal.kind == PromptKind::FileFinder {
                         modal.select_next_file_result(9);
                     } else if modal.is_file_dialog() {
@@ -522,6 +557,8 @@ impl Editor {
                     } else if modal.kind == PromptKind::CommandPalette {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.kind == PromptKind::RecentFiles {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::RecentProjects {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.kind == PromptKind::FileFinder {
                         modal.select_prev_file_result();
@@ -538,6 +575,11 @@ impl Editor {
                         }
                     } else if modal.kind == PromptKind::RecentFiles {
                         let count = modal.matching_recent_files().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
+                        }
+                    } else if modal.kind == PromptKind::RecentProjects {
+                        let count = modal.matching_projects().len();
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
                         }
@@ -558,6 +600,8 @@ impl Editor {
                         }
                     } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(6);
+                    } else if modal.kind == PromptKind::RecentProjects {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(6);
                     } else if modal.kind == PromptKind::FileFinder {
                         for _ in 0..6 {
                             modal.select_prev_file_result();
@@ -570,6 +614,25 @@ impl Editor {
                 }
                 Key::Backspace => {
                     modal.backspace();
+                }
+                Key::Delete => {
+                    if modal.kind == PromptKind::RecentProjects {
+                        let matching = modal.matching_projects();
+                        if modal.selected_idx < matching.len() {
+                            let target_path = matching[modal.selected_idx].path.clone();
+                            self.project_registry.remove_recent_project(&mut self.recent_projects, &target_path);
+                            modal.recent_projects = self.recent_projects.clone();
+                            let count = modal.matching_projects().len();
+                            if count == 0 {
+                                modal.selected_idx = 0;
+                            } else if modal.selected_idx >= count {
+                                modal.selected_idx = count - 1;
+                            }
+                            self.set_status(&format!("Proyecto eliminado de recientes: {}", target_path.display()));
+                        }
+                    } else {
+                        modal.delete();
+                    }
                 }
                 Key::Left => {
                     modal.move_cursor_left();
@@ -759,6 +822,22 @@ impl Editor {
                     .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
                 self.mode = EditorMode::ModalPrompt(PromptModal::new_with_dir(PromptKind::OpenFile, dir, None));
+            }
+            EditorAction::OpenFolderPrompt => {
+                let dir = self.active_workspace.clone().unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                });
+                self.mode = EditorMode::ModalPrompt(PromptModal::new_with_dir(PromptKind::OpenFolder, dir, None));
+            }
+            EditorAction::OpenRecentProjectsPrompt => {
+                self.recent_projects = self.project_registry.load_recent_projects();
+                self.mode = EditorMode::ModalPrompt(PromptModal::new_recent_projects(self.recent_projects.clone()));
+            }
+            EditorAction::OpenWorkspace(path) => {
+                self.open_workspace(path);
+            }
+            EditorAction::CloseWorkspace => {
+                self.close_workspace();
             }
 
             // Navigation
@@ -3156,6 +3235,9 @@ impl Editor {
             window_height: self.screen.rows.max(24),
         };
 
+        if let Some(ref ws) = self.active_workspace {
+            let _ = self.project_registry.save_workspace_session(ws, &state);
+        }
         self.session_manager.save_session(&state)
     }
 
@@ -3165,11 +3247,22 @@ impl Editor {
             return false;
         }
 
-        let state = match self.session_manager.load_session() {
+        let state = if let Some(ref ws) = self.active_workspace {
+            self.project_registry.load_workspace_session(ws).or_else(|| self.session_manager.load_session())
+        } else {
+            self.session_manager.load_session()
+        };
+
+        let state = match state {
             Some(s) => s,
             None => return false,
         };
 
+        self.restore_session_from_state(state)
+    }
+
+    /// Restores editor state (tabs, cursors, scroll, splits, sidebar) from a `SessionState` snapshot.
+    pub fn restore_session_from_state(&mut self, state: crate::editor::session::SessionState) -> bool {
         if state.open_tabs.is_empty() {
             return false;
         }
@@ -3242,6 +3335,87 @@ impl Editor {
         self.sync_split_doc_indices();
         self.session_manager.clear_all_drafts();
         true
+    }
+
+    /// Switches the active workspace to `root`, saving the previous workspace state
+    /// and restoring project-specific tabs, splits and settings.
+    pub fn open_workspace(&mut self, root: PathBuf) {
+        let canonical_root = root.canonicalize().unwrap_or(root);
+        if !canonical_root.exists() || !canonical_root.is_dir() {
+            self.set_status(format!("Directorio no válido: {}", canonical_root.display()));
+            return;
+        }
+
+        // 1. Save current workspace session
+        let _ = self.save_session();
+
+        // 2. Add to recent projects
+        self.project_registry.add_recent_project(&mut self.recent_projects, canonical_root.clone(), 20);
+
+        // 3. Update active workspace and process working directory
+        let ws_name = canonical_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("PROYECTO")
+            .to_string();
+
+        self.active_workspace = Some(canonical_root.clone());
+        let _ = std::env::set_current_dir(&canonical_root);
+
+        // 4. Update sidebar and git
+        self.sidebar.set_root_dir(canonical_root.clone());
+        self.git = crate::editor::git::GitManager::new(&canonical_root);
+
+        // 5. Apply project-level configuration overrides (.rustext/config.ini)
+        crate::editor::workspace::ProjectRegistry::apply_project_config(&canonical_root, &mut self.config);
+
+        // 6. Attempt to restore this workspace's specific session
+        let restored = if let Some(ws_state) = self.project_registry.load_workspace_session(&canonical_root) {
+            self.restore_session_from_state(ws_state)
+        } else {
+            false
+        };
+
+        // 7. If no prior session existed for this project, open initial candidate file or clean untitled
+        if !restored {
+            self.documents.clear();
+            let candidates = ["src/main.rs", "src/lib.rs", "main.rs", "lib.rs", "index.js", "main.py", "README.md"];
+            let mut opened_initial = false;
+            for rel in &candidates {
+                let p = canonical_root.join(rel);
+                if p.exists() && p.is_file() {
+                    if let Ok(buf) = TextBuffer::open(&p) {
+                        self.documents.push(Document::new(buf));
+                        opened_initial = true;
+                        break;
+                    }
+                }
+            }
+            if !opened_initial {
+                self.documents.push(Document::new(TextBuffer::new()));
+            }
+            self.active_doc_idx = 0;
+            self.split.direction = crate::editor::split::SplitDirection::None;
+        }
+
+        self.set_status(format!("Espacio de trabajo abierto: {}", ws_name));
+    }
+
+    /// Closes the active workspace and resets to default home workspace.
+    pub fn close_workspace(&mut self) {
+        let _ = self.save_session();
+        self.active_workspace = None;
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        let _ = std::env::set_current_dir(&home);
+        self.sidebar.set_root_dir(home);
+        self.documents.clear();
+        self.documents.push(Document::new(TextBuffer::new()));
+        self.active_doc_idx = 0;
+        self.split.direction = crate::editor::split::SplitDirection::None;
+        self.set_status("Espacio de trabajo cerrado".to_string());
     }
 
     /// Opens a file into a tab, or switches to it if already open.
@@ -3347,6 +3521,27 @@ impl Editor {
                     let direct_path = modal.resolve_full_path();
                     if direct_path.exists() && direct_path.is_file() {
                         self.open_file(&direct_path);
+                    }
+                }
+            }
+            PromptKind::OpenFolder => {
+                let target_path = modal.resolve_full_path();
+                let folder = if target_path.is_dir() {
+                    target_path
+                } else {
+                    modal.current_dir.clone()
+                };
+                self.open_workspace(folder);
+            }
+            PromptKind::RecentProjects => {
+                let matching = modal.matching_projects();
+                if !matching.is_empty() && modal.selected_idx < matching.len() {
+                    let target_path = matching[modal.selected_idx].path.clone();
+                    self.open_workspace(target_path);
+                } else {
+                    let direct_path = modal.resolve_full_path();
+                    if direct_path.exists() && direct_path.is_dir() {
+                        self.open_workspace(direct_path);
                     }
                 }
             }
@@ -4999,7 +5194,8 @@ impl Editor {
                                     let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
 
                                     let btn_bar_y = box_y + box_h - renderer.scale_coord(30);
-                                    let action_btn_w = renderer.scale_coord(88);
+                                    let is_open_folder = modal.kind == PromptKind::OpenFolder;
+                                    let action_btn_w = renderer.scale_coord(if is_open_folder { 120 } else { 88 });
                                     let cancel_btn_w = renderer.scale_coord(80);
                                     let cancel_btn_x = box_x + box_w - cancel_btn_w - renderer.scale_coord(12);
                                     let action_btn_x = cancel_btn_x - action_btn_w - renderer.scale_coord(8);
@@ -5011,21 +5207,27 @@ impl Editor {
                                     if hit_close || hit_outside || hit_cancel {
                                         self.mode = EditorMode::Normal;
                                     } else if hit_action {
-                                        let mut navigate_path = None;
-                                        if !modal.dir_entries.is_empty() && modal.selected_entry_idx < modal.dir_entries.len() {
-                                            let entry = &modal.dir_entries[modal.selected_entry_idx];
-                                            if entry.is_dir && (modal.input.trim().is_empty() || modal.input.trim() == entry.name.trim_end_matches('/')) {
-                                                navigate_path = Some(entry.path.clone());
-                                            }
-                                        }
-                                        if let Some(target) = navigate_path {
-                                            modal.navigate_to(target);
-                                            modal.input.clear();
-                                            modal.cursor_col = 0;
-                                        } else {
+                                        if is_open_folder {
                                             let modal_clone = modal.clone();
                                             self.mode = EditorMode::Normal;
                                             self.commit_prompt(&modal_clone);
+                                        } else {
+                                            let mut navigate_path = None;
+                                            if !modal.dir_entries.is_empty() && modal.selected_entry_idx < modal.dir_entries.len() {
+                                                let entry = &modal.dir_entries[modal.selected_entry_idx];
+                                                if entry.is_dir && (modal.input.trim().is_empty() || modal.input.trim() == entry.name.trim_end_matches('/')) {
+                                                    navigate_path = Some(entry.path.clone());
+                                                }
+                                            }
+                                            if let Some(target) = navigate_path {
+                                                modal.navigate_to(target);
+                                                modal.input.clear();
+                                                modal.cursor_col = 0;
+                                            } else {
+                                                let modal_clone = modal.clone();
+                                                self.mode = EditorMode::Normal;
+                                                self.commit_prompt(&modal_clone);
+                                            }
                                         }
                                     } else {
                                         // [Subir] button
@@ -5225,6 +5427,34 @@ impl Editor {
                                                 let target_path = matching[row_idx].clone();
                                                 self.mode = EditorMode::Normal;
                                                 self.open_file(&target_path);
+                                            }
+                                        }
+                                    }
+                                } else if modal.kind == PromptKind::RecentProjects {
+                                    let box_w = fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400));
+                                    let box_h = renderer.scale_coord(340);
+                                    let box_x = (fb.width.saturating_sub(box_w)) / 2;
+                                    let box_y = renderer.scale_coord(28);
+                                    let header_h = renderer.scale_coord(24);
+                                    let close_w = renderer.scale_coord(30);
+                                    let close_x = box_x + box_w - close_w;
+
+                                    let hit_close = x >= close_x && x < close_x + close_w && y >= box_y && y < box_y + header_h;
+                                    let hit_outside = x < box_x || x >= box_x + box_w || y < box_y || y >= box_y + box_h;
+
+                                    if hit_close || hit_outside {
+                                        self.mode = EditorMode::Normal;
+                                    } else {
+                                        let input_margin = renderer.scale_coord(12);
+                                        let item_start_y = box_y + header_h + 1 + renderer.scale_coord(8) + renderer.scale_coord(24) + renderer.scale_coord(8);
+                                        let item_h = (renderer.char_height() + renderer.scale_coord(10)).max(renderer.scale_coord(26));
+                                        let matching = modal.matching_projects();
+                                        if x >= box_x + input_margin && x < box_x + box_w - input_margin && y >= item_start_y {
+                                            let row_idx = (y - item_start_y) / item_h;
+                                            if row_idx < matching.len().min(9) {
+                                                let target_path = matching[row_idx].path.clone();
+                                                self.mode = EditorMode::Normal;
+                                                self.open_workspace(target_path);
                                             }
                                         }
                                     }
@@ -5840,6 +6070,8 @@ impl Editor {
                                     for _ in 0..3 {
                                         modal.select_prev_file_result();
                                     }
+                                } else if modal.kind == PromptKind::RecentProjects {
+                                    modal.selected_idx = modal.selected_idx.saturating_sub(3);
                                 }
                             } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
                                 dialog.select_next_size();
@@ -5915,6 +6147,11 @@ impl Editor {
                                 } else if modal.kind == PromptKind::FileFinder {
                                     for _ in 0..3 {
                                         modal.select_next_file_result(9);
+                                    }
+                                } else if modal.kind == PromptKind::RecentProjects {
+                                    let count = modal.matching_projects().len();
+                                    if count > 0 {
+                                        modal.selected_idx = (modal.selected_idx + 3).min(count - 1);
                                     }
                                 }
                             } else if let EditorMode::FontSelector(dialog) = &mut self.mode {
@@ -6217,6 +6454,11 @@ impl Editor {
             renderer.git_diff = primary_git_diff;
             renderer.secondary_git_diff = secondary_git_diff;
             renderer.git_branch = self.git.branch.clone();
+            renderer.workspace_name = self.active_workspace.as_ref().map(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| p.to_string_lossy().to_string())
+            });
             let git_statuses_len = self.git.file_statuses.len();
             if cached_git_statuses.as_ref().map(|s| s.len()) != Some(git_statuses_len) {
                 cached_git_statuses = Some(self.git.file_statuses.clone());
@@ -6267,7 +6509,7 @@ impl Editor {
             if let EditorMode::ModalPrompt(modal) = &self.mode {
                 let box_w = if modal.kind == PromptKind::GlobalSearch {
                     fb.width.min(renderer.scale_coord(740)).max(renderer.scale_coord(460))
-                } else if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::FileFinder {
+                } else if modal.is_file_dialog() || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::RecentProjects || modal.kind == PromptKind::FileFinder {
                     fb.width.min(renderer.scale_coord(680)).max(renderer.scale_coord(400))
                 } else if modal.kind == PromptKind::Replace {
                     fb.width.min(renderer.scale_coord(540)).max(renderer.scale_coord(380))
@@ -6278,7 +6520,7 @@ impl Editor {
                     fb.height.min(renderer.scale_coord(500)).max(renderer.scale_coord(360))
                 } else if modal.is_file_dialog() {
                     fb.height.min(renderer.scale_coord(480)).max(renderer.scale_coord(360))
-                } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::FileFinder {
+                } else if modal.kind == PromptKind::CommandPalette || modal.kind == PromptKind::RecentFiles || modal.kind == PromptKind::RecentProjects || modal.kind == PromptKind::FileFinder {
                     renderer.scale_coord(340)
                 } else if modal.kind == PromptKind::Replace {
                     renderer.scale_coord(168)

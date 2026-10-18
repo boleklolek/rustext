@@ -586,6 +586,12 @@ c_server = {}
     /// Parses an INI string into an `EditorConfig` instance.
     pub fn parse(content: &str) -> Self {
         let mut config = Self::default();
+        config.apply_ini_str(content);
+        config
+    }
+
+    /// Applies configuration overrides from an INI string onto `self`.
+    pub fn apply_ini_str(&mut self, content: &str) {
         let mut current_section = String::new();
 
         for line in content.lines() {
@@ -625,92 +631,92 @@ c_server = {}
                     "editor" => match key.as_str() {
                         "tab_size" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.editor.tab_size = n.clamp(1, 16);
+                                self.editor.tab_size = n.clamp(1, 16);
                             }
                         }
                         "auto_indent" => {
                             if let Some(b) = as_bool {
-                                config.editor.auto_indent = b;
+                                self.editor.auto_indent = b;
                             }
                         }
                         "auto_close_brackets" => {
                             if let Some(b) = as_bool {
-                                config.editor.auto_close_brackets = b;
+                                self.editor.auto_close_brackets = b;
                             }
                         }
                         "auto_surround" => {
                             if let Some(b) = as_bool {
-                                config.editor.auto_surround = b;
+                                self.editor.auto_surround = b;
                             }
                         }
                         "show_line_numbers" => {
                             if let Some(b) = as_bool {
-                                config.editor.show_line_numbers = b;
+                                self.editor.show_line_numbers = b;
                             }
                         }
                         "format_on_save" => {
                             if let Some(b) = as_bool {
-                                config.editor.format_on_save = b;
+                                self.editor.format_on_save = b;
                             }
                         }
                         "check_on_save" => {
                             if let Some(b) = as_bool {
-                                config.editor.check_on_save = b;
+                                self.editor.check_on_save = b;
                             }
                         }
                         "autocomplete" => {
                             if let Some(b) = as_bool {
-                                config.editor.autocomplete = b;
+                                self.editor.autocomplete = b;
                             }
                         }
                         "autocomplete_min_chars" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.editor.autocomplete_min_chars = n.clamp(1, 10);
+                                self.editor.autocomplete_min_chars = n.clamp(1, 10);
                             }
                         }
                         "restore_session" => {
                             if let Some(b) = as_bool {
-                                config.editor.restore_session = b;
+                                self.editor.restore_session = b;
                             }
                         }
                         "auto_save_session" => {
                             if let Some(b) = as_bool {
-                                config.editor.auto_save_session = b;
+                                self.editor.auto_save_session = b;
                             }
                         }
                         "hot_exit" => {
                             if let Some(b) = as_bool {
-                                config.editor.hot_exit = b;
+                                self.editor.hot_exit = b;
                             }
                         }
                         "max_recent_files" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.editor.max_recent_files = n.clamp(1, 100);
+                                self.editor.max_recent_files = n.clamp(1, 100);
                             }
                         }
                         "word_wrap" => {
                             if let Some(b) = as_bool {
-                                config.editor.word_wrap = b;
+                                self.editor.word_wrap = b;
                             }
                         }
                         "code_folding" => {
                             if let Some(b) = as_bool {
-                                config.editor.code_folding = b;
+                                self.editor.code_folding = b;
                             }
                         }
                         "indent_guides" => {
                             if let Some(b) = as_bool {
-                                config.editor.indent_guides = b;
+                                self.editor.indent_guides = b;
                             }
                         }
                         "highlight_active_indent_guide" => {
                             if let Some(b) = as_bool {
-                                config.editor.highlight_active_indent_guide = b;
+                                self.editor.highlight_active_indent_guide = b;
                             }
                         }
                         "highlight_current_line" => {
                             if let Some(b) = as_bool {
-                                config.editor.highlight_current_line = b;
+                                self.editor.highlight_current_line = b;
                             }
                         }
                         "rulers" => {
@@ -718,16 +724,16 @@ c_server = {}
                                 .split(',')
                                 .filter_map(|s| s.trim().parse::<usize>().ok())
                                 .collect();
-                            config.editor.rulers = list;
+                            self.editor.rulers = list;
                         }
                         "sticky_scroll" => {
                             if let Some(b) = as_bool {
-                                config.editor.sticky_scroll = b;
+                                self.editor.sticky_scroll = b;
                             }
                         }
                         "max_sticky_lines" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.editor.max_sticky_lines = n.clamp(1, 10);
+                                self.editor.max_sticky_lines = n.clamp(1, 10);
                             }
                         }
                         _ => {}
@@ -735,7 +741,7 @@ c_server = {}
                     "theme" => match key.as_str() {
                         "name" => {
                             if !val_unquoted.is_empty() {
-                                config.theme.name = val_unquoted.to_string();
+                                self.theme.name = val_unquoted.to_string();
                             }
                         }
                         _ => {}
@@ -743,243 +749,243 @@ c_server = {}
                     "gui" => match key.as_str() {
                         "window_width" => {
                             if let Ok(w) = val_unquoted.parse::<usize>() {
-                                config.gui.window_width = w.clamp(320, 7680);
+                                self.gui.window_width = w.clamp(320, 7680);
                             }
                         }
                         "window_height" => {
                             if let Ok(h) = val_unquoted.parse::<usize>() {
-                                config.gui.window_height = h.clamp(200, 4320);
+                                self.gui.window_height = h.clamp(200, 4320);
                             }
                         }
                         "menu_bar" => {
                             if let Some(b) = as_bool {
-                                config.gui.menu_bar = b;
+                                self.gui.menu_bar = b;
                             }
                         }
                         "status_bar" => {
                             if let Some(b) = as_bool {
-                                config.gui.status_bar = b;
+                                self.gui.status_bar = b;
                             }
                         }
                         "scrollbar" => {
                             if let Some(b) = as_bool {
-                                config.gui.scrollbar = b;
+                                self.gui.scrollbar = b;
                             }
                         }
                         "scale_factor" => {
                             if let Ok(f) = val_unquoted.parse::<f64>() {
                                 if f >= 0.0 && f <= 5.0 {
-                                    config.gui.scale_factor = f;
+                                    self.gui.scale_factor = f;
                                 }
                             }
                         }
                         "font_scale" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.font_scale = n.clamp(1, 3);
+                                self.gui.font_scale = n.clamp(1, 3);
                             }
                         }
                         "font_antialiasing" => {
                             if let Some(b) = as_bool {
-                                config.gui.font_antialiasing = b;
+                                self.gui.font_antialiasing = b;
                             }
                         }
                         "gamma_correction" => {
                             if let Some(b) = as_bool {
-                                config.gui.gamma_correction = b;
+                                self.gui.gamma_correction = b;
                             }
                         }
                         "line_spacing" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.line_spacing = n.min(24);
+                                self.gui.line_spacing = n.min(24);
                             }
                         }
                         "rounded_corners" => {
                             if let Some(b) = as_bool {
-                                config.gui.rounded_corners = b;
+                                self.gui.rounded_corners = b;
                             }
                         }
                         "shadows" => {
                             if let Some(b) = as_bool {
-                                config.gui.shadows = b;
+                                self.gui.shadows = b;
                             }
                         }
                         "cursor_style" => {
                             if !val_unquoted.is_empty() {
-                                config.gui.cursor_style = val_unquoted.to_string();
+                                self.gui.cursor_style = val_unquoted.to_string();
                             }
                         }
                         "cursor_blink" => {
                             if let Some(b) = as_bool {
-                                config.gui.cursor_blink = b;
+                                self.gui.cursor_blink = b;
                             }
                         }
                         "sidebar" => {
                             if let Some(b) = as_bool {
-                                config.gui.sidebar = b;
+                                self.gui.sidebar = b;
                             }
                         }
                         "sidebar_width" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.sidebar_width = n.clamp(140, 600);
+                                self.gui.sidebar_width = n.clamp(140, 600);
                             }
                         }
                         "minimap" => {
                             if let Some(b) = as_bool {
-                                config.gui.minimap = b;
+                                self.gui.minimap = b;
                             }
                         }
                         "minimap_width" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.minimap_width = n.clamp(40, 300);
+                                self.gui.minimap_width = n.clamp(40, 300);
                             }
                         }
                         "git_gutter" => {
                             if let Some(b) = as_bool {
-                                config.gui.git_gutter = b;
+                                self.gui.git_gutter = b;
                             }
                         }
                         "terminal_height" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.terminal_height = n.clamp(60, 1000);
+                                self.gui.terminal_height = n.clamp(60, 1000);
                             }
                         }
                         "terminal_shell" => {
-                            config.gui.terminal_shell = val_unquoted.to_string();
+                            self.gui.terminal_shell = val_unquoted.to_string();
                         }
                         "font_ligatures" => {
                             if let Some(b) = as_bool {
-                                config.gui.font_ligatures = b;
+                                self.gui.font_ligatures = b;
                             }
                         }
                         "font_hinting" => {
                             if !val_unquoted.is_empty() {
-                                config.gui.font_hinting = val_unquoted.to_string();
+                                self.gui.font_hinting = val_unquoted.to_string();
                             }
                         }
                         "font_family" => {
                             if !val_unquoted.is_empty() {
-                                config.gui.font_family = val_unquoted.to_string();
+                                self.gui.font_family = val_unquoted.to_string();
                             }
                         }
                         "font_size" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.font_size = n.clamp(8, 48);
+                                self.gui.font_size = n.clamp(8, 48);
                             }
                         }
                         "font_weight" => {
                             if !val_unquoted.is_empty() {
-                                config.gui.font_weight = val_unquoted.to_string();
+                                self.gui.font_weight = val_unquoted.to_string();
                             }
                         }
                         "smooth_shadows" => {
                             if let Some(b) = as_bool {
-                                config.gui.smooth_shadows = b;
+                                self.gui.smooth_shadows = b;
                             }
                         }
                         "animation_enabled" => {
                             if let Some(b) = as_bool {
-                                config.gui.animation_enabled = b;
+                                self.gui.animation_enabled = b;
                             }
                         }
                         "edge_perception" => {
                             if let Some(b) = as_bool {
-                                config.gui.edge_perception = b;
+                                self.gui.edge_perception = b;
                             }
                         }
                         "subpixel_antialiasing" => {
                             if let Some(b) = as_bool {
-                                config.gui.subpixel_antialiasing = b;
+                                self.gui.subpixel_antialiasing = b;
                             }
                         }
                         "letter_spacing" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
-                                config.gui.letter_spacing = n.min(12);
+                                self.gui.letter_spacing = n.min(12);
                             }
                         }
                         "font_aspect_ratio" => {
                             if let Ok(f) = val_unquoted.parse::<f64>() {
                                 if f >= 0.40 && f <= 0.90 {
-                                    config.gui.font_aspect_ratio = f;
+                                    self.gui.font_aspect_ratio = f;
                                 }
                             } else {
                                 match val_unquoted.to_lowercase().as_str() {
-                                    "compact" | "classic" => config.gui.font_aspect_ratio = 0.50,
-                                    "normal" | "balanced" => config.gui.font_aspect_ratio = 0.55,
-                                    "comfort" | "ergonomic" => config.gui.font_aspect_ratio = 0.60,
-                                    "wide" => config.gui.font_aspect_ratio = 0.65,
+                                    "compact" | "classic" => self.gui.font_aspect_ratio = 0.50,
+                                    "normal" | "balanced" => self.gui.font_aspect_ratio = 0.55,
+                                    "comfort" | "ergonomic" => self.gui.font_aspect_ratio = 0.60,
+                                    "wide" => self.gui.font_aspect_ratio = 0.65,
                                     _ => {}
                                 }
                             }
                         }
                         "stem_darkening" => {
                             if let Some(b) = as_bool {
-                                config.gui.stem_darkening = b;
+                                self.gui.stem_darkening = b;
                             }
                         }
                         "stem_darkening_amount" => {
                             if let Ok(f) = val_unquoted.parse::<f64>() {
-                                config.gui.stem_darkening_amount = f.clamp(0.0, 3.0);
+                                self.gui.stem_darkening_amount = f.clamp(0.0, 3.0);
                             }
                         }
                         "ergonomic_scaling" => {
                             if let Some(b) = as_bool {
-                                config.gui.ergonomic_scaling = b;
+                                self.gui.ergonomic_scaling = b;
                             }
                         }
                         "viewing_distance_mm" => {
                             if let Ok(f) = val_unquoted.parse::<f64>() {
-                                config.gui.viewing_distance_mm = f.clamp(0.0, 3000.0);
+                                self.gui.viewing_distance_mm = f.clamp(0.0, 3000.0);
                             }
                         }
                         "iso_target_arcmin" => {
                             if let Ok(f) = val_unquoted.parse::<f64>() {
-                                config.gui.iso_target_arcmin = f.clamp(10.0, 40.0);
+                                self.gui.iso_target_arcmin = f.clamp(10.0, 40.0);
                             }
                         }
                         "sdf_font_rendering" => {
                             if let Some(b) = as_bool {
-                                config.gui.sdf_font_rendering = b;
+                                self.gui.sdf_font_rendering = b;
                             }
                         }
                         "optical_punctuation_spacing" => {
                             if let Some(b) = as_bool {
-                                config.gui.optical_punctuation_spacing = b;
+                                self.gui.optical_punctuation_spacing = b;
                             }
                         }
                         "use_ttf_font" => {
                             if let Some(b) = as_bool {
-                                config.gui.use_ttf_font = b;
+                                self.gui.use_ttf_font = b;
                             }
                         }
                         "ttf_font_path" => {
-                            config.gui.ttf_font_path = val_unquoted.to_string();
+                            self.gui.ttf_font_path = val_unquoted.to_string();
                         }
                         _ => {}
                     },
                     "lsp" => match key.as_str() {
                         "enabled" => {
                             if let Some(b) = as_bool {
-                                config.lsp.enabled = b;
+                                self.lsp.enabled = b;
                             }
                         }
                         "auto_start" => {
                             if let Some(b) = as_bool {
-                                config.lsp.auto_start = b;
+                                self.lsp.auto_start = b;
                             }
                         }
                         "rust_server" => {
                             if !val_unquoted.is_empty() {
-                                config.lsp.rust_server = val_unquoted.to_string();
+                                self.lsp.rust_server = val_unquoted.to_string();
                             }
                         }
                         "python_server" => {
                             if !val_unquoted.is_empty() {
-                                config.lsp.python_server = val_unquoted.to_string();
+                                self.lsp.python_server = val_unquoted.to_string();
                             }
                         }
                         "c_server" => {
                             if !val_unquoted.is_empty() {
-                                config.lsp.c_server = val_unquoted.to_string();
+                                self.lsp.c_server = val_unquoted.to_string();
                             }
                         }
                         _ => {}
@@ -988,8 +994,6 @@ c_server = {}
                 }
             }
         }
-
-        config
     }
 
     /// Resolves the canonical configuration file path.

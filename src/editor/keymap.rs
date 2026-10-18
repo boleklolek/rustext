@@ -30,6 +30,10 @@ pub enum EditorAction {
     OpenSaveAsPrompt,
     OpenOpenFilePrompt,
     OpenRecentFilesPrompt,
+    OpenFolderPrompt,
+    OpenRecentProjectsPrompt,
+    OpenWorkspace(std::path::PathBuf),
+    CloseWorkspace,
     OpenAboutDialog,
     OpenExtensionsManager,
     ReloadExtensions,
@@ -182,6 +186,8 @@ impl Keymap {
             Key::Ctrl('t') => EditorAction::NewTab,
             Key::Ctrl('w') => EditorAction::CloseTab,
             Key::Ctrl('o') => EditorAction::OpenOpenFilePrompt,
+            Key::CtrlShift('o') | Key::CtrlShift('O') => EditorAction::OpenFolderPrompt,
+            Key::Alt('p') | Key::Alt('P') => EditorAction::OpenRecentProjectsPrompt,
 
             // Clipboard shortcuts
             Key::Ctrl('c') => EditorAction::Copy,

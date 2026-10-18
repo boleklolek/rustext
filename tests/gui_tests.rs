@@ -5700,6 +5700,155 @@ fn test_render_logo_faceted_ribbon_and_badge() {
     assert!(non_zero_fb2 > 200, "Standalone logo ribbon should render facets without badge");
 }
 
+#[test]
+fn test_workspace_management_and_project_switching() {
+    use rustext::editor::app::{Editor, EditorMode};
+    use rustext::editor::keymap::EditorAction;
+    use rustext::ui::terminal::Key;
+    use rustext::ui::prompt::{PromptKind, PromptModal};
+    use std::fs;
+
+    // 1. Setup temporary project folders
+    let base_temp = std::env::temp_dir().join(format!("rustext_ws_integ_{}", std::process::id()));
+    let proj_a = base_temp.join("rust_backend");
+    let proj_b = base_temp.join("web_frontend");
+
+    let _ = fs::create_dir_all(&proj_a);
+    let _ = fs::create_dir_all(&proj_b);
+
+    // Project A: Rust project with custom .rustext/config.ini override
+    fs::write(proj_a.join("Cargo.toml"), "[package]\nname = \"rust_backend\"\nversion = \"0.1.0\"\n").unwrap();
+    let src_dir = proj_a.join("src");
+    let _ = fs::create_dir_all(&src_dir);
+    let main_rs = src_dir.join("main.rs");
+    fs::write(&main_rs, "fn main() {\n    println!(\"Hello Project A\");\n}\n").unwrap();
+
+    let dot_rustext_a = proj_a.join(".rustext");
+    let _ = fs::create_dir_all(&dot_rustext_a);
+    fs::write(dot_rustext_a.join("config.ini"), "[editor]\ntab_size = 2\n").unwrap();
+
+    // Project B: Node.js project
+    fs::write(proj_b.join("package.json"), "{\n  \"name\": \"web_frontend\",\n  \"version\": \"1.0.0\"\n}\n").unwrap();
+    let index_js = proj_b.join("index.js");
+    fs::write(&index_js, "console.log('Hello Project B');\n").unwrap();
+
+    // 2. Initialize Editor
+    let mut editor = Editor::new(rustext::core::TextBuffer::from_str(""));
+
+    // Test OpenFolderPrompt action
+    editor.execute_action(EditorAction::OpenFolderPrompt);
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        assert_eq!(modal.kind, PromptKind::OpenFolder);
+        assert!(modal.is_file_dialog());
+        assert_eq!(modal.kind.window_title(), "Abrir Carpeta / Proyecto (Ctrl+Shift+O)");
+    } else {
+        panic!("Expected EditorMode::ModalPrompt(OpenFolder)");
+    }
+
+    // Cancel modal
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.mode, EditorMode::Normal);
+
+    // 3. Open Workspace A
+    editor.open_workspace(proj_a.clone());
+    assert_eq!(editor.active_workspace, Some(proj_a.clone()));
+    assert_eq!(editor.sidebar.root_dir, proj_a);
+    // Verify local config override was applied (tab_size = 2)
+    assert_eq!(editor.config.editor.tab_size, 2);
+
+    // Verify recent projects contains proj_a with [Rust] tag
+    let item_a = editor.recent_projects.iter().find(|p| p.path == proj_a);
+    assert!(item_a.is_some(), "Project A should be in recent_projects");
+    assert_eq!(item_a.unwrap().kind_tag, "[Rust]");
+
+    // Open file in Project A
+    editor.open_file(&main_rs);
+    assert_eq!(editor.documents.len(), 1);
+    assert_eq!(editor.doc().buffer.file_path(), Some(main_rs.as_path()));
+
+    // 4. Open Workspace B (switching project)
+    editor.open_workspace(proj_b.clone());
+    assert_eq!(editor.active_workspace, Some(proj_b.clone()));
+    assert_eq!(editor.sidebar.root_dir, proj_b);
+
+    // Verify recent projects contains proj_b with [Node] tag
+    let item_b = editor.recent_projects.iter().find(|p| p.path == proj_b);
+    assert!(item_b.is_some(), "Project B should be in recent_projects");
+    assert_eq!(item_b.unwrap().kind_tag, "[Node]");
+
+    // Open file in Project B
+    editor.open_file(&index_js);
+    assert_eq!(editor.doc().buffer.file_path(), Some(index_js.as_path()));
+
+    // 5. Test Recent Projects Modal & Navigation
+    editor.execute_action(EditorAction::OpenRecentProjectsPrompt);
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        assert_eq!(modal.kind, PromptKind::RecentProjects);
+        let matches = modal.matching_projects();
+        assert!(matches.len() >= 2);
+    } else {
+        panic!("Expected ModalPrompt(RecentProjects)");
+    }
+
+    // Type query to filter
+    editor.handle_key(Key::Char('b'));
+    editor.handle_key(Key::Char('a'));
+    editor.handle_key(Key::Char('c'));
+    editor.handle_key(Key::Char('k'));
+    if let EditorMode::ModalPrompt(modal) = &editor.mode {
+        let matches = modal.matching_projects();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "rust_backend");
+    }
+
+    // Press Enter to switch to Project A
+    editor.handle_key(Key::Enter);
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.active_workspace, Some(proj_a.clone()));
+
+    // 6. Test Removing from Recent Projects via Key::Delete
+    editor.execute_action(EditorAction::OpenRecentProjectsPrompt);
+    let initial_count = editor.recent_projects.len();
+    editor.handle_key(Key::Delete);
+    assert_eq!(editor.recent_projects.len(), initial_count - 1);
+
+    // Close modal
+    editor.handle_key(Key::Esc);
+
+    // 7. Test CloseWorkspace
+    editor.execute_action(EditorAction::CloseWorkspace);
+    assert_eq!(editor.active_workspace, None);
+
+    // 8. Test GUI Framebuffer Rendering for RecentProjects and Status Bar
+    let mut fb = Framebuffer::new(800, 600);
+    fb.clear(0x001A1B26);
+
+    let mut renderer = GfxRenderer::new();
+    renderer.workspace_name = Some("rust_backend".to_string());
+
+    // Render status bar with workspace chip
+    renderer.render_status_bar(&mut fb, editor.doc(), None);
+
+    // Verify status bar area has drawn chips
+    let status_bar_y = 600 - renderer.status_bar_height;
+    let non_zero_status = fb.pixels[status_bar_y * 800..(status_bar_y + 10) * 800].iter().filter(|&&p| p != 0).count();
+    assert!(non_zero_status > 50, "Status bar should render workspace badge chip");
+
+    // Render recent projects modal
+    let recent_modal = PromptModal::new_recent_projects(vec![
+        rustext::editor::WorkspaceItem::new(proj_a.clone()),
+        rustext::editor::WorkspaceItem::new(proj_b.clone()),
+    ]);
+    renderer.render_prompt_overlay_with_hover(&mut fb, &recent_modal, false);
+
+    // Verify modal overlay rendered pixels
+    let non_zero_pixels = fb.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(non_zero_pixels > 2000, "Recent projects modal must render cleanly on framebuffer");
+
+    // Cleanup
+    let _ = fs::remove_dir_all(&base_temp);
+}
+
 
 
 

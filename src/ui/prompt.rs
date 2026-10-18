@@ -14,6 +14,8 @@ pub enum PromptKind {
     CommandPalette,
     GlobalSearch,
     FileFinder,
+    RecentProjects,
+    OpenFolder,
 }
 
 impl PromptKind {
@@ -27,6 +29,8 @@ impl PromptKind {
             PromptKind::CommandPalette => "Comando: ",
             PromptKind::GlobalSearch => "Buscar en Proyecto: ",
             PromptKind::FileFinder => "Archivo: ",
+            PromptKind::RecentProjects => "Proyecto: ",
+            PromptKind::OpenFolder => "Carpeta: ",
         }
     }
 
@@ -40,6 +44,8 @@ impl PromptKind {
             PromptKind::CommandPalette => "Paleta de Comandos (Ctrl+Shift+P)",
             PromptKind::GlobalSearch => "Búsqueda Global en el Proyecto (Ctrl+Shift+F)",
             PromptKind::FileFinder => "Ir a Archivo (Fuzzy File Finder) [Ctrl+P]",
+            PromptKind::RecentProjects => "Espacios de Trabajo y Proyectos Recientes (Ctrl+Alt+P)",
+            PromptKind::OpenFolder => "Abrir Carpeta / Proyecto (Ctrl+Shift+O)",
         }
     }
 }
@@ -59,6 +65,9 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Nueva Pestaña", shortcut: "Ctrl+T", action: EditorAction::NewTab },
         CommandItem { name: "Abrir Archivo...", shortcut: "Ctrl+O", action: EditorAction::OpenOpenFilePrompt },
         CommandItem { name: "Abrir Archivo Reciente...", shortcut: "Ctrl+R", action: EditorAction::OpenRecentFilesPrompt },
+        CommandItem { name: "Espacio de Trabajo: Abrir Carpeta...", shortcut: "Ctrl+Shift+O", action: EditorAction::OpenFolderPrompt },
+        CommandItem { name: "Espacio de Trabajo: Proyectos Recientes...", shortcut: "Ctrl+Alt+P", action: EditorAction::OpenRecentProjectsPrompt },
+        CommandItem { name: "Espacio de Trabajo: Cerrar Proyecto", shortcut: "", action: EditorAction::CloseWorkspace },
         CommandItem { name: "Guardar", shortcut: "Ctrl+S", action: EditorAction::Save },
         CommandItem { name: "Guardar Como...", shortcut: "", action: EditorAction::OpenSaveAsPrompt },
         CommandItem { name: "Cerrar Pestaña", shortcut: "Ctrl+W", action: EditorAction::CloseTab },
@@ -267,6 +276,7 @@ pub struct PromptModal {
     pub case_sensitive: bool,
     pub root_dir: PathBuf,
     pub recent_files: Vec<PathBuf>,
+    pub recent_projects: Vec<crate::editor::workspace::WorkspaceItem>,
     // Fuzzy File Finder fields for PromptKind::FileFinder
     pub project_files: Vec<crate::core::ProjectFile>,
     pub file_finder_results: Vec<crate::core::FileFinderMatch>,
@@ -295,6 +305,7 @@ impl PromptModal {
             case_sensitive: false,
             root_dir: current_dir,
             recent_files: Vec::new(),
+            recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
         };
@@ -340,6 +351,7 @@ impl PromptModal {
             case_sensitive: false,
             root_dir: dir,
             recent_files: Vec::new(),
+            recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
         };
@@ -372,6 +384,7 @@ impl PromptModal {
             case_sensitive: false,
             root_dir,
             recent_files: Vec::new(),
+            recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
         };
@@ -410,6 +423,7 @@ impl PromptModal {
             case_sensitive: false,
             root_dir,
             recent_files: recent_paths.to_vec(),
+            recent_projects: Vec::new(),
             project_files,
             file_finder_results,
         }
@@ -439,7 +453,31 @@ impl PromptModal {
     }
 
     pub fn is_file_dialog(&self) -> bool {
-        matches!(self.kind, PromptKind::SaveAs | PromptKind::OpenFile)
+        matches!(self.kind, PromptKind::SaveAs | PromptKind::OpenFile | PromptKind::OpenFolder)
+    }
+
+    /// Creates a prompt modal for selecting and filtering recent projects.
+    pub fn new_recent_projects(recent_projects: Vec<crate::editor::workspace::WorkspaceItem>) -> Self {
+        let mut modal = Self::new(PromptKind::RecentProjects);
+        modal.recent_projects = recent_projects;
+        modal
+    }
+
+    /// Returns matching recent projects filtered by current input query.
+    pub fn matching_projects(&self) -> Vec<&crate::editor::workspace::WorkspaceItem> {
+        let query = self.input.trim().to_lowercase();
+        if query.is_empty() {
+            return self.recent_projects.iter().collect();
+        }
+
+        self.recent_projects
+            .iter()
+            .filter(|p| {
+                p.name.to_lowercase().contains(&query)
+                    || p.path.to_string_lossy().to_lowercase().contains(&query)
+                    || p.kind_tag.to_lowercase().contains(&query)
+            })
+            .collect()
     }
 
     pub fn refresh_dir_entries(&mut self) {
@@ -652,6 +690,42 @@ impl PromptModal {
         }
     }
 
+    pub fn delete(&mut self) {
+        if self.kind == PromptKind::Replace && self.active_field == 1 {
+            if self.replace_cursor_col >= self.replace_input.chars().count() {
+                return;
+            }
+            let delete_idx = self.replace_cursor_col;
+            self.replace_input = self
+                .replace_input
+                .chars()
+                .enumerate()
+                .filter(|(i, _)| *i != delete_idx)
+                .map(|(_, c)| c)
+                .collect();
+            return;
+        }
+
+        if self.cursor_col >= self.input.chars().count() {
+            return;
+        }
+
+        let delete_idx = self.cursor_col;
+        self.input = self
+            .input
+            .chars()
+            .enumerate()
+            .filter(|(i, _)| *i != delete_idx)
+            .map(|(_, c)| c)
+            .collect();
+        self.selected_idx = 0;
+        if self.kind == PromptKind::GlobalSearch {
+            self.update_global_search();
+        } else if self.kind == PromptKind::FileFinder {
+            self.update_file_finder();
+        }
+    }
+
     /// Re-runs global project search against current input query.
     pub fn update_global_search(&mut self) {
         let trimmed = self.input.trim();
@@ -797,6 +871,9 @@ impl PromptModal {
         } else if self.kind == PromptKind::RecentFiles {
             let count = self.matching_recent_files().len();
             format!("Archivos Recientes: {} │ ({} archivos) [↑/↓: Seleccionar] [Enter: Abrir] [Esc: Cancelar]", self.input, count)
+        } else if self.kind == PromptKind::RecentProjects {
+            let count = self.matching_projects().len();
+            format!("Proyectos Recientes: {} │ ({} proyectos) [↑/↓: Seleccionar] [Enter: Abrir] [Supr: Olvidar] [Esc: Cancelar]", self.input, count)
         } else if self.kind == PromptKind::FileFinder {
             if self.is_command_mode() {
                 let count = self.matching_commands().len();

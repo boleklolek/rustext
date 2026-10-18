@@ -685,6 +685,7 @@ pub struct GfxRenderer {
     pub git_diff: Option<crate::editor::git::GitGutterDiff>,
     pub secondary_git_diff: Option<crate::editor::git::GitGutterDiff>,
     pub git_branch: Option<String>,
+    pub workspace_name: Option<String>,
     pub git_statuses: Option<std::collections::HashMap<std::path::PathBuf, crate::editor::git::GitFileStatus>>,
     pub git_gutter_enabled: bool,
     pub inline_blame: Option<String>,
@@ -750,6 +751,7 @@ impl GfxRenderer {
             git_diff: None,
             secondary_git_diff: None,
             git_branch: None,
+            workspace_name: None,
             git_statuses: None,
             git_gutter_enabled: true,
             inline_blame: None,
@@ -3905,7 +3907,7 @@ impl GfxRenderer {
         fb.draw_text("+", cur_x + self.scale_coord(7), text_y, self.colors.tab_inactive_fg, None);
     }
 
-    fn render_status_bar(&self, fb: &mut Framebuffer, doc: &Document, status_msg: Option<&str>) {
+    pub fn render_status_bar(&self, fb: &mut Framebuffer, doc: &Document, status_msg: Option<&str>) {
         let bar_y = fb.height.saturating_sub(self.status_bar_height);
         fb.fill_rect(0, bar_y, fb.width, self.status_bar_height, self.colors.status_bar_bg);
 
@@ -3936,6 +3938,19 @@ impl GfxRenderer {
             }
             fb.draw_text(msg, left_x + 4, text_y, self.colors.status_bar_fg, None);
         } else {
+            // Workspace / Project Chip
+            if let Some(ws) = &self.workspace_name {
+                let ws_text = format!(" 📦 {} ", ws);
+                let ws_w = ws_text.chars().count() * self.char_width() + self.scale_coord(4);
+                if self.rounded_corners {
+                    fb.fill_rounded_rect(left_x, chip_y, ws_w, chip_h, 3, self.colors.chip_bg);
+                } else {
+                    fb.fill_rect(left_x, chip_y, ws_w, chip_h, self.colors.chip_bg);
+                }
+                fb.draw_text(&ws_text, left_x + 2, text_y, self.colors.accent, None);
+                left_x += ws_w + self.scale_coord(6);
+            }
+
             // File name chip
             let file_name = doc
                 .buffer
@@ -4457,12 +4472,13 @@ impl GfxRenderer {
         let is_palette = modal.kind == crate::ui::prompt::PromptKind::CommandPalette || is_command_mode;
         let is_finder = modal.kind == crate::ui::prompt::PromptKind::FileFinder && !is_command_mode;
         let is_recent = modal.kind == crate::ui::prompt::PromptKind::RecentFiles;
-        let box_w = if is_recent || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+        let is_projects = modal.kind == crate::ui::prompt::PromptKind::RecentProjects;
+        let box_w = if is_recent || is_projects || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
             fb.width.min(self.scale_coord(680)).max(self.scale_coord(400))
         } else {
             fb.width.min(self.scale_coord(580)).max(self.scale_coord(340))
         };
-        let box_h = if is_palette || is_recent || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+        let box_h = if is_palette || is_recent || is_projects || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
             self.scale_coord(340)
         } else {
             self.scale_coord(120)
@@ -4792,6 +4808,63 @@ impl GfxRenderer {
             let hint_x = box_x + (box_w.saturating_sub(hint.chars().count() * self.char_width())) / 2;
             let hint_y = box_y + box_h - self.scale_coord(18);
             fb.draw_text(hint, hint_x, hint_y, 0x00858585, None);
+        } else if is_projects {
+            let matching = modal.matching_projects();
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No hay proyectos recientes coincidentes)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                for (idx, project) in matching.iter().take(max_visible).enumerate() {
+                    let is_sel = idx == modal.selected_idx;
+                    let (row_bg, row_fg, dir_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
+                    } else {
+                        (self.colors.modal_bg, 0x00FFFFFF, 0x00858585)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    // 1. Kind tag chip (e.g. [Rust], [Node], [Python], [Carpeta])
+                    let tag_fg = if is_sel { 0x00FFFFFF } else { project.tag_color };
+                    let tag_x = input_x + self.scale_coord(8);
+                    fb.draw_text(&project.kind_tag, tag_x, row_text_y, tag_fg, None);
+
+                    let name_x = tag_x + self.scale_coord(64);
+
+                    // 2. Project Name
+                    fb.draw_text(&project.name, name_x, row_text_y, row_fg, None);
+
+                    // 3. Project Directory Path
+                    let path_str = project.path.to_string_lossy();
+                    let name_w = project.name.chars().count() * self.char_width();
+                    let dir_x = name_x + name_w + self.scale_coord(14);
+                    let max_dir_chars = input_w.saturating_sub(name_w + self.scale_coord(90)) / self.char_width().max(1);
+                    let display_dir = if path_str.chars().count() > max_dir_chars && max_dir_chars > 3 {
+                        format!("...{}", path_str.chars().skip(path_str.chars().count() - (max_dir_chars - 3)).collect::<String>())
+                    } else {
+                        path_str.to_string()
+                    };
+                    fb.draw_text(&display_dir, dir_x, row_text_y, dir_fg, None);
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let hint = "↑/↓: Seleccionar  •  Enter: Abrir proyecto  •  Del: Eliminar  •  Esc: Cancelar";
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
         } else {
             // Footer hint for Find
             let hint = "Enter: Confirmar  •  Esc: Cancelar";
@@ -4972,15 +5045,22 @@ impl GfxRenderer {
 
         // 9. Bottom Buttons
         let btn_bar_y = box_y + box_h - self.scale_coord(30);
-        let action_btn_text = if modal.kind == crate::ui::prompt::PromptKind::SaveAs { "Guardar" } else { "Abrir" };
-        let action_btn_w = self.scale_coord(88);
+        let is_open_folder = modal.kind == crate::ui::prompt::PromptKind::OpenFolder;
+        let action_btn_text = if modal.kind == crate::ui::prompt::PromptKind::SaveAs {
+            "Guardar"
+        } else if is_open_folder {
+            "Abrir Carpeta"
+        } else {
+            "Abrir"
+        };
+        let action_btn_w = self.scale_coord(if is_open_folder { 120 } else { 88 });
         let cancel_btn_w = self.scale_coord(80);
 
         let cancel_btn_x = box_x + box_w - cancel_btn_w - self.scale_coord(12);
         let action_btn_x = cancel_btn_x - action_btn_w - self.scale_coord(8);
         let btn_h = self.scale_coord(24);
 
-        // Action button [Guardar] / [Abrir]
+        // Action button [Guardar] / [Abrir] / [Abrir Carpeta]
         if self.rounded_corners {
             fb.fill_rounded_rect(action_btn_x, btn_bar_y, action_btn_w, btn_h, 4, self.colors.button_bg);
             fb.draw_rounded_outline(action_btn_x, btn_bar_y, action_btn_w, btn_h, 4, self.colors.accent);
@@ -5003,7 +5083,12 @@ impl GfxRenderer {
         fb.draw_text("Cancelar", ct_x, btn_bar_y + (btn_h.saturating_sub(self.char_height())) / 2, 0x00CCCCCC, None);
 
         // Footer hint
-        fb.draw_text("Doble clic o Enter para abrir carpeta", list_x, btn_bar_y + self.scale_coord(4), 0x00858585, None);
+        let hint = if is_open_folder {
+            "Seleccione una carpeta y pulse 'Abrir Carpeta' o Enter"
+        } else {
+            "Doble clic o Enter para abrir carpeta"
+        };
+        fb.draw_text(hint, list_x, btn_bar_y + self.scale_coord(4), 0x00858585, None);
     }
 
     /// Renders the official Rustext logo: Concept 1 "The Faceted Ribbon R".

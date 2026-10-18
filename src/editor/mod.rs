@@ -17,6 +17,7 @@ pub mod wrap;
 pub mod folding;
 pub mod lsp;
 pub mod jump_list;
+pub mod workspace;
 
 pub use keymap::{EditorAction, Keymap};
 pub use document::Document;
@@ -37,3 +38,4 @@ pub use wrap::{WordWrap, SublineInfo};
 pub use folding::{FoldingManager, FoldRegion};
 pub use lsp::{LspClient, LspEvent, LspLocation, LspHover, LspCompletionItem, LspSignatureHelp, LspSignatureInformation, LspParameterInformation, ServerStatus};
 pub use jump_list::{JumpList, JumpLocation};
+pub use workspace::{WorkspaceItem, ProjectRegistry};
