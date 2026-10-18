@@ -105,8 +105,8 @@ impl FoldingManager {
             }
         }
 
-        // 2. Indentation-based folding (for Python, YAML, Markdown, Shell, or fallback)
-        let needs_indent_folding = candidate_regions.is_empty() || matches!(language, Language::Python | Language::Yaml);
+        // 2. Indentation-based folding (for Python, YAML, Markdown, Shell, Julia, or fallback)
+        let needs_indent_folding = candidate_regions.is_empty() || matches!(language, Language::Python | Language::Yaml | Language::Julia);
 
         if needs_indent_folding {
             let mut line_indents: Vec<Option<usize>> = Vec::with_capacity(total_lines);

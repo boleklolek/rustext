@@ -1778,7 +1778,8 @@ impl Editor {
             crate::core::syntax::Language::Python
             | crate::core::syntax::Language::Yaml
             | crate::core::syntax::Language::Toml
-            | crate::core::syntax::Language::Shell => ("# ", None),
+            | crate::core::syntax::Language::Shell
+            | crate::core::syntax::Language::Julia => ("# ", None),
             crate::core::syntax::Language::Sql => ("-- ", None),
             crate::core::syntax::Language::Html
             | crate::core::syntax::Language::Markdown => ("<!-- ", Some(" -->")),
@@ -2540,6 +2541,7 @@ impl Editor {
             crate::core::syntax::Language::Html | crate::core::syntax::Language::Css => Some(self.config.lsp.html_css_server.clone()),
             crate::core::syntax::Language::Json => Some(self.config.lsp.json_server.clone()),
             crate::core::syntax::Language::Markdown => Some(self.config.lsp.markdown_server.clone()),
+            crate::core::syntax::Language::Julia => Some(self.config.lsp.julia_server.clone()),
             _ => None,
         }
     }

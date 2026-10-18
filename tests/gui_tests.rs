@@ -6220,22 +6220,26 @@ fn test_lsp_multi_language_servers_and_config() {
     assert_eq!(editor.lsp_server_cmd_for_lang(Language::Css).unwrap(), "vscode-html-language-server --stdio");
     assert_eq!(editor.lsp_server_cmd_for_lang(Language::Json).unwrap(), "vscode-json-language-server --stdio");
     assert_eq!(editor.lsp_server_cmd_for_lang(Language::Markdown).unwrap(), "marksman server");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Julia).unwrap(), "julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'");
 
     let mut cfg = EditorConfig::default();
     cfg.lsp.inlay_hints = true;
     cfg.lsp.go_server = "gopls".to_string();
     cfg.lsp.zig_server = "zls".to_string();
+    cfg.lsp.julia_server = "julia-lsp".to_string();
 
     let ini = cfg.to_ini_string();
     assert!(ini.contains("inlay_hints = true"));
     assert!(ini.contains("typescript_server = typescript-language-server --stdio"));
     assert!(ini.contains("go_server = gopls"));
     assert!(ini.contains("zig_server = zls"));
+    assert!(ini.contains("julia_server = julia-lsp"));
 
     let loaded = EditorConfig::parse(&ini);
     assert!(loaded.lsp.inlay_hints);
     assert_eq!(loaded.lsp.go_server, "gopls");
     assert_eq!(loaded.lsp.zig_server, "zls");
+    assert_eq!(loaded.lsp.julia_server, "julia-lsp");
 }
 
 

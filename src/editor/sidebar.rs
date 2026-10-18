@@ -41,6 +41,7 @@ impl FileItem {
                 "sh" | "bash" | "zsh" => colors.bracket_1, // vibrant bracket / accent color
                 "py" => colors.syntax_string,
                 "html" | "css" | "js" | "ts" => colors.accent,
+                "jl" => colors.syntax_keyword,
                 _ => colors.syntax_plain,
             }
         }

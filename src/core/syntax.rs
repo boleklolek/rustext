@@ -1,5 +1,5 @@
 //! Zero-dependency syntax lexer and syntax highlighter.
-//! Supports Rust, Python, C/C++, JavaScript/TypeScript, HTML, CSS, JSON, YAML, TOML, Shell/Bash, SQL, and Markdown.
+//! Supports Rust, Python, C/C++, JavaScript/TypeScript, HTML, CSS, JSON, YAML, TOML, Shell/Bash, SQL, Markdown, and Julia.
 //! Features Bracket Pair Colorization with cyclic nesting depth colors.
 
 use std::path::Path;
@@ -18,6 +18,7 @@ pub enum Language {
     Shell,
     Sql,
     Markdown,
+    Julia,
     PlainText,
 }
 
@@ -37,6 +38,7 @@ impl Language {
             Some("sh") | Some("bash") | Some("zsh") | Some("fish") | Some("env") => Language::Shell,
             Some("sql") => Language::Sql,
             Some("md") | Some("markdown") => Language::Markdown,
+            Some("jl") => Language::Julia,
             _ => {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name == ".env" || name.starts_with(".env.") {
@@ -69,6 +71,7 @@ impl Language {
             Language::Shell => "Shell/Bash",
             Language::Sql => "SQL",
             Language::Markdown => "Markdown",
+            Language::Julia => "Julia",
             Language::PlainText => "Plain Text",
         }
     }
@@ -336,8 +339,27 @@ impl SyntaxHighlighter {
                 continue;
             }
 
-            // Python, Shell, YAML, Toml '#' comments
-            if (matches!(lang, Language::Python | Language::Toml | Language::Yaml | Language::Shell)) && b == b'#' {
+            // Julia multiline block comments '#= ... =#'
+            if lang == Language::Julia && b == b'#' && idx + 1 < len && bytes[idx + 1] == b'=' {
+                let start = idx;
+                idx += 2;
+                while idx + 1 < len && !(bytes[idx] == b'=' && bytes[idx + 1] == b'#') {
+                    idx += 1;
+                }
+                if idx + 1 < len {
+                    idx += 2;
+                } else {
+                    idx = len;
+                }
+                spans.push(TokenSpan {
+                    text: &line[start..idx],
+                    token_type: TokenType::Comment,
+                });
+                continue;
+            }
+
+            // Python, Shell, YAML, Toml, Julia '#' comments
+            if (matches!(lang, Language::Python | Language::Toml | Language::Yaml | Language::Shell | Language::Julia)) && b == b'#' {
                 spans.push(TokenSpan {
                     text: &line[idx..],
                     token_type: TokenType::Comment,
@@ -397,7 +419,7 @@ impl SyntaxHighlighter {
             }
 
             // 3. String literals (quotes)
-            if b == b'"' || b == b'\'' || (b == b'`' && matches!(lang, Language::JavaScript | Language::Shell | Language::Markdown | Language::Sql)) {
+            if b == b'"' || b == b'\'' || (b == b'`' && matches!(lang, Language::JavaScript | Language::Shell | Language::Markdown | Language::Sql | Language::Julia)) {
                 let quote = b;
                 let start = idx;
                 idx += 1;
@@ -446,6 +468,22 @@ impl SyntaxHighlighter {
                     token_type: TokenType::Type,
                 });
                 continue;
+            }
+
+            // 5. Julia Macros: @macro_name
+            if lang == Language::Julia && b == b'@' {
+                let start = idx;
+                idx += 1;
+                while idx < len && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_' || bytes[idx] == b'!') {
+                    idx += 1;
+                }
+                if idx > start + 1 {
+                    spans.push(TokenSpan {
+                        text: &line[start..idx],
+                        token_type: TokenType::Macro,
+                    });
+                    continue;
+                }
             }
 
             // 5. HTML Tags: <tag_name, </tag_name, >
@@ -597,6 +635,13 @@ impl SyntaxHighlighter {
                 "check", "index", "view", "trigger", "transaction", "commit", "rollback",
                 "begin", "grant", "revoke", "asc", "desc", "between", "exists", "true", "false",
             ],
+            Language::Julia => &[
+                "abstract", "baremodule", "begin", "break", "catch", "const", "continue",
+                "do", "else", "elseif", "end", "export", "false", "finally", "for",
+                "function", "global", "if", "import", "in", "isa", "let", "local",
+                "macro", "module", "mutable", "primitive", "quote", "return", "struct",
+                "true", "try", "type", "using", "where", "while",
+            ],
             Language::Json | Language::Markdown | Language::PlainText => &[],
         }
     }
@@ -639,6 +684,16 @@ impl SyntaxHighlighter {
                 "int", "integer", "bigint", "smallint", "varchar", "char", "text",
                 "boolean", "bool", "timestamp", "date", "time", "float", "double",
                 "decimal", "numeric", "blob", "json", "serial",
+            ],
+            Language::Julia => &[
+                "Any", "Array", "BigFloat", "BigInt", "Bool", "Cchar", "Cdouble", "Cfloat",
+                "Channel", "Char", "Cint", "Clong", "Complex", "Csize_t", "Cstring", "Cvoid",
+                "DataType", "Dict", "Float16", "Float32", "Float64", "Function", "IO",
+                "IOBuffer", "IOStream", "Int", "Int8", "Int16", "Int32", "Int64", "Int128",
+                "Integer", "Matrix", "Missing", "NamedTuple", "Nothing", "Number", "Pair",
+                "Rational", "Real", "Ref", "Regex", "Set", "Signed", "String", "Symbol",
+                "Task", "Tuple", "Type", "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+                "UInt128", "Union", "Unsigned", "Vector",
             ],
             Language::Json | Language::Markdown | Language::Toml | Language::PlainText => &[],
         }

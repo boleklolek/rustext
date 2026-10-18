@@ -334,6 +334,8 @@ fn test_new_languages_syntax_detection_and_tokenization() {
     assert_eq!(Language::from_path(Path::new(".env")), Language::Shell);
     assert_eq!(Language::from_path(Path::new("schema.sql")), Language::Sql);
     assert_eq!(Language::from_path(Path::new("README.md")), Language::Markdown);
+    assert_eq!(Language::from_path(Path::new("main.jl")), Language::Julia);
+    assert_eq!(Language::from_path(Path::new("script.JL")), Language::Julia);
 
     // 2. HTML Tokenizer: tags and attributes
     let html_tokens = SyntaxHighlighter::tokenize_line("<div class=\"main\">content</div>", Language::Html);
@@ -372,6 +374,22 @@ fn test_new_languages_syntax_detection_and_tokenization() {
 
     let md_code = SyntaxHighlighter::tokenize_line("Text with `code` block", Language::Markdown);
     assert!(md_code.iter().any(|t| t.text == "`code`" && t.token_type == TokenType::StringLiteral));
+
+    // 8. Julia Tokenizer: function, types, macros, comments, strings and commands
+    let jl_tokens = SyntaxHighlighter::tokenize_line("function calc(x::Int64)::Vector{Float64}", Language::Julia);
+    assert!(jl_tokens.iter().any(|t| t.text == "function" && t.token_type == TokenType::Keyword));
+    assert!(jl_tokens.iter().any(|t| t.text == "Int64" && t.token_type == TokenType::Type));
+    assert!(jl_tokens.iter().any(|t| t.text == "Vector" && t.token_type == TokenType::Type));
+    assert!(jl_tokens.iter().any(|t| t.text == "Float64" && t.token_type == TokenType::Type));
+
+    let jl_macro_comment = SyntaxHighlighter::tokenize_line("@inline @time foo() #= inline timing =# # line comment", Language::Julia);
+    assert!(jl_macro_comment.iter().any(|t| t.text == "@inline" && t.token_type == TokenType::Macro));
+    assert!(jl_macro_comment.iter().any(|t| t.text == "@time" && t.token_type == TokenType::Macro));
+    assert!(jl_macro_comment.iter().any(|t| t.text == "#= inline timing =#" && t.token_type == TokenType::Comment));
+    assert!(jl_macro_comment.iter().any(|t| t.text == "# line comment" && t.token_type == TokenType::Comment));
+
+    let jl_cmd = SyntaxHighlighter::tokenize_line("cmd = `echo hello`", Language::Julia);
+    assert!(jl_cmd.iter().any(|t| t.text == "`echo hello`" && t.token_type == TokenType::StringLiteral));
 }
 
 #[test]
@@ -388,6 +406,10 @@ fn test_snippets_for_new_languages() {
     assert!(SnippetRegistry::find(Language::Shell, "func").is_some());
     assert!(SnippetRegistry::find(Language::Sql, "select").is_some());
     assert!(SnippetRegistry::find(Language::Sql, "table").is_some());
+    assert!(SnippetRegistry::find(Language::Julia, "fn").is_some());
+    assert!(SnippetRegistry::find(Language::Julia, "struct").is_some());
+    assert!(SnippetRegistry::find(Language::Julia, "for").is_some());
+    assert!(SnippetRegistry::find(Language::Julia, "test").is_some());
 }
 
 

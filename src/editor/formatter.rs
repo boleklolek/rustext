@@ -22,6 +22,7 @@ pub fn format_code(
             format_prettier(language, code, file_path)
         }
         Language::Shell => format_shell(code),
+        Language::Julia => format_julia(code),
         Language::Sql | Language::Toml | Language::PlainText => {
             Err(format!("No hay formateador por defecto para {}", language.name()))
         }
@@ -83,6 +84,13 @@ fn format_prettier(language: Language, code: &str, file_path: Option<&Path>) -> 
 fn format_shell(code: &str) -> Result<String, String> {
     let mut cmd = Command::new("shfmt");
     cmd.args(["-i", "4", "-"]);
+    execute_formatter(cmd, code)
+}
+
+/// Formats Julia source code using `julia -e "using JuliaFormatter; print(format_text(read(stdin, String)))"`.
+fn format_julia(code: &str) -> Result<String, String> {
+    let mut cmd = Command::new("julia");
+    cmd.args(["--startup-file=no", "-e", "using JuliaFormatter; print(format_text(read(stdin, String)))"]);
     execute_formatter(cmd, code)
 }
 

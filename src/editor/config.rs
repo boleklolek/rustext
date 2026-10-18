@@ -218,6 +218,7 @@ pub struct LspSettings {
     pub json_server: String,
     pub markdown_server: String,
     pub zig_server: String,
+    pub julia_server: String,
     pub inlay_hints: bool,
 }
 
@@ -235,6 +236,7 @@ impl Default for LspSettings {
             json_server: "vscode-json-language-server --stdio".to_string(),
             markdown_server: "marksman server".to_string(),
             zig_server: "zls".to_string(),
+            julia_server: "julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'".to_string(),
             inlay_hints: true,
         }
     }
@@ -461,6 +463,9 @@ markdown_server = marksman server
 ; Servidor LSP de Zig
 zig_server = zls
 
+; Servidor LSP de Julia
+julia_server = julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'
+
 ; Mostrar sugerencias de tipo y parámetros en línea (Inlay Hints)
 inlay_hints = true
 "#
@@ -552,6 +557,7 @@ html_css_server = {}
 json_server = {}
 markdown_server = {}
 zig_server = {}
+julia_server = {}
 inlay_hints = {}
 "#,
             self.editor.tab_size,
@@ -628,6 +634,7 @@ inlay_hints = {}
             self.lsp.json_server,
             self.lsp.markdown_server,
             self.lsp.zig_server,
+            self.lsp.julia_server,
             self.lsp.inlay_hints,
         )
     }
@@ -656,7 +663,30 @@ inlay_hints = {}
 
             if let Some((raw_key, raw_val)) = trimmed.split_once('=') {
                 let key = raw_key.trim().to_lowercase();
-                let val_part = raw_val.split(&[';', '#'][..]).next().unwrap_or("").trim();
+                let mut in_single_quote = false;
+                let mut in_double_quote = false;
+                let mut comment_start = None;
+
+                for (idx, ch) in raw_val.char_indices() {
+                    match ch {
+                        '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+                        '"' if !in_single_quote => in_double_quote = !in_double_quote,
+                        ';' | '#' if !in_single_quote && !in_double_quote => {
+                            let prev_is_ws = raw_val[..idx].chars().last().map(|c| c.is_whitespace()).unwrap_or(true);
+                            if prev_is_ws {
+                                comment_start = Some(idx);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                let val_part = if let Some(idx) = comment_start {
+                    raw_val[..idx].trim()
+                } else {
+                    raw_val.trim()
+                };
                 let val_unquoted = if (val_part.starts_with('"') && val_part.ends_with('"'))
                     || (val_part.starts_with('\'') && val_part.ends_with('\''))
                 {
@@ -1065,6 +1095,11 @@ inlay_hints = {}
                         "zig_server" => {
                             if !val_unquoted.is_empty() {
                                 self.lsp.zig_server = val_unquoted.to_string();
+                            }
+                        }
+                        "julia_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.julia_server = val_unquoted.to_string();
                             }
                         }
                         "inlay_hints" => {

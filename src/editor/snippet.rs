@@ -593,6 +593,92 @@ impl SnippetRegistry {
             Language::Sql,
         ),
 
+        // ==================== Julia ====================
+        Snippet::new(
+            "fn",
+            "Definición de función en Julia",
+            "function ${1:name}(${2:args})\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "fun",
+            "Función de una línea en Julia",
+            "${1:name}(${2:args}) = ${0}",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "struct",
+            "Estructura inmutable en Julia",
+            "struct ${1:Name}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "mstruct",
+            "Estructura mutable en Julia",
+            "mutable struct ${1:Name}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "for",
+            "Bucle for en Julia",
+            "for ${1:i} in ${2:1:n}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "while",
+            "Bucle while en Julia",
+            "while ${1:condition}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "if",
+            "Condicional if en Julia",
+            "if ${1:condition}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "ifelse",
+            "Condicional if-else en Julia",
+            "if ${1:condition}\n    ${2}\nelse\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "try",
+            "Bloque try-catch en Julia",
+            "try\n    ${1}\ncatch ${2:e}\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "mod",
+            "Módulo en Julia",
+            "module ${1:ModuleName}\n\nexport ${2:symbol}\n\n${0}\n\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "macro",
+            "Definición de macro en Julia",
+            "macro ${1:name}(${2:args})\n    ${0}\nend",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "pl",
+            "Función println en Julia",
+            "println(\"${1:message}\")",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "println",
+            "Función println en Julia",
+            "println(\"${1:message}\")",
+            Language::Julia,
+        ),
+        Snippet::new(
+            "test",
+            "Testset de pruebas en Julia",
+            "@testset \"${1:test_name}\" begin\n    ${0:@test true}\nend",
+            Language::Julia,
+        ),
+
         // ==================== Plain Text ====================
         Snippet::new(
             "todo",
