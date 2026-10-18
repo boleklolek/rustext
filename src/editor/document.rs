@@ -17,6 +17,7 @@ pub struct Document {
     pub scroll_subline: usize,
     pub folding: crate::editor::folding::FoldingManager,
     pub semantic_tokens: std::collections::HashMap<usize, Vec<crate::core::syntax::SemanticTokenSpan>>,
+    pub inlay_hints: std::collections::HashMap<usize, Vec<crate::editor::lsp::LspInlayHint>>,
 }
 
 impl Document {
@@ -38,6 +39,7 @@ impl Document {
             scroll_subline: 0,
             folding: crate::editor::folding::FoldingManager::new(),
             semantic_tokens: std::collections::HashMap::new(),
+            inlay_hints: std::collections::HashMap::new(),
         }
     }
 

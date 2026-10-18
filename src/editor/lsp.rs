@@ -472,6 +472,151 @@ pub struct LspCompletionItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspTextEdit {
+    pub range: LspRange,
+    pub new_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspWorkspaceEdit {
+    pub changes: HashMap<PathBuf, Vec<LspTextEdit>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspCodeAction {
+    pub title: String,
+    pub kind: Option<String>,
+    pub edit: Option<LspWorkspaceEdit>,
+    pub is_preferred: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    File = 1,
+    Module = 2,
+    Namespace = 3,
+    Package = 4,
+    Class = 5,
+    Method = 6,
+    Property = 7,
+    Field = 8,
+    Constructor = 9,
+    Enum = 10,
+    Interface = 11,
+    Function = 12,
+    Variable = 13,
+    Constant = 14,
+    String = 15,
+    Number = 16,
+    Boolean = 17,
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    EnumMember = 22,
+    Struct = 23,
+    Event = 24,
+    Operator = 25,
+    TypeParameter = 26,
+    Unknown = 99,
+}
+
+impl SymbolKind {
+    pub fn from_u64(n: u64) -> Self {
+        match n {
+            1 => SymbolKind::File,
+            2 => SymbolKind::Module,
+            3 => SymbolKind::Namespace,
+            4 => SymbolKind::Package,
+            5 => SymbolKind::Class,
+            6 => SymbolKind::Method,
+            7 => SymbolKind::Property,
+            8 => SymbolKind::Field,
+            9 => SymbolKind::Constructor,
+            10 => SymbolKind::Enum,
+            11 => SymbolKind::Interface,
+            12 => SymbolKind::Function,
+            13 => SymbolKind::Variable,
+            14 => SymbolKind::Constant,
+            15 => SymbolKind::String,
+            16 => SymbolKind::Number,
+            17 => SymbolKind::Boolean,
+            18 => SymbolKind::Array,
+            19 => SymbolKind::Object,
+            20 => SymbolKind::Key,
+            21 => SymbolKind::Null,
+            22 => SymbolKind::EnumMember,
+            23 => SymbolKind::Struct,
+            24 => SymbolKind::Event,
+            25 => SymbolKind::Operator,
+            26 => SymbolKind::TypeParameter,
+            _ => SymbolKind::Unknown,
+        }
+    }
+
+    pub fn badge_str(&self) -> &'static str {
+        match self {
+            SymbolKind::Function => "[fn]",
+            SymbolKind::Method => "[method]",
+            SymbolKind::Struct => "[struct]",
+            SymbolKind::Class => "[class]",
+            SymbolKind::Interface => "[trait]",
+            SymbolKind::Enum => "[enum]",
+            SymbolKind::EnumMember => "[variant]",
+            SymbolKind::Variable => "[var]",
+            SymbolKind::Constant => "[const]",
+            SymbolKind::Field | SymbolKind::Property => "[field]",
+            SymbolKind::Module | SymbolKind::Namespace | SymbolKind::Package => "[mod]",
+            SymbolKind::TypeParameter => "[type]",
+            _ => "[sym]",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspDocumentSymbol {
+    pub name: String,
+    pub detail: String,
+    pub kind: SymbolKind,
+    pub range: LspRange,
+    pub selection_range: LspRange,
+    pub depth: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlayHintKind {
+    Other = 0,
+    Type = 1,
+    Parameter = 2,
+}
+
+impl InlayHintKind {
+    pub fn from_u64(n: u64) -> Self {
+        match n {
+            1 => InlayHintKind::Type,
+            2 => InlayHintKind::Parameter,
+            _ => InlayHintKind::Other,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspInlayHint {
+    pub position: LspPosition,
+    pub label: String,
+    pub kind: InlayHintKind,
+    pub padding_left: bool,
+    pub padding_right: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LspReferenceItem {
+    pub path: PathBuf,
+    pub range: LspRange,
+    pub line_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticTokensLegend {
     pub token_types: Vec<String>,
     pub token_modifiers: Vec<String>,
@@ -528,6 +673,12 @@ pub enum LspEvent {
     HoverResponse { request_id: u64, hover: Option<LspHover> },
     SignatureHelpResponse { request_id: u64, signature_help: Option<LspSignatureHelp> },
     DefinitionResponse { request_id: u64, location: Option<LspLocation> },
+    ReferencesResponse { request_id: u64, references: Vec<LspLocation> },
+    RenameResponse { request_id: u64, edit: Option<LspWorkspaceEdit> },
+    CodeActionResponse { request_id: u64, actions: Vec<LspCodeAction> },
+    FormattingResponse { request_id: u64, edits: Vec<LspTextEdit> },
+    DocumentSymbolsResponse { request_id: u64, file: Option<PathBuf>, symbols: Vec<LspDocumentSymbol> },
+    InlayHintsResponse { request_id: u64, file: Option<PathBuf>, hints: Vec<LspInlayHint> },
     SemanticTokensRawResponse { request_id: u64, raw_data: Vec<u64> },
     SemanticTokensResponse {
         request_id: u64,
@@ -557,6 +708,8 @@ pub struct LspClient {
     pub active_language: Language,
     pub server_legend: Option<SemanticTokensLegend>,
     pub pending_semantic_requests: HashMap<u64, PathBuf>,
+    pub pending_requests: Arc<std::sync::Mutex<HashMap<u64, String>>>,
+    pub pending_doc_requests: Arc<std::sync::Mutex<HashMap<u64, PathBuf>>>,
     next_id: Arc<AtomicU64>,
     stdin_tx: Option<Sender<String>>,
     event_rx: Option<Receiver<LspEvent>>,
@@ -573,6 +726,8 @@ impl LspClient {
             active_language: Language::Rust,
             server_legend: None,
             pending_semantic_requests: HashMap::new(),
+            pending_requests: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            pending_doc_requests: Arc::new(std::sync::Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             stdin_tx: None,
             event_rx: None,
@@ -594,7 +749,13 @@ impl LspClient {
         self.active_language = lang;
         self.status = ServerStatus::Connecting;
 
-        let mut child = Command::new(server_cmd)
+        let parts: Vec<&str> = server_cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err("Comando LSP no especificado".to_string());
+        }
+        let mut cmd = Command::new(parts[0]);
+        cmd.args(&parts[1..]);
+        let mut child = cmd
             .current_dir(root_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -620,6 +781,8 @@ impl LspClient {
 
         // Background Reader Thread (parses Content-Length framing & JSON-RPC)
         let ev_tx_clone = event_tx.clone();
+        let pending_req_clone = self.pending_requests.clone();
+        let pending_doc_clone = self.pending_doc_requests.clone();
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             let mut header_buf = String::new();
@@ -660,7 +823,7 @@ impl LspClient {
 
                 if let Ok(body_str) = String::from_utf8(body_buf) {
                     if let Ok(json) = JsonValue::parse(&body_str) {
-                        Self::dispatch_incoming_json(&json, &ev_tx_clone);
+                        Self::dispatch_incoming_json(&json, &ev_tx_clone, &pending_req_clone, &pending_doc_clone);
                     }
                 }
             }
@@ -691,6 +854,12 @@ impl LspClient {
         self.event_rx = None;
         self.open_docs.clear();
         self.pending_semantic_requests.clear();
+        if let Ok(mut map) = self.pending_requests.lock() {
+            map.clear();
+        }
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.clear();
+        }
 
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
@@ -744,6 +913,22 @@ impl LspClient {
         events
     }
 
+    /// Injects an LSP event into the client event queue for deterministic test verification.
+    pub fn push_event_for_test(&mut self, event: LspEvent) {
+        let (tx, rx) = channel::<LspEvent>();
+        let _ = tx.send(event);
+        self.event_rx = Some(rx);
+    }
+
+    /// Injects multiple LSP events into the client event queue for deterministic test verification.
+    pub fn push_events_for_test(&mut self, events: Vec<LspEvent>) {
+        let (tx, rx) = channel::<LspEvent>();
+        for ev in events {
+            let _ = tx.send(ev);
+        }
+        self.event_rx = Some(rx);
+    }
+
     fn send_raw_json(&mut self, json_str: &str) {
         if let Some(tx) = &self.stdin_tx {
             let framed = format!("Content-Length: {}\r\n\r\n{}", json_str.len(), json_str);
@@ -753,6 +938,9 @@ impl LspClient {
 
     pub fn send_request(&mut self, method: &str, params: JsonValue) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut map) = self.pending_requests.lock() {
+            map.insert(id, method.to_string());
+        }
         let req = JsonValue::Object(vec![
             ("jsonrpc".to_string(), JsonValue::String("2.0".to_string())),
             ("id".to_string(), JsonValue::Number(id as f64)),
@@ -805,6 +993,57 @@ impl LspClient {
                             "dynamicRegistration".to_string(),
                             JsonValue::Bool(false),
                         )]),
+                    ),
+                    (
+                        "references".to_string(),
+                        JsonValue::Object(vec![("dynamicRegistration".to_string(), JsonValue::Bool(false))]),
+                    ),
+                    (
+                        "rename".to_string(),
+                        JsonValue::Object(vec![
+                            ("dynamicRegistration".to_string(), JsonValue::Bool(false)),
+                            ("prepareSupport".to_string(), JsonValue::Bool(false)),
+                        ]),
+                    ),
+                    (
+                        "codeAction".to_string(),
+                        JsonValue::Object(vec![
+                            ("dynamicRegistration".to_string(), JsonValue::Bool(false)),
+                            ("codeActionLiteralSupport".to_string(), JsonValue::Object(vec![(
+                                "codeAction".to_string(),
+                                JsonValue::Object(vec![(
+                                    "kind".to_string(),
+                                    JsonValue::Object(vec![(
+                                        "valueSet".to_string(),
+                                        JsonValue::Array(vec![
+                                            JsonValue::String("".to_string()),
+                                            JsonValue::String("quickfix".to_string()),
+                                            JsonValue::String("refactor".to_string()),
+                                            JsonValue::String("refactor.extract".to_string()),
+                                            JsonValue::String("refactor.inline".to_string()),
+                                            JsonValue::String("refactor.rewrite".to_string()),
+                                            JsonValue::String("source".to_string()),
+                                            JsonValue::String("source.organizeImports".to_string()),
+                                        ]),
+                                    )]),
+                                )]),
+                            )])),
+                        ]),
+                    ),
+                    (
+                        "formatting".to_string(),
+                        JsonValue::Object(vec![("dynamicRegistration".to_string(), JsonValue::Bool(false))]),
+                    ),
+                    (
+                        "documentSymbol".to_string(),
+                        JsonValue::Object(vec![
+                            ("dynamicRegistration".to_string(), JsonValue::Bool(false)),
+                            ("hierarchicalDocumentSymbolSupport".to_string(), JsonValue::Bool(true)),
+                        ]),
+                    ),
+                    (
+                        "inlayHint".to_string(),
+                        JsonValue::Object(vec![("dynamicRegistration".to_string(), JsonValue::Bool(false))]),
                     ),
                     (
                         "publishDiagnostics".to_string(),
@@ -865,6 +1104,16 @@ impl LspClient {
                                 JsonValue::Array(vec![JsonValue::String("relative".to_string())]),
                             ),
                         ]),
+                    ),
+                ]),
+            ),
+            (
+                "workspace".to_string(),
+                JsonValue::Object(vec![
+                    ("applyEdit".to_string(), JsonValue::Bool(true)),
+                    (
+                        "workspaceEdit".to_string(),
+                        JsonValue::Object(vec![("documentChanges".to_string(), JsonValue::Bool(true))]),
                     ),
                 ]),
             ),
@@ -965,7 +1214,11 @@ impl LspClient {
                 ]),
             ),
         ]);
-        self.send_request("textDocument/completion", params)
+        let id = self.send_request("textDocument/completion", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
     }
 
     pub fn request_hover(&mut self, path: &Path, line: usize, col: usize) -> u64 {
@@ -983,7 +1236,11 @@ impl LspClient {
                 ]),
             ),
         ]);
-        self.send_request("textDocument/hover", params)
+        let id = self.send_request("textDocument/hover", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
     }
 
     pub fn request_definition(&mut self, path: &Path, line: usize, col: usize) -> u64 {
@@ -1001,7 +1258,213 @@ impl LspClient {
                 ]),
             ),
         ]);
-        self.send_request("textDocument/definition", params)
+        let id = self.send_request("textDocument/definition", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_references(&mut self, path: &Path, line: usize, col: usize, include_decl: bool) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "position".to_string(),
+                JsonValue::Object(vec![
+                    ("line".to_string(), JsonValue::Number(line as f64)),
+                    ("character".to_string(), JsonValue::Number(col as f64)),
+                ]),
+            ),
+            (
+                "context".to_string(),
+                JsonValue::Object(vec![
+                    ("includeDeclaration".to_string(), JsonValue::Bool(include_decl)),
+                ]),
+            ),
+        ]);
+        let id = self.send_request("textDocument/references", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_rename(&mut self, path: &Path, line: usize, col: usize, new_name: &str) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "position".to_string(),
+                JsonValue::Object(vec![
+                    ("line".to_string(), JsonValue::Number(line as f64)),
+                    ("character".to_string(), JsonValue::Number(col as f64)),
+                ]),
+            ),
+            ("newName".to_string(), JsonValue::String(new_name.to_string())),
+        ]);
+        let id = self.send_request("textDocument/rename", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_code_actions(&mut self, path: &Path, range: LspRange, diagnostics: &[Diagnostic]) -> u64 {
+        let uri = path_to_uri(path);
+        let diags_json: Vec<JsonValue> = diagnostics
+            .iter()
+            .map(|d| {
+                let mut entries = vec![
+                    ("message".to_string(), JsonValue::String(d.message.clone())),
+                    (
+                        "severity".to_string(),
+                        JsonValue::Number(match d.severity {
+                            DiagnosticSeverity::Error => 1.0,
+                            DiagnosticSeverity::Warning => 2.0,
+                            DiagnosticSeverity::Information => 3.0,
+                            DiagnosticSeverity::Hint => 4.0,
+                        }),
+                    ),
+                    (
+                        "range".to_string(),
+                        JsonValue::Object(vec![
+                            (
+                                "start".to_string(),
+                                JsonValue::Object(vec![
+                                    ("line".to_string(), JsonValue::Number(d.line.saturating_sub(1) as f64)),
+                                    ("character".to_string(), JsonValue::Number(d.col.saturating_sub(1) as f64)),
+                                ]),
+                            ),
+                            (
+                                "end".to_string(),
+                                JsonValue::Object(vec![
+                                    ("line".to_string(), JsonValue::Number(d.line.saturating_sub(1) as f64)),
+                                    (
+                                        "character".to_string(),
+                                        JsonValue::Number(d.end_col.unwrap_or(d.col).saturating_sub(1) as f64),
+                                    ),
+                                ]),
+                            ),
+                        ]),
+                    ),
+                ];
+                if let Some(code) = &d.code {
+                    entries.push(("code".to_string(), JsonValue::String(code.clone())));
+                }
+                JsonValue::Object(entries)
+            })
+            .collect();
+
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "range".to_string(),
+                JsonValue::Object(vec![
+                    (
+                        "start".to_string(),
+                        JsonValue::Object(vec![
+                            ("line".to_string(), JsonValue::Number(range.start.line as f64)),
+                            ("character".to_string(), JsonValue::Number(range.start.character as f64)),
+                        ]),
+                    ),
+                    (
+                        "end".to_string(),
+                        JsonValue::Object(vec![
+                            ("line".to_string(), JsonValue::Number(range.end.line as f64)),
+                            ("character".to_string(), JsonValue::Number(range.end.character as f64)),
+                        ]),
+                    ),
+                ]),
+            ),
+            (
+                "context".to_string(),
+                JsonValue::Object(vec![("diagnostics".to_string(), JsonValue::Array(diags_json))]),
+            ),
+        ]);
+        let id = self.send_request("textDocument/codeAction", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_formatting(&mut self, path: &Path, tab_size: usize, insert_spaces: bool) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "options".to_string(),
+                JsonValue::Object(vec![
+                    ("tabSize".to_string(), JsonValue::Number(tab_size as f64)),
+                    ("insertSpaces".to_string(), JsonValue::Bool(insert_spaces)),
+                ]),
+            ),
+        ]);
+        let id = self.send_request("textDocument/formatting", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_document_symbols(&mut self, path: &Path) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![(
+            "textDocument".to_string(),
+            JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+        )]);
+        let id = self.send_request("textDocument/documentSymbol", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
+    }
+
+    pub fn request_inlay_hints(&mut self, path: &Path, range: LspRange) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![
+            (
+                "textDocument".to_string(),
+                JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+            ),
+            (
+                "range".to_string(),
+                JsonValue::Object(vec![
+                    (
+                        "start".to_string(),
+                        JsonValue::Object(vec![
+                            ("line".to_string(), JsonValue::Number(range.start.line as f64)),
+                            ("character".to_string(), JsonValue::Number(range.start.character as f64)),
+                        ]),
+                    ),
+                    (
+                        "end".to_string(),
+                        JsonValue::Object(vec![
+                            ("line".to_string(), JsonValue::Number(range.end.line as f64)),
+                            ("character".to_string(), JsonValue::Number(range.end.character as f64)),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]);
+        let id = self.send_request("textDocument/inlayHint", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
     }
 
     pub fn request_signature_help(&mut self, path: &Path, line: usize, col: usize) -> u64 {
@@ -1019,7 +1482,11 @@ impl LspClient {
                 ]),
             ),
         ]);
-        self.send_request("textDocument/signatureHelp", params)
+        let id = self.send_request("textDocument/signatureHelp", params);
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
+        id
     }
 
     pub fn request_semantic_tokens(&mut self, path: &Path) -> u64 {
@@ -1030,10 +1497,18 @@ impl LspClient {
         )]);
         let id = self.send_request("textDocument/semanticTokens/full", params);
         self.pending_semantic_requests.insert(id, path.to_path_buf());
+        if let Ok(mut map) = self.pending_doc_requests.lock() {
+            map.insert(id, path.to_path_buf());
+        }
         id
     }
 
-    fn dispatch_incoming_json(json: &JsonValue, event_tx: &Sender<LspEvent>) {
+    fn dispatch_incoming_json(
+        json: &JsonValue,
+        event_tx: &Sender<LspEvent>,
+        pending_requests: &Arc<std::sync::Mutex<HashMap<u64, String>>>,
+        pending_doc_requests: &Arc<std::sync::Mutex<HashMap<u64, PathBuf>>>,
+    ) {
         // 1. Check for notifications (method present, no id)
         if let Some(method) = json.get("method").and_then(|v| v.as_str()) {
             match method {
@@ -1057,72 +1532,176 @@ impl LspClient {
 
         // 2. Check for request responses (id present)
         if let Some(id) = json.get("id").and_then(|v| v.as_u64()) {
+            let method_opt = pending_requests.lock().ok().and_then(|mut m| m.remove(&id));
+            let file_opt = pending_doc_requests.lock().ok().and_then(|mut m| m.remove(&id));
+
             // Check if response to 'initialize'
-            if let Some(result) = json.get("result") {
-                if let Some(caps) = result.get("capabilities") {
-                    let legend = caps.get_path(&["semanticTokensProvider", "legend"]).map(|leg| {
-                        let types = leg
-                            .get("tokenTypes")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-                        let mods = leg
-                            .get("tokenModifiers")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-                        SemanticTokensLegend {
-                            token_types: types,
-                            token_modifiers: mods,
-                        }
-                    });
-                    let _ = event_tx.send(LspEvent::Initialized { legend });
-                    return;
+            if method_opt.as_deref() == Some("initialize")
+                || (method_opt.is_none() && json.get_path(&["result", "capabilities"]).is_some())
+            {
+                if let Some(result) = json.get("result") {
+                    if let Some(caps) = result.get("capabilities") {
+                        let legend = caps.get_path(&["semanticTokensProvider", "legend"]).map(|leg| {
+                            let types = leg
+                                .get("tokenTypes")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                                .unwrap_or_default();
+                            let mods = leg
+                                .get("tokenModifiers")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                                .unwrap_or_default();
+                            SemanticTokensLegend {
+                                token_types: types,
+                                token_modifiers: mods,
+                            }
+                        });
+                        let _ = event_tx.send(LspEvent::Initialized { legend });
+                        return;
+                    }
                 }
             }
 
-            // Signature Help Response
-            if let Some(sig) = Self::try_parse_signature_help_response(json) {
-                let _ = event_tx.send(LspEvent::SignatureHelpResponse {
-                    request_id: id,
-                    signature_help: sig,
-                });
-                return;
-            }
-
-            // Completion Response
-            if let Some(items) = Self::try_parse_completion_response(json) {
-                let _ = event_tx.send(LspEvent::CompletionResponse {
-                    request_id: id,
-                    items,
-                });
-                return;
-            }
-
-            // Hover Response
-            if let Some(hover) = Self::try_parse_hover_response(json) {
-                let _ = event_tx.send(LspEvent::HoverResponse {
-                    request_id: id,
-                    hover,
-                });
-                return;
-            }
-
-            // Definition Response
-            if let Some(loc) = Self::try_parse_definition_response(json) {
-                let _ = event_tx.send(LspEvent::DefinitionResponse {
-                    request_id: id,
-                    location: loc,
-                });
-                return;
-            }
-
-            // Semantic Tokens Response
-            if let Some(data) = Self::try_parse_semantic_tokens_response(json) {
-                let _ = event_tx.send(LspEvent::SemanticTokensRawResponse {
-                    request_id: id,
-                    raw_data: data,
-                });
+            match method_opt.as_deref() {
+                Some("textDocument/references") => {
+                    if let Some(references) = Self::try_parse_references_response(json) {
+                        let _ = event_tx.send(LspEvent::ReferencesResponse {
+                            request_id: id,
+                            references,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/rename") => {
+                    if let Some(edit) = Self::try_parse_rename_response(json) {
+                        let _ = event_tx.send(LspEvent::RenameResponse {
+                            request_id: id,
+                            edit,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/codeAction") => {
+                    if let Some(actions) = Self::try_parse_code_actions_response(json) {
+                        let _ = event_tx.send(LspEvent::CodeActionResponse {
+                            request_id: id,
+                            actions,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/formatting") => {
+                    if let Some(edits) = Self::try_parse_formatting_response(json) {
+                        let _ = event_tx.send(LspEvent::FormattingResponse {
+                            request_id: id,
+                            edits,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/documentSymbol") => {
+                    if let Some(symbols) = Self::try_parse_document_symbols_response(json) {
+                        let _ = event_tx.send(LspEvent::DocumentSymbolsResponse {
+                            request_id: id,
+                            file: file_opt,
+                            symbols,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/inlayHint") => {
+                    if let Some(hints) = Self::try_parse_inlay_hints_response(json) {
+                        let _ = event_tx.send(LspEvent::InlayHintsResponse {
+                            request_id: id,
+                            file: file_opt,
+                            hints,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/completion") => {
+                    if let Some(items) = Self::try_parse_completion_response(json) {
+                        let _ = event_tx.send(LspEvent::CompletionResponse {
+                            request_id: id,
+                            items,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/hover") => {
+                    if let Some(hover) = Self::try_parse_hover_response(json) {
+                        let _ = event_tx.send(LspEvent::HoverResponse {
+                            request_id: id,
+                            hover,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/definition") => {
+                    if let Some(loc) = Self::try_parse_definition_response(json) {
+                        let _ = event_tx.send(LspEvent::DefinitionResponse {
+                            request_id: id,
+                            location: loc,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/signatureHelp") => {
+                    if let Some(sig) = Self::try_parse_signature_help_response(json) {
+                        let _ = event_tx.send(LspEvent::SignatureHelpResponse {
+                            request_id: id,
+                            signature_help: sig,
+                        });
+                        return;
+                    }
+                }
+                Some("textDocument/semanticTokens/full") => {
+                    if let Some(data) = Self::try_parse_semantic_tokens_response(json) {
+                        let _ = event_tx.send(LspEvent::SemanticTokensRawResponse {
+                            request_id: id,
+                            raw_data: data,
+                        });
+                        return;
+                    }
+                }
+                _ => {
+                    // Fallback heuristics
+                    if let Some(sig) = Self::try_parse_signature_help_response(json) {
+                        let _ = event_tx.send(LspEvent::SignatureHelpResponse {
+                            request_id: id,
+                            signature_help: sig,
+                        });
+                        return;
+                    }
+                    if let Some(items) = Self::try_parse_completion_response(json) {
+                        let _ = event_tx.send(LspEvent::CompletionResponse {
+                            request_id: id,
+                            items,
+                        });
+                        return;
+                    }
+                    if let Some(hover) = Self::try_parse_hover_response(json) {
+                        let _ = event_tx.send(LspEvent::HoverResponse {
+                            request_id: id,
+                            hover,
+                        });
+                        return;
+                    }
+                    if let Some(loc) = Self::try_parse_definition_response(json) {
+                        let _ = event_tx.send(LspEvent::DefinitionResponse {
+                            request_id: id,
+                            location: loc,
+                        });
+                        return;
+                    }
+                    if let Some(data) = Self::try_parse_semantic_tokens_response(json) {
+                        let _ = event_tx.send(LspEvent::SemanticTokensRawResponse {
+                            request_id: id,
+                            raw_data: data,
+                        });
+                    }
+                }
             }
         }
     }
@@ -1439,6 +2018,295 @@ impl LspClient {
             },
         }))
     }
+
+    pub fn parse_location(val: &JsonValue) -> Option<LspLocation> {
+        let uri = val.get("uri").or_else(|| val.get("targetUri"))?.as_str()?;
+        let path = uri_to_path(uri)?;
+        let range_val = val.get("range").or_else(|| val.get("targetSelectionRange"))?;
+
+        let start_pos = range_val.get("start")?;
+        let s_line = start_pos.get("line")?.as_u64()? as usize;
+        let s_char = start_pos.get("character")?.as_u64()? as usize;
+
+        let end_pos = range_val.get("end")?;
+        let e_line = end_pos.get("line")?.as_u64()? as usize;
+        let e_char = end_pos.get("character")?.as_u64()? as usize;
+
+        Some(LspLocation {
+            path,
+            range: LspRange {
+                start: LspPosition { line: s_line, character: s_char },
+                end: LspPosition { line: e_line, character: e_char },
+            },
+        })
+    }
+
+    pub fn parse_range(val: &JsonValue) -> Option<LspRange> {
+        let start_pos = val.get("start")?;
+        let s_line = start_pos.get("line")?.as_u64()? as usize;
+        let s_char = start_pos.get("character")?.as_u64()? as usize;
+        let end_pos = val.get("end")?;
+        let e_line = end_pos.get("line")?.as_u64()? as usize;
+        let e_char = end_pos.get("character")?.as_u64()? as usize;
+        Some(LspRange {
+            start: LspPosition { line: s_line, character: s_char },
+            end: LspPosition { line: e_line, character: e_char },
+        })
+    }
+
+    pub fn try_parse_references_response(json: &JsonValue) -> Option<Vec<LspLocation>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(Vec::new());
+        }
+        let arr = result.as_array()?;
+        let mut locs = Vec::with_capacity(arr.len());
+        for item in arr {
+            if let Some(loc) = Self::parse_location(item) {
+                locs.push(loc);
+            }
+        }
+        Some(locs)
+    }
+
+    pub fn try_parse_rename_response(json: &JsonValue) -> Option<Option<LspWorkspaceEdit>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(None);
+        }
+        let ws_edit = Self::try_parse_workspace_edit(result)?;
+        Some(Some(ws_edit))
+    }
+
+    pub fn try_parse_workspace_edit(val: &JsonValue) -> Option<LspWorkspaceEdit> {
+        let mut changes_map: HashMap<PathBuf, Vec<LspTextEdit>> = HashMap::new();
+
+        // 1. Changes map: { "uri": [ TextEdit, ... ] }
+        if let Some(changes_obj) = val.get("changes").and_then(|v| v.as_object()) {
+            for (uri_str, edits_val) in changes_obj {
+                if let Some(path) = uri_to_path(uri_str) {
+                    if let Some(edits_arr) = edits_val.as_array() {
+                        let mut edits = Vec::new();
+                        for edit_json in edits_arr {
+                            if let Some(te) = Self::try_parse_text_edit(edit_json) {
+                                edits.push(te);
+                            }
+                        }
+                        changes_map.entry(path).or_default().extend(edits);
+                    }
+                }
+            }
+        }
+
+        // 2. Document changes array: [ { textDocument: { uri: "..." }, edits: [ ... ] }, ... ]
+        if let Some(doc_changes) = val.get("documentChanges").and_then(|v| v.as_array()) {
+            for change_item in doc_changes {
+                if let Some(uri_str) = change_item.get_path(&["textDocument", "uri"]).and_then(|u| u.as_str()) {
+                    if let Some(path) = uri_to_path(uri_str) {
+                        if let Some(edits_arr) = change_item.get("edits").and_then(|e| e.as_array()) {
+                            let mut edits = Vec::new();
+                            for edit_json in edits_arr {
+                                if let Some(te) = Self::try_parse_text_edit(edit_json) {
+                                    edits.push(te);
+                                }
+                            }
+                            changes_map.entry(path).or_default().extend(edits);
+                        }
+                    }
+                }
+            }
+        }
+
+        Some(LspWorkspaceEdit { changes: changes_map })
+    }
+
+    pub fn try_parse_text_edit(val: &JsonValue) -> Option<LspTextEdit> {
+        let range_val = val.get("range")?;
+        let range = Self::parse_range(range_val)?;
+        let new_text = val.get("newText")?.as_str()?.to_string();
+        Some(LspTextEdit { range, new_text })
+    }
+
+    pub fn try_parse_code_actions_response(json: &JsonValue) -> Option<Vec<LspCodeAction>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(Vec::new());
+        }
+        let arr = result.as_array()?;
+        let mut actions = Vec::with_capacity(arr.len());
+        for item in arr {
+            let title = match item.get("title").and_then(|t| t.as_str()) {
+                Some(t) => t.to_string(),
+                None => continue,
+            };
+            let kind = item.get("kind").and_then(|k| k.as_str()).map(String::from);
+            let is_preferred = item.get("isPreferred").and_then(|b| b.as_bool()).unwrap_or(false);
+            let edit = item.get("edit").and_then(Self::try_parse_workspace_edit);
+
+            actions.push(LspCodeAction {
+                title,
+                kind,
+                edit,
+                is_preferred,
+            });
+        }
+        Some(actions)
+    }
+
+    pub fn try_parse_formatting_response(json: &JsonValue) -> Option<Vec<LspTextEdit>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(Vec::new());
+        }
+        let arr = result.as_array()?;
+        let mut edits = Vec::with_capacity(arr.len());
+        for item in arr {
+            if let Some(te) = Self::try_parse_text_edit(item) {
+                edits.push(te);
+            }
+        }
+        Some(edits)
+    }
+
+    pub fn try_parse_document_symbols_response(json: &JsonValue) -> Option<Vec<LspDocumentSymbol>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(Vec::new());
+        }
+        let arr = result.as_array()?;
+        let mut symbols = Vec::new();
+        for item in arr {
+            Self::parse_document_symbol_recursive(item, 0, &mut symbols);
+        }
+        Some(symbols)
+    }
+
+    fn parse_document_symbol_recursive(val: &JsonValue, depth: usize, out: &mut Vec<LspDocumentSymbol>) {
+        let name = match val.get("name").and_then(|n| n.as_str()) {
+            Some(n) => n.to_string(),
+            None => return,
+        };
+        let detail = val.get("detail").and_then(|d| d.as_str()).unwrap_or("").to_string();
+        let kind_num = val.get("kind").and_then(|k| k.as_u64()).unwrap_or(0);
+        let kind = SymbolKind::from_u64(kind_num);
+
+        let (range, selection_range) = if let Some(r_val) = val.get("range") {
+            let r = Self::parse_range(r_val).unwrap_or(LspRange {
+                start: LspPosition { line: 0, character: 0 },
+                end: LspPosition { line: 0, character: 0 },
+            });
+            let sel = val.get("selectionRange").and_then(Self::parse_range).unwrap_or(r);
+            (r, sel)
+        } else if let Some(loc) = val.get("location") {
+            let r = loc.get("range").and_then(Self::parse_range).unwrap_or(LspRange {
+                start: LspPosition { line: 0, character: 0 },
+                end: LspPosition { line: 0, character: 0 },
+            });
+            (r, r)
+        } else {
+            return;
+        };
+
+        out.push(LspDocumentSymbol {
+            name,
+            detail,
+            kind,
+            range,
+            selection_range,
+            depth,
+        });
+
+        if let Some(children) = val.get("children").and_then(|c| c.as_array()) {
+            for child in children {
+                Self::parse_document_symbol_recursive(child, depth + 1, out);
+            }
+        }
+    }
+
+    pub fn try_parse_inlay_hints_response(json: &JsonValue) -> Option<Vec<LspInlayHint>> {
+        let result = json.get("result")?;
+        if result == &JsonValue::Null {
+            return Some(Vec::new());
+        }
+        let arr = result.as_array()?;
+        let mut hints = Vec::with_capacity(arr.len());
+        for item in arr {
+            let pos_val = item.get("position")?;
+            let line = pos_val.get("line")?.as_u64()? as usize;
+            let character = pos_val.get("character")?.as_u64()? as usize;
+
+            let label = if let Some(s) = item.get("label").and_then(|l| l.as_str()) {
+                s.to_string()
+            } else if let Some(parts) = item.get("label").and_then(|l| l.as_array()) {
+                let mut buf = String::new();
+                for p in parts {
+                    if let Some(v) = p.get("value").and_then(|v| v.as_str()) {
+                        buf.push_str(v);
+                    }
+                }
+                buf
+            } else {
+                continue;
+            };
+
+            let kind_num = item.get("kind").and_then(|k| k.as_u64()).unwrap_or(0);
+            let kind = InlayHintKind::from_u64(kind_num);
+            let padding_left = item.get("paddingLeft").and_then(|b| b.as_bool()).unwrap_or(false);
+            let padding_right = item.get("paddingRight").and_then(|b| b.as_bool()).unwrap_or(false);
+
+            hints.push(LspInlayHint {
+                position: LspPosition { line, character },
+                label,
+                kind,
+                padding_left,
+                padding_right,
+            });
+        }
+        Some(hints)
+    }
+}
+
+/// Applies reverse-order LSP `TextEdit`s to a `TextBuffer` guaranteeing zero offset drift.
+pub fn apply_text_edits(buffer: &mut crate::core::buffer::TextBuffer, mut edits: Vec<LspTextEdit>) {
+    if edits.is_empty() {
+        return;
+    }
+    // Sort in reverse order: latest line and character first
+    edits.sort_by(|a, b| {
+        b.range
+            .start
+            .line
+            .cmp(&a.range.start.line)
+            .then_with(|| b.range.start.character.cmp(&a.range.start.character))
+    });
+
+    for edit in edits {
+        let start_char = lsp_pos_to_char(buffer, edit.range.start);
+        let end_char = lsp_pos_to_char(buffer, edit.range.end);
+        if start_char < end_char {
+            buffer.delete_range(start_char, end_char);
+        }
+        if !edit.new_text.is_empty() {
+            buffer.insert(start_char, &edit.new_text);
+        }
+    }
+}
+
+/// Converts an LSP 0-indexed position into a buffer character offset with robust line boundary safety.
+pub fn lsp_pos_to_char(buffer: &crate::core::buffer::TextBuffer, pos: LspPosition) -> usize {
+    if buffer.len_lines() == 0 {
+        return 0;
+    }
+    if pos.line >= buffer.len_lines() {
+        return buffer.len_chars();
+    }
+    let line_start = buffer.line_starts()[pos.line];
+    let next_line_start = if pos.line + 1 < buffer.len_lines() {
+        buffer.line_starts()[pos.line + 1]
+    } else {
+        buffer.len_chars()
+    };
+    (line_start + pos.character).min(next_line_start).min(buffer.len_chars())
 }
 
 impl Default for LspClient {
@@ -1568,5 +2436,231 @@ mod tests {
         assert_eq!(line2[0].start_col, 4);
         assert_eq!(line2[0].end_col, 9);
         assert_eq!(line2[0].token_type, crate::core::syntax::TokenType::Macro);
+    }
+
+    #[test]
+    fn test_parse_references_response() {
+        let json_str = r#"{
+            "id": 10,
+            "result": [
+                {
+                    "uri": "file:///workspace/src/main.rs",
+                    "range": {
+                        "start": { "line": 4, "character": 8 },
+                        "end": { "line": 4, "character": 16 }
+                    }
+                },
+                {
+                    "uri": "file:///workspace/src/lib.rs",
+                    "range": {
+                        "start": { "line": 12, "character": 4 },
+                        "end": { "line": 12, "character": 12 }
+                    }
+                }
+            ]
+        }"#;
+        let parsed = JsonValue::parse(json_str).unwrap();
+        let refs = LspClient::try_parse_references_response(&parsed).unwrap();
+        assert_eq!(refs.len(), 2);
+        assert!(refs[0].path.ends_with("src/main.rs"));
+        assert_eq!(refs[0].range.start.line, 4);
+        assert_eq!(refs[0].range.start.character, 8);
+        assert!(refs[1].path.ends_with("src/lib.rs"));
+        assert_eq!(refs[1].range.start.line, 12);
+    }
+
+    #[test]
+    fn test_parse_rename_response_both_formats() {
+        // Format A: changes
+        let json_a = r#"{
+            "id": 11,
+            "result": {
+                "changes": {
+                    "file:///workspace/src/app.rs": [
+                        {
+                            "range": {
+                                "start": { "line": 1, "character": 4 },
+                                "end": { "line": 1, "character": 7 }
+                            },
+                            "newText": "new_var"
+                        }
+                    ]
+                }
+            }
+        }"#;
+        let parsed_a = JsonValue::parse(json_a).unwrap();
+        let edit_a = LspClient::try_parse_rename_response(&parsed_a).unwrap().unwrap();
+        assert_eq!(edit_a.changes.len(), 1);
+        let path = edit_a.changes.keys().next().unwrap();
+        assert!(path.ends_with("src/app.rs"));
+        assert_eq!(edit_a.changes[path][0].new_text, "new_var");
+
+        // Format B: documentChanges
+        let json_b = r#"{
+            "id": 12,
+            "result": {
+                "documentChanges": [
+                    {
+                        "textDocument": { "uri": "file:///workspace/src/mod.rs", "version": 2 },
+                        "edits": [
+                            {
+                                "range": {
+                                    "start": { "line": 10, "character": 0 },
+                                    "end": { "line": 10, "character": 3 }
+                                },
+                                "newText": "let"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }"#;
+        let parsed_b = JsonValue::parse(json_b).unwrap();
+        let edit_b = LspClient::try_parse_rename_response(&parsed_b).unwrap().unwrap();
+        assert_eq!(edit_b.changes.len(), 1);
+        let b_path = edit_b.changes.keys().next().unwrap();
+        assert!(b_path.ends_with("src/mod.rs"));
+        assert_eq!(edit_b.changes[b_path][0].new_text, "let");
+    }
+
+    #[test]
+    fn test_parse_code_actions_response() {
+        let json_str = r#"{
+            "id": 13,
+            "result": [
+                {
+                    "title": "Import std::collections::HashMap",
+                    "kind": "quickfix",
+                    "isPreferred": true
+                },
+                {
+                    "title": "Extract function",
+                    "kind": "refactor.extract"
+                }
+            ]
+        }"#;
+        let parsed = JsonValue::parse(json_str).unwrap();
+        let actions = LspClient::try_parse_code_actions_response(&parsed).unwrap();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].title, "Import std::collections::HashMap");
+        assert_eq!(actions[0].kind.as_deref(), Some("quickfix"));
+        assert!(actions[0].is_preferred);
+        assert_eq!(actions[1].title, "Extract function");
+        assert_eq!(actions[1].kind.as_deref(), Some("refactor.extract"));
+        assert!(!actions[1].is_preferred);
+    }
+
+    #[test]
+    fn test_parse_formatting_response() {
+        let json_str = r#"{
+            "id": 14,
+            "result": [
+                {
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 0 }
+                    },
+                    "newText": "    "
+                }
+            ]
+        }"#;
+        let parsed = JsonValue::parse(json_str).unwrap();
+        let edits = LspClient::try_parse_formatting_response(&parsed).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "    ");
+    }
+
+    #[test]
+    fn test_parse_document_symbols_hierarchical() {
+        let json_str = r#"{
+            "id": 15,
+            "result": [
+                {
+                    "name": "App",
+                    "kind": 23,
+                    "range": {
+                        "start": { "line": 10, "character": 0 },
+                        "end": { "line": 30, "character": 1 }
+                    },
+                    "children": [
+                        {
+                            "name": "run",
+                            "kind": 6,
+                            "range": {
+                                "start": { "line": 15, "character": 4 },
+                                "end": { "line": 20, "character": 5 }
+                            }
+                        }
+                    ]
+                }
+            ]
+        }"#;
+        let parsed = JsonValue::parse(json_str).unwrap();
+        let symbols = LspClient::try_parse_document_symbols_response(&parsed).unwrap();
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].name, "App");
+        assert_eq!(symbols[0].kind, SymbolKind::Struct);
+        assert_eq!(symbols[0].depth, 0);
+
+        assert_eq!(symbols[1].name, "run");
+        assert_eq!(symbols[1].kind, SymbolKind::Method);
+        assert_eq!(symbols[1].depth, 1);
+    }
+
+    #[test]
+    fn test_parse_inlay_hints_response() {
+        let json_str = r#"{
+            "id": 16,
+            "result": [
+                {
+                    "position": { "line": 3, "character": 12 },
+                    "label": ": i32",
+                    "kind": 1,
+                    "paddingLeft": true
+                }
+            ]
+        }"#;
+        let parsed = JsonValue::parse(json_str).unwrap();
+        let hints = LspClient::try_parse_inlay_hints_response(&parsed).unwrap();
+        assert_eq!(hints.len(), 1);
+        assert_eq!(hints[0].label, ": i32");
+        assert_eq!(hints[0].kind, InlayHintKind::Type);
+        assert_eq!(hints[0].position.line, 3);
+        assert_eq!(hints[0].position.character, 12);
+        assert!(hints[0].padding_left);
+    }
+
+    #[test]
+    fn test_apply_text_edits_reverse_order_precision() {
+        use crate::core::buffer::TextBuffer;
+        let mut buf = TextBuffer::from_str("hello world\nfoo bar\nbaz qux\n");
+
+        // Edits out of order: one at line 2, one at line 0, one at line 1
+        let edits = vec![
+            LspTextEdit {
+                range: LspRange {
+                    start: LspPosition { line: 0, character: 6 },
+                    end: LspPosition { line: 0, character: 11 },
+                },
+                new_text: "Rustext".to_string(),
+            },
+            LspTextEdit {
+                range: LspRange {
+                    start: LspPosition { line: 2, character: 0 },
+                    end: LspPosition { line: 2, character: 3 },
+                },
+                new_text: "super".to_string(),
+            },
+            LspTextEdit {
+                range: LspRange {
+                    start: LspPosition { line: 1, character: 4 },
+                    end: LspPosition { line: 1, character: 7 },
+                },
+                new_text: "baz".to_string(),
+            },
+        ];
+
+        apply_text_edits(&mut buf, edits);
+        assert_eq!(buf.to_string(), "hello Rustext\nfoo baz\nsuper qux\n");
     }
 }

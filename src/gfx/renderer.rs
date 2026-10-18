@@ -2752,6 +2752,55 @@ impl GfxRenderer {
                         }
                     }
 
+                    // LSP Inlay Hints
+                    if sub_idx + 1 == sublines.len() {
+                        if let Some(line_hints) = doc.inlay_hints.get(&line_idx) {
+                            if !line_hints.is_empty() {
+                                let fold_offset = if doc.folding.fold_end_for_line(line_idx).is_some() {
+                                    self.char_width() * 6
+                                } else {
+                                    0
+                                };
+                                let mut cur_hint_x = text_start_x + sub.len_chars() * self.char_width() + self.scale_coord(14) + fold_offset;
+                                for hint in line_hints {
+                                    if cur_hint_x >= max_code_x {
+                                        break;
+                                    }
+                                    let hint_label = hint.label.trim();
+                                    let hint_str = match hint.kind {
+                                        crate::editor::lsp::InlayHintKind::Parameter => format!(" {}: ", hint_label.trim_end_matches(':')),
+                                        crate::editor::lsp::InlayHintKind::Type => {
+                                            if hint_label.starts_with(':') {
+                                                format!(" {} ", hint_label)
+                                            } else {
+                                                format!(" : {} ", hint_label)
+                                            }
+                                        }
+                                        _ => format!(" {} ", hint_label),
+                                    };
+                                    let hw = hint_str.chars().count() * self.char_width();
+                                    if cur_hint_x + hw < max_code_x {
+                                        let chip_bg = 0x0023283B;
+                                        let chip_fg = match hint.kind {
+                                            crate::editor::lsp::InlayHintKind::Type => 0x007AA2F7,
+                                            crate::editor::lsp::InlayHintKind::Parameter => 0x00BB9AF7,
+                                            _ => 0x0073DACA,
+                                        };
+                                        let chip_h = self.char_height().saturating_sub(2);
+                                        let chip_y = text_y + 1;
+                                        if self.rounded_corners {
+                                            fb.fill_rounded_rect(cur_hint_x, chip_y, hw, chip_h, 3, chip_bg);
+                                        } else {
+                                            fb.fill_rect(cur_hint_x, chip_y, hw, chip_h, chip_bg);
+                                        }
+                                        fb.draw_text_clipped(&hint_str, cur_hint_x, text_y, max_code_x, chip_fg, None);
+                                        cur_hint_x += hw + self.scale_coord(6);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Cursors
                     if is_active {
                         for pos in &cursor_positions {
@@ -4473,12 +4522,17 @@ impl GfxRenderer {
         let is_finder = modal.kind == crate::ui::prompt::PromptKind::FileFinder && !is_command_mode;
         let is_recent = modal.kind == crate::ui::prompt::PromptKind::RecentFiles;
         let is_projects = modal.kind == crate::ui::prompt::PromptKind::RecentProjects;
-        let box_w = if is_recent || is_projects || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+        let is_references = modal.kind == crate::ui::prompt::PromptKind::References;
+        let is_code_actions = modal.kind == crate::ui::prompt::PromptKind::CodeActions;
+        let is_document_symbols = modal.kind == crate::ui::prompt::PromptKind::DocumentSymbols;
+        let is_rename = modal.kind == crate::ui::prompt::PromptKind::RenameSymbol;
+        let is_list_modal = is_palette || is_finder || is_recent || is_projects || is_references || is_code_actions || is_document_symbols;
+        let box_w = if is_recent || is_projects || is_finder || is_references || is_code_actions || is_document_symbols {
             fb.width.min(self.scale_coord(680)).max(self.scale_coord(400))
         } else {
             fb.width.min(self.scale_coord(580)).max(self.scale_coord(340))
         };
-        let box_h = if is_palette || is_recent || is_projects || modal.kind == crate::ui::prompt::PromptKind::FileFinder {
+        let box_h = if is_list_modal {
             self.scale_coord(340)
         } else {
             self.scale_coord(120)
@@ -4861,6 +4915,193 @@ impl GfxRenderer {
 
             // Footer hint
             let hint = "↑/↓: Seleccionar  •  Enter: Abrir proyecto  •  Del: Eliminar  •  Esc: Cancelar";
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
+        } else if is_references {
+            let matching = modal.matching_references();
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No se encontraron referencias para este símbolo)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                for (idx, item) in matching.iter().take(max_visible).enumerate() {
+                    let is_sel = idx == modal.selected_idx;
+                    let (row_bg, row_fg, line_fg, code_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0, 0x00FFFF80)
+                    } else {
+                        (self.colors.modal_bg, 0x00FFFFFF, 0x007AA2F7, 0x00D4D4D4)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    // 1. File name / path
+                    let fname = item.path.file_name().and_then(|n| n.to_str()).unwrap_or("archivo");
+                    let file_x = input_x + self.scale_coord(8);
+                    fb.draw_text(fname, file_x, row_text_y, row_fg, None);
+
+                    let fn_w = fname.chars().count() * self.char_width();
+                    let line_badge = format!(":{}:{}", item.range.start.line + 1, item.range.start.character + 1);
+                    let line_x = file_x + fn_w;
+                    fb.draw_text(&line_badge, line_x, row_text_y, line_fg, None);
+
+                    // 2. Code snippet preview
+                    let lb_w = line_badge.chars().count() * self.char_width();
+                    let code_x = line_x + lb_w + self.scale_coord(14);
+                    fb.draw_text_truncated(&item.line_text, code_x, row_text_y, input_x + input_w - self.scale_coord(8), code_fg, None);
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let hint = "↑/↓: Seleccionar  •  Enter: Ir a referencia  •  Esc: Cerrar";
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
+        } else if is_code_actions {
+            let matching = modal.matching_code_actions();
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No hay acciones ni correcciones disponibles)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                for (idx, action) in matching.iter().take(max_visible).enumerate() {
+                    let is_sel = idx == modal.selected_idx;
+                    let (row_bg, row_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF)
+                    } else {
+                        (self.colors.modal_bg, 0x00E0E0E0)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    // 1. Kind Badge & Color
+                    let kind_str = action.kind.as_deref().unwrap_or("");
+                    let (badge, badge_color) = if action.is_preferred {
+                        ("[★ Preferido]", 0x00FFD700)
+                    } else if kind_str.contains("quickfix") {
+                        ("[💡 QuickFix]", 0x007EE787)
+                    } else if kind_str.contains("refactor") {
+                        ("[🛠️ Refactor]", 0x007AA2F7)
+                    } else if kind_str.contains("source") {
+                        ("[📦 Source]", 0x00DDB6F2)
+                    } else {
+                        ("[⚡ Acción]", 0x00E0AF68)
+                    };
+
+                    let badge_fg = if is_sel { 0x00FFFFFF } else { badge_color };
+                    let badge_x = input_x + self.scale_coord(8);
+                    fb.draw_text(badge, badge_x, row_text_y, badge_fg, None);
+
+                    // 2. Action Title
+                    let bw = badge.chars().count() * self.char_width();
+                    let title_x = badge_x + bw + self.scale_coord(10);
+                    fb.draw_text_truncated(&action.title, title_x, row_text_y, input_x + input_w - self.scale_coord(8), row_fg, None);
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let hint = "↑/↓: Seleccionar  •  Enter: Aplicar corrección  •  Esc: Cerrar";
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
+        } else if is_document_symbols {
+            let matching = modal.matching_document_symbols();
+            let mut item_y = input_y + input_h + self.scale_coord(8);
+            let item_h = (self.char_height() + self.scale_coord(10)).max(self.scale_coord(26));
+            let max_visible = 9;
+
+            if matching.is_empty() {
+                fb.draw_text("(No se encontraron símbolos coincidentes)", input_x + self.scale_coord(8), item_y + self.scale_coord(6), 0x00858585, None);
+            } else {
+                for (idx, sym) in matching.iter().take(max_visible).enumerate() {
+                    let is_sel = idx == modal.selected_idx;
+                    let (row_bg, row_fg, detail_fg) = if is_sel {
+                        (self.colors.accent, 0x00FFFFFF, 0x00E0E0E0)
+                    } else {
+                        (self.colors.modal_bg, 0x00FFFFFF, 0x00858585)
+                    };
+
+                    if is_sel && self.rounded_corners {
+                        fb.fill_rounded_rect(input_x, item_y, input_w, item_h, 4, row_bg);
+                    } else if is_sel {
+                        fb.fill_rect(input_x, item_y, input_w, item_h, row_bg);
+                    }
+
+                    let row_text_y = item_y + (item_h.saturating_sub(self.char_height())) / 2;
+
+                    // 1. Kind Badge (e.g. [fn], [struct], [trait], [const])
+                    let badge_text = sym.kind.badge_str();
+                    let badge_color = match sym.kind {
+                        crate::editor::lsp::SymbolKind::Function | crate::editor::lsp::SymbolKind::Method => self.colors.syntax_keyword,
+                        crate::editor::lsp::SymbolKind::Struct | crate::editor::lsp::SymbolKind::Class | crate::editor::lsp::SymbolKind::Interface => self.colors.syntax_type,
+                        crate::editor::lsp::SymbolKind::Enum | crate::editor::lsp::SymbolKind::EnumMember => self.colors.syntax_number,
+                        crate::editor::lsp::SymbolKind::Constant => self.colors.syntax_string,
+                        crate::editor::lsp::SymbolKind::Module | crate::editor::lsp::SymbolKind::Namespace => self.colors.bracket_1,
+                        _ => 0x00858585,
+                    };
+                    let badge_fg = if is_sel { 0x00FFFFFF } else { badge_color };
+
+                    let indent_px = sym.depth.min(6) * self.scale_coord(12);
+                    let badge_x = input_x + self.scale_coord(8) + indent_px;
+                    fb.draw_text(badge_text, badge_x, row_text_y, badge_fg, None);
+
+                    let bw = badge_text.chars().count() * self.char_width();
+                    let name_x = badge_x + bw + self.scale_coord(8);
+
+                    // 2. Line number on the right
+                    let line_str = format!("L{}", sym.range.start.line + 1);
+                    let lw = line_str.chars().count() * self.char_width();
+                    let line_x = input_x + input_w - lw - self.scale_coord(8);
+                    let line_fg = if is_sel { 0x00E0E0E0 } else { 0x007AA2F7 };
+                    fb.draw_text(&line_str, line_x, row_text_y, line_fg, None);
+
+                    // 3. Symbol name + detail
+                    let max_text_x = line_x.saturating_sub(self.scale_coord(8));
+                    fb.draw_text_truncated(&sym.name, name_x, row_text_y, max_text_x, row_fg, None);
+
+                    if !sym.detail.is_empty() {
+                        let nw = sym.name.chars().count() * self.char_width();
+                        let det_x = name_x + nw + self.scale_coord(8);
+                        if det_x < max_text_x {
+                            fb.draw_text_truncated(&sym.detail, det_x, row_text_y, max_text_x, detail_fg, None);
+                        }
+                    }
+
+                    item_y += item_h;
+                }
+            }
+
+            // Footer hint
+            let hint = "↑/↓: Seleccionar  •  Enter: Ir a símbolo  •  Esc: Cerrar";
+            let hint_w = hint.chars().count() * self.char_width();
+            let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
+            let hint_y = box_y + box_h - self.scale_coord(18);
+            fb.draw_text_truncated(hint, hint_x, hint_y, box_x + box_w - self.scale_coord(8), 0x00858585, None);
+        } else if is_rename {
+            let hint = "Enter: Renombrar símbolo en el proyecto  •  Esc: Cancelar";
             let hint_w = hint.chars().count() * self.char_width();
             let hint_x = box_x + (box_w.saturating_sub(hint_w)) / 2;
             let hint_y = box_y + box_h - self.scale_coord(18);

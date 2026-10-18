@@ -212,6 +212,13 @@ pub struct LspSettings {
     pub rust_server: String,
     pub python_server: String,
     pub c_server: String,
+    pub typescript_server: String,
+    pub go_server: String,
+    pub html_css_server: String,
+    pub json_server: String,
+    pub markdown_server: String,
+    pub zig_server: String,
+    pub inlay_hints: bool,
 }
 
 impl Default for LspSettings {
@@ -222,6 +229,13 @@ impl Default for LspSettings {
             rust_server: "rust-analyzer".to_string(),
             python_server: "pylsp".to_string(),
             c_server: "clangd".to_string(),
+            typescript_server: "typescript-language-server --stdio".to_string(),
+            go_server: "gopls".to_string(),
+            html_css_server: "vscode-html-language-server --stdio".to_string(),
+            json_server: "vscode-json-language-server --stdio".to_string(),
+            markdown_server: "marksman server".to_string(),
+            zig_server: "zls".to_string(),
+            inlay_hints: true,
         }
     }
 }
@@ -428,6 +442,27 @@ python_server = pylsp
 
 ; Binario o comando para el servidor LSP de C / C++
 c_server = clangd
+
+; Servidor LSP de TypeScript / JavaScript
+typescript_server = typescript-language-server --stdio
+
+; Servidor LSP de Go
+go_server = gopls
+
+; Servidor LSP de HTML / CSS
+html_css_server = vscode-html-language-server --stdio
+
+; Servidor LSP de JSON
+json_server = vscode-json-language-server --stdio
+
+; Servidor LSP de Markdown
+markdown_server = marksman server
+
+; Servidor LSP de Zig
+zig_server = zls
+
+; Mostrar sugerencias de tipo y parámetros en línea (Inlay Hints)
+inlay_hints = true
 "#
     }
 
@@ -511,6 +546,13 @@ auto_start = {}
 rust_server = {}
 python_server = {}
 c_server = {}
+typescript_server = {}
+go_server = {}
+html_css_server = {}
+json_server = {}
+markdown_server = {}
+zig_server = {}
+inlay_hints = {}
 "#,
             self.editor.tab_size,
             self.editor.auto_indent,
@@ -580,6 +622,13 @@ c_server = {}
             self.lsp.rust_server,
             self.lsp.python_server,
             self.lsp.c_server,
+            self.lsp.typescript_server,
+            self.lsp.go_server,
+            self.lsp.html_css_server,
+            self.lsp.json_server,
+            self.lsp.markdown_server,
+            self.lsp.zig_server,
+            self.lsp.inlay_hints,
         )
     }
 
@@ -986,6 +1035,41 @@ c_server = {}
                         "c_server" => {
                             if !val_unquoted.is_empty() {
                                 self.lsp.c_server = val_unquoted.to_string();
+                            }
+                        }
+                        "typescript_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.typescript_server = val_unquoted.to_string();
+                            }
+                        }
+                        "go_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.go_server = val_unquoted.to_string();
+                            }
+                        }
+                        "html_css_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.html_css_server = val_unquoted.to_string();
+                            }
+                        }
+                        "json_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.json_server = val_unquoted.to_string();
+                            }
+                        }
+                        "markdown_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.markdown_server = val_unquoted.to_string();
+                            }
+                        }
+                        "zig_server" => {
+                            if !val_unquoted.is_empty() {
+                                self.lsp.zig_server = val_unquoted.to_string();
+                            }
+                        }
+                        "inlay_hints" => {
+                            if let Some(b) = as_bool {
+                                self.lsp.inlay_hints = b;
                             }
                         }
                         _ => {}

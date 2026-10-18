@@ -5062,20 +5062,34 @@ fn test_lsp_keymap_and_menu_actions() {
 
     // 1. Key mappings
     assert_eq!(Keymap::resolve_key(Key::F(12)), EditorAction::LspGoToDefinition);
-    assert_eq!(Keymap::resolve_key(Key::F(2)), EditorAction::LspHover);
+    assert_eq!(Keymap::resolve_key(Key::F(2)), EditorAction::LspRename);
     assert_eq!(Keymap::resolve_key(Key::Alt('k')), EditorAction::LspHover);
     assert_eq!(Keymap::resolve_key(Key::Alt('K')), EditorAction::LspHover);
+    assert_eq!(Keymap::resolve_key(Key::CtrlShift('u')), EditorAction::LspFindReferences);
+    assert_eq!(Keymap::resolve_key(Key::Ctrl('.')), EditorAction::LspCodeActions);
+    assert_eq!(Keymap::resolve_key(Key::CtrlShift('i')), EditorAction::LspFormatDocument);
+    assert_eq!(Keymap::resolve_key(Key::CtrlShift('r')), EditorAction::LspDocumentSymbols);
 
     // 2. Menu integration
     let menu_bar = MenuBar::new();
     let tools_category = menu_bar.categories.iter().find(|c| c.name == "Herramientas").expect("Herramientas category");
 
     let has_goto_def = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspGoToDefinition) && it.shortcut == "F12");
-    let has_hover = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspHover) && it.shortcut == "F2");
+    let has_references = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspFindReferences) && it.shortcut == "Ctrl+Shift+U");
+    let has_rename = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspRename) && it.shortcut == "F2");
+    let has_code_actions = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspCodeActions) && it.shortcut == "Ctrl+.");
+    let has_format = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspFormatDocument) && it.shortcut == "Ctrl+Shift+I");
+    let has_symbols = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspDocumentSymbols) && it.shortcut == "Ctrl+Shift+R");
+    let has_hover = tools_category.items.iter().any(|it| it.action == Some(EditorAction::LspHover));
     let has_restart = tools_category.items.iter().any(|it| it.action == Some(EditorAction::RestartLspServer));
 
     assert!(has_goto_def, "Menu must contain 'LSP: Ir a Definición (F12)'");
-    assert!(has_hover, "Menu must contain 'LSP: Información de Tipo (F2)'");
+    assert!(has_references, "Menu must contain 'LSP: Buscar Referencias (Ctrl+Shift+U)'");
+    assert!(has_rename, "Menu must contain 'LSP: Renombrar Símbolo (F2)'");
+    assert!(has_code_actions, "Menu must contain 'LSP: Acciones Rápidas (Ctrl+.)'");
+    assert!(has_format, "Menu must contain 'LSP: Formatear Documento (Ctrl+Shift+I)'");
+    assert!(has_symbols, "Menu must contain 'LSP: Esquema / Símbolos (Ctrl+Shift+R)'");
+    assert!(has_hover, "Menu must contain 'LSP: Información de Tipo'");
     assert!(has_restart, "Menu must contain 'LSP: Reiniciar Servidor'");
 }
 
@@ -5847,6 +5861,381 @@ fn test_workspace_management_and_project_switching() {
 
     // Cleanup
     let _ = fs::remove_dir_all(&base_temp);
+}
+
+#[test]
+fn test_lsp_elite_references_and_jump() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::{Editor, EditorMode};
+    use rustext::editor::lsp::{LspEvent, LspLocation, LspPosition, LspRange};
+    use rustext::ui::prompt::PromptKind;
+    use rustext::ui::terminal::Key;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_lsp_ref_test_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("main.rs");
+    let content = "fn compute(val: i32) -> i32 {\n    let result = val * 2;\n    println!(\"{}\", result);\n    result\n}\n";
+    fs::write(&file_path, content).unwrap();
+
+    let buf = TextBuffer::open(&file_path).unwrap();
+    let mut editor = Editor::new(buf);
+    editor.config.lsp.enabled = true;
+
+    // Simulate references event from LSP
+    let references = vec![
+        LspLocation {
+            path: file_path.clone(),
+            range: LspRange {
+                start: LspPosition { line: 1, character: 8 },
+                end: LspPosition { line: 1, character: 14 },
+            },
+        },
+        LspLocation {
+            path: file_path.clone(),
+            range: LspRange {
+                start: LspPosition { line: 2, character: 19 },
+                end: LspPosition { line: 2, character: 25 },
+            },
+        },
+    ];
+
+    editor.lsp.push_event_for_test(LspEvent::ReferencesResponse {
+        request_id: 1,
+        references,
+    });
+    editor.poll_lsp_events();
+
+    // Check modal prompt is opened in References mode
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::References);
+            let matching = modal.matching_references();
+            assert_eq!(matching.len(), 2);
+            assert_eq!(matching[0].range.start.line, 1);
+            assert_eq!(matching[1].range.start.line, 2);
+            assert!(matching[0].line_text.contains("let result = val * 2"));
+        }
+        _ => panic!("Expected EditorMode::ModalPrompt"),
+    }
+
+    // Press down to select second reference and press Enter to jump
+    editor.handle_key(Key::Down);
+    editor.handle_key(Key::Enter);
+
+    assert_eq!(editor.mode, EditorMode::Normal);
+    let head = editor.doc().cursors.primary().head;
+    let pos = editor.doc().buffer.char_to_position(head);
+    assert_eq!(pos.line, 2);
+    assert_eq!(pos.col, 19);
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_lsp_elite_workspace_rename_and_edits() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::lsp::{LspEvent, LspPosition, LspRange, LspTextEdit, LspWorkspaceEdit};
+    use std::collections::HashMap;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_lsp_rename_test_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let file_a = temp_dir.join("lib.rs");
+    let file_b = temp_dir.join("main.rs");
+    fs::write(&file_a, "pub fn old_calculator() -> i32 { 42 }\n").unwrap();
+    fs::write(&file_b, "fn main() { let ans = old_calculator(); }\n").unwrap();
+
+    let buf_a = TextBuffer::open(&file_a).unwrap();
+    let mut editor = Editor::new(buf_a);
+    editor.open_file(&file_b);
+
+    // Prepare WorkspaceEdit: rename `old_calculator` to `new_super_calculator` in both files
+    let mut changes = HashMap::new();
+    changes.insert(file_a.clone(), vec![
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 0, character: 7 },
+                end: LspPosition { line: 0, character: 21 },
+            },
+            new_text: "new_super_calculator".to_string(),
+        },
+    ]);
+    changes.insert(file_b.clone(), vec![
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 0, character: 22 },
+                end: LspPosition { line: 0, character: 36 },
+            },
+            new_text: "new_super_calculator".to_string(),
+        },
+    ]);
+
+    editor.lsp.push_event_for_test(LspEvent::RenameResponse {
+        request_id: 1,
+        edit: Some(LspWorkspaceEdit { changes }),
+    });
+    editor.poll_lsp_events();
+
+    // Verify open tabs have the updated content
+    let doc_b = editor.doc();
+    assert_eq!(doc_b.buffer.to_string(), "fn main() { let ans = new_super_calculator(); }\n");
+
+    editor.prev_tab();
+    let doc_a = editor.doc();
+    assert_eq!(doc_a.buffer.to_string(), "pub fn new_super_calculator() -> i32 { 42 }\n");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_lsp_elite_code_actions_and_apply() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::{Editor, EditorMode};
+    use rustext::editor::lsp::{LspCodeAction, LspEvent, LspPosition, LspRange, LspTextEdit, LspWorkspaceEdit};
+    use rustext::ui::prompt::PromptKind;
+    use rustext::ui::terminal::Key;
+    use std::collections::HashMap;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_lsp_action_test_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+    let file_path = temp_dir.join("main.rs");
+    fs::write(&file_path, "let x = 10;\n").unwrap();
+
+    let buf = TextBuffer::open(&file_path).unwrap();
+    let mut editor = Editor::new(buf);
+
+    let mut changes = HashMap::new();
+    changes.insert(file_path.clone(), vec![
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 0, character: 4 },
+                end: LspPosition { line: 0, character: 4 },
+            },
+            new_text: "mut ".to_string(),
+        },
+    ]);
+
+    let action = LspCodeAction {
+        title: "Make variable mutable".to_string(),
+        kind: Some("quickfix".to_string()),
+        edit: Some(LspWorkspaceEdit { changes }),
+        is_preferred: true,
+    };
+
+    editor.lsp.push_event_for_test(LspEvent::CodeActionResponse {
+        request_id: 1,
+        actions: vec![action],
+    });
+    editor.poll_lsp_events();
+
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::CodeActions);
+            assert_eq!(modal.code_actions.len(), 1);
+            assert_eq!(modal.code_actions[0].title, "Make variable mutable");
+            assert!(modal.code_actions[0].is_preferred);
+        }
+        _ => panic!("Expected EditorMode::ModalPrompt"),
+    }
+
+    // Press Enter to apply code action
+    editor.handle_key(Key::Enter);
+    assert_eq!(editor.mode, EditorMode::Normal);
+    assert_eq!(editor.doc().buffer.to_string(), "let mut x = 10;\n");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_lsp_elite_document_formatting() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::lsp::{LspEvent, LspPosition, LspRange, LspTextEdit};
+
+    let mut editor = Editor::new(TextBuffer::from_str("fn foo(){\nlet y=1;\n}\n"));
+
+    let edits = vec![
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 0, character: 8 },
+                end: LspPosition { line: 0, character: 9 },
+            },
+            new_text: " {".to_string(),
+        },
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 1, character: 0 },
+                end: LspPosition { line: 1, character: 0 },
+            },
+            new_text: "    ".to_string(),
+        },
+        LspTextEdit {
+            range: LspRange {
+                start: LspPosition { line: 1, character: 5 },
+                end: LspPosition { line: 1, character: 6 },
+            },
+            new_text: " = ".to_string(),
+        },
+    ];
+
+    editor.lsp.push_event_for_test(LspEvent::FormattingResponse {
+        request_id: 1,
+        edits,
+    });
+    editor.poll_lsp_events();
+
+    assert_eq!(editor.doc().buffer.to_string(), "fn foo() {\n    let y = 1;\n}\n");
+}
+
+#[test]
+fn test_lsp_elite_document_symbols_outline_and_jump() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::{Editor, EditorMode};
+    use rustext::editor::lsp::{LspDocumentSymbol, LspEvent, LspPosition, LspRange, SymbolKind};
+    use rustext::ui::prompt::PromptKind;
+    use rustext::ui::terminal::Key;
+
+    let buf = TextBuffer::from_str("struct AppState {\n    count: usize,\n}\n\nimpl AppState {\n    pub fn run() {}\n}\n");
+    let mut editor = Editor::new(buf);
+
+    let symbols = vec![
+        LspDocumentSymbol {
+            name: "AppState".to_string(),
+            detail: "struct".to_string(),
+            kind: SymbolKind::Struct,
+            range: LspRange {
+                start: LspPosition { line: 0, character: 0 },
+                end: LspPosition { line: 2, character: 1 },
+            },
+            selection_range: LspRange {
+                start: LspPosition { line: 0, character: 7 },
+                end: LspPosition { line: 0, character: 15 },
+            },
+            depth: 0,
+        },
+        LspDocumentSymbol {
+            name: "run".to_string(),
+            detail: "fn()".to_string(),
+            kind: SymbolKind::Function,
+            range: LspRange {
+                start: LspPosition { line: 5, character: 4 },
+                end: LspPosition { line: 5, character: 19 },
+            },
+            selection_range: LspRange {
+                start: LspPosition { line: 5, character: 11 },
+                end: LspPosition { line: 5, character: 14 },
+            },
+            depth: 1,
+        },
+    ];
+
+    editor.lsp.push_event_for_test(LspEvent::DocumentSymbolsResponse {
+        request_id: 1,
+        file: None,
+        symbols,
+    });
+    editor.poll_lsp_events();
+
+    match &editor.mode {
+        EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, PromptKind::DocumentSymbols);
+            let matching = modal.matching_document_symbols();
+            assert_eq!(matching.len(), 2);
+            assert_eq!(matching[0].name, "AppState");
+            assert_eq!(matching[0].kind.badge_str(), "[struct]");
+            assert_eq!(matching[1].name, "run");
+            assert_eq!(matching[1].kind.badge_str(), "[fn]");
+        }
+        _ => panic!("Expected EditorMode::ModalPrompt"),
+    }
+
+    // Select second symbol and jump
+    editor.handle_key(Key::Down);
+    editor.handle_key(Key::Enter);
+
+    assert_eq!(editor.mode, EditorMode::Normal);
+    let head = editor.doc().cursors.primary().head;
+    let pos = editor.doc().buffer.char_to_position(head);
+    assert_eq!(pos.line, 5);
+}
+
+#[test]
+fn test_lsp_elite_inlay_hints_and_toggle() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::editor::app::Editor;
+    use rustext::editor::lsp::{InlayHintKind, LspEvent, LspInlayHint, LspPosition};
+
+    let mut editor = Editor::new(TextBuffer::from_str("let x = compute();\n"));
+    editor.config.lsp.inlay_hints = true;
+
+    let hints = vec![
+        LspInlayHint {
+            position: LspPosition { line: 0, character: 5 },
+            label: ": i32".to_string(),
+            kind: InlayHintKind::Type,
+            padding_left: false,
+            padding_right: true,
+        },
+    ];
+
+    editor.lsp.push_event_for_test(LspEvent::InlayHintsResponse {
+        request_id: 1,
+        file: None,
+        hints,
+    });
+    editor.poll_lsp_events();
+
+    assert_eq!(editor.doc().inlay_hints.len(), 1);
+    assert_eq!(editor.doc().inlay_hints[&0].len(), 1);
+    assert_eq!(editor.doc().inlay_hints[&0][0].label, ": i32");
+
+    // Toggle inlay hints off
+    editor.lsp_toggle_inlay_hints();
+    assert!(!editor.config.lsp.inlay_hints);
+    assert!(editor.doc().inlay_hints.is_empty());
+
+    // Toggle back on
+    editor.lsp_toggle_inlay_hints();
+    assert!(editor.config.lsp.inlay_hints);
+}
+
+#[test]
+fn test_lsp_multi_language_servers_and_config() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::app::Editor;
+    use rustext::editor::config::EditorConfig;
+
+    let editor = Editor::new(TextBuffer::from_str(""));
+
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Rust).unwrap(), "rust-analyzer");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Python).unwrap(), "pylsp");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::C).unwrap(), "clangd");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::JavaScript).unwrap(), "typescript-language-server --stdio");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Html).unwrap(), "vscode-html-language-server --stdio");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Css).unwrap(), "vscode-html-language-server --stdio");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Json).unwrap(), "vscode-json-language-server --stdio");
+    assert_eq!(editor.lsp_server_cmd_for_lang(Language::Markdown).unwrap(), "marksman server");
+
+    let mut cfg = EditorConfig::default();
+    cfg.lsp.inlay_hints = true;
+    cfg.lsp.go_server = "gopls".to_string();
+    cfg.lsp.zig_server = "zls".to_string();
+
+    let ini = cfg.to_ini_string();
+    assert!(ini.contains("inlay_hints = true"));
+    assert!(ini.contains("typescript_server = typescript-language-server --stdio"));
+    assert!(ini.contains("go_server = gopls"));
+    assert!(ini.contains("zig_server = zls"));
+
+    let loaded = EditorConfig::parse(&ini);
+    assert!(loaded.lsp.inlay_hints);
+    assert_eq!(loaded.lsp.go_server, "gopls");
+    assert_eq!(loaded.lsp.zig_server, "zls");
 }
 
 

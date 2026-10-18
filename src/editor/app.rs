@@ -543,6 +543,21 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::References {
+                        let count = modal.matching_references().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
+                        }
+                    } else if modal.kind == PromptKind::CodeActions {
+                        let count = modal.matching_code_actions().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
+                        }
+                    } else if modal.kind == PromptKind::DocumentSymbols {
+                        let count = modal.matching_document_symbols().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 1).min(count - 1);
+                        }
                     } else if modal.kind == PromptKind::FileFinder {
                         modal.select_next_file_result(9);
                     } else if modal.is_file_dialog() {
@@ -559,6 +574,12 @@ impl Editor {
                     } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.kind == PromptKind::RecentProjects {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::References {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::CodeActions {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(1);
+                    } else if modal.kind == PromptKind::DocumentSymbols {
                         modal.selected_idx = modal.selected_idx.saturating_sub(1);
                     } else if modal.kind == PromptKind::FileFinder {
                         modal.select_prev_file_result();
@@ -583,6 +604,21 @@ impl Editor {
                         if count > 0 {
                             modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
                         }
+                    } else if modal.kind == PromptKind::References {
+                        let count = modal.matching_references().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
+                        }
+                    } else if modal.kind == PromptKind::CodeActions {
+                        let count = modal.matching_code_actions().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
+                        }
+                    } else if modal.kind == PromptKind::DocumentSymbols {
+                        let count = modal.matching_document_symbols().len();
+                        if count > 0 {
+                            modal.selected_idx = (modal.selected_idx + 6).min(count - 1);
+                        }
                     } else if modal.kind == PromptKind::FileFinder {
                         for _ in 0..6 {
                             modal.select_next_file_result(9);
@@ -601,6 +637,12 @@ impl Editor {
                     } else if modal.kind == PromptKind::RecentFiles {
                         modal.selected_idx = modal.selected_idx.saturating_sub(6);
                     } else if modal.kind == PromptKind::RecentProjects {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(6);
+                    } else if modal.kind == PromptKind::References {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(6);
+                    } else if modal.kind == PromptKind::CodeActions {
+                        modal.selected_idx = modal.selected_idx.saturating_sub(6);
+                    } else if modal.kind == PromptKind::DocumentSymbols {
                         modal.selected_idx = modal.selected_idx.saturating_sub(6);
                     } else if modal.kind == PromptKind::FileFinder {
                         for _ in 0..6 {
@@ -1383,6 +1425,24 @@ impl Editor {
             }
             EditorAction::LspHover => {
                 self.lsp_hover();
+            }
+            EditorAction::LspFindReferences => {
+                self.lsp_find_references();
+            }
+            EditorAction::LspRename => {
+                self.lsp_rename_prompt();
+            }
+            EditorAction::LspCodeActions => {
+                self.lsp_code_actions();
+            }
+            EditorAction::LspFormatDocument => {
+                self.lsp_format_document();
+            }
+            EditorAction::LspDocumentSymbols => {
+                self.lsp_document_symbols();
+            }
+            EditorAction::LspToggleInlayHints => {
+                self.lsp_toggle_inlay_hints();
             }
             EditorAction::TriggerSignatureHelp => {
                 self.trigger_signature_help(true);
@@ -2476,6 +2536,10 @@ impl Editor {
             crate::core::syntax::Language::Rust => Some(self.config.lsp.rust_server.clone()),
             crate::core::syntax::Language::Python => Some(self.config.lsp.python_server.clone()),
             crate::core::syntax::Language::C => Some(self.config.lsp.c_server.clone()),
+            crate::core::syntax::Language::JavaScript => Some(self.config.lsp.typescript_server.clone()),
+            crate::core::syntax::Language::Html | crate::core::syntax::Language::Css => Some(self.config.lsp.html_css_server.clone()),
+            crate::core::syntax::Language::Json => Some(self.config.lsp.json_server.clone()),
+            crate::core::syntax::Language::Markdown => Some(self.config.lsp.markdown_server.clone()),
             _ => None,
         }
     }
@@ -2516,6 +2580,11 @@ impl Editor {
                 crate::core::syntax::Language::Rust => "rust",
                 crate::core::syntax::Language::Python => "python",
                 crate::core::syntax::Language::C => "c",
+                crate::core::syntax::Language::JavaScript => "typescript",
+                crate::core::syntax::Language::Html => "html",
+                crate::core::syntax::Language::Css => "css",
+                crate::core::syntax::Language::Json => "json",
+                crate::core::syntax::Language::Markdown => "markdown",
                 _ => return,
             };
             (path, lang_id, doc.buffer.to_string())
@@ -2523,6 +2592,13 @@ impl Editor {
 
         self.lsp.notify_did_open(&path, lang, &text);
         self.lsp.request_semantic_tokens(&path);
+        if self.config.lsp.inlay_hints {
+            let full_range = crate::editor::lsp::LspRange {
+                start: crate::editor::lsp::LspPosition { line: 0, character: 0 },
+                end: crate::editor::lsp::LspPosition { line: 100_000, character: 0 },
+            };
+            self.lsp.request_inlay_hints(&path, full_range);
+        }
     }
 
     /// Sends didChange notification for the active document.
@@ -2541,6 +2617,13 @@ impl Editor {
 
         self.lsp.notify_did_change(&path, &text);
         self.lsp.request_semantic_tokens(&path);
+        if self.config.lsp.inlay_hints {
+            let full_range = crate::editor::lsp::LspRange {
+                start: crate::editor::lsp::LspPosition { line: 0, character: 0 },
+                end: crate::editor::lsp::LspPosition { line: 100_000, character: 0 },
+            };
+            self.lsp.request_inlay_hints(&path, full_range);
+        }
     }
 
     /// Sends didOpen for all open documents.
@@ -2554,10 +2637,22 @@ impl Editor {
                     crate::core::syntax::Language::Rust => "rust",
                     crate::core::syntax::Language::Python => "python",
                     crate::core::syntax::Language::C => "c",
+                    crate::core::syntax::Language::JavaScript => "typescript",
+                    crate::core::syntax::Language::Html => "html",
+                    crate::core::syntax::Language::Css => "css",
+                    crate::core::syntax::Language::Json => "json",
+                    crate::core::syntax::Language::Markdown => "markdown",
                     _ => continue,
                 };
                 self.lsp.notify_did_open(path, lang_id, &doc.buffer.to_string());
                 self.lsp.request_semantic_tokens(path);
+                if self.config.lsp.inlay_hints {
+                    let full_range = crate::editor::lsp::LspRange {
+                        start: crate::editor::lsp::LspPosition { line: 0, character: 0 },
+                        end: crate::editor::lsp::LspPosition { line: 100_000, character: 0 },
+                    };
+                    self.lsp.request_inlay_hints(path, full_range);
+                }
             }
         }
     }
@@ -2662,6 +2757,252 @@ impl Editor {
         self.set_status("LSP: Servidor reiniciado");
     }
 
+    /// Requests Find All References at the primary cursor position.
+    pub fn lsp_find_references(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let (path, line, col) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para buscar referencias");
+                    return;
+                }
+            };
+            let head = doc.cursors.primary().head;
+            let pos = doc.buffer.char_to_position(head);
+            (path, pos.line, pos.col)
+        };
+
+        self.lsp.request_references(&path, line, col, true);
+        self.set_status("LSP: Buscando referencias del símbolo...");
+    }
+
+    /// Returns the symbol or word currently under the primary cursor.
+    pub fn current_word_at_cursor(&self) -> String {
+        let doc = self.doc();
+        let primary = doc.cursors.primary();
+        if primary.has_selection() {
+            let range = primary.selection_range();
+            let text = doc.buffer.get_text_range(range.start, range.end);
+            if !text.contains('\n') {
+                return text;
+            }
+        }
+        let head = primary.head;
+        let len = doc.buffer.len_chars();
+        if len == 0 {
+            return String::new();
+        }
+        let mut start = head;
+        while start > 0 {
+            if let Some(c) = doc.buffer.char_at(start - 1) {
+                if c.is_alphanumeric() || c == '_' {
+                    start -= 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        let mut end = head;
+        while end < len {
+            if let Some(c) = doc.buffer.char_at(end) {
+                if c.is_alphanumeric() || c == '_' {
+                    end += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        if start < end {
+            doc.buffer.get_text_range(start, end)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Opens the Rename Symbol modal prompt at the primary cursor position.
+    pub fn lsp_rename_prompt(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        if self.doc().buffer.file_path().is_none() {
+            self.set_status("LSP: Guarde el archivo para renombrar símbolos");
+            return;
+        }
+        let sym = self.current_word_at_cursor();
+        self.mode = EditorMode::ModalPrompt(PromptModal::new_rename(&sym));
+    }
+
+    /// Requests Code Actions (quick fixes, refactorings) at the primary cursor.
+    pub fn lsp_code_actions(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let (path, range) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para consultar acciones de código");
+                    return;
+                }
+            };
+            let primary = doc.cursors.primary();
+            let (start_char, end_char) = if primary.has_selection() {
+                let r = primary.selection_range();
+                (r.start, r.end)
+            } else {
+                (primary.head, primary.head)
+            };
+            let p1 = doc.buffer.char_to_position(start_char);
+            let p2 = doc.buffer.char_to_position(end_char);
+            let range = crate::editor::lsp::LspRange {
+                start: crate::editor::lsp::LspPosition { line: p1.line, character: p1.col },
+                end: crate::editor::lsp::LspPosition { line: p2.line, character: p2.col },
+            };
+            (path, range)
+        };
+
+        let diags: Vec<crate::editor::diagnostic::Diagnostic> = self.diagnostics.diagnostics
+            .iter()
+            .filter(|d| {
+                if let Some(ref f) = d.file {
+                    f == &path || path.ends_with(f) || f.ends_with(&path)
+                } else {
+                    false
+                }
+            })
+            .filter(|d| d.line >= range.start.line + 1 && d.line <= range.end.line + 1)
+            .cloned()
+            .collect();
+
+        self.lsp.request_code_actions(&path, range, &diags);
+        self.set_status("LSP: Solicitando acciones y soluciones rápidas...");
+    }
+
+    /// Requests LSP document formatting for the active document.
+    pub fn lsp_format_document(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let (path, tab_size) = {
+            let doc = self.doc();
+            let path = match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para formatear");
+                    return;
+                }
+            };
+            (path, self.config.editor.tab_size)
+        };
+
+        self.lsp.request_formatting(&path, tab_size, true);
+        self.set_status("LSP: Solicitando formateo de documento...");
+    }
+
+    /// Requests document symbols / outline for the active document.
+    pub fn lsp_document_symbols(&mut self) {
+        if !self.lsp.is_running() {
+            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            self.lsp_ensure_server_for_doc();
+            return;
+        }
+        let path = {
+            let doc = self.doc();
+            match doc.buffer.file_path() {
+                Some(p) => p.to_path_buf(),
+                None => {
+                    self.set_status("LSP: Guarde el archivo para ver esquema de símbolos");
+                    return;
+                }
+            }
+        };
+
+        self.lsp.request_document_symbols(&path);
+        self.set_status("LSP: Extrayendo esquema de símbolos del archivo...");
+    }
+
+    /// Toggles LSP Inlay Hints visibility on/off.
+    pub fn lsp_toggle_inlay_hints(&mut self) {
+        self.config.lsp.inlay_hints = !self.config.lsp.inlay_hints;
+        let state = if self.config.lsp.inlay_hints { "activados" } else { "desactivados" };
+        self.set_status(format!("LSP: Inlay hints {}", state));
+        if self.config.lsp.inlay_hints {
+            if let Some(path) = self.doc().buffer.file_path() {
+                let path_buf = path.to_path_buf();
+                let full_range = crate::editor::lsp::LspRange {
+                    start: crate::editor::lsp::LspPosition { line: 0, character: 0 },
+                    end: crate::editor::lsp::LspPosition { line: 100_000, character: 0 },
+                };
+                self.lsp.request_inlay_hints(&path_buf, full_range);
+            }
+        } else {
+            for doc in &mut self.documents {
+                doc.inlay_hints.clear();
+            }
+        }
+    }
+
+    /// Applies a WorkspaceEdit across open documents and files on disk.
+    pub fn apply_workspace_edit(&mut self, edit: &crate::editor::lsp::LspWorkspaceEdit) {
+        let mut modified_files = 0usize;
+        let mut total_edits = 0usize;
+
+        for (path, edits) in &edit.changes {
+            if edits.is_empty() {
+                continue;
+            }
+            total_edits += edits.len();
+            modified_files += 1;
+
+            // Check if open in an existing tab
+            let mut is_open = false;
+            for doc in &mut self.documents {
+                if doc.buffer.file_path() == Some(path) {
+                    crate::editor::lsp::apply_text_edits(&mut doc.buffer, edits.clone());
+                    let max_len = doc.buffer.len_chars();
+                    for c in doc.cursors.cursors_mut() {
+                        c.head = c.head.min(max_len);
+                        c.anchor = c.anchor.min(max_len);
+                    }
+                    doc.cursors.normalize();
+                    is_open = true;
+                    break;
+                }
+            }
+
+            if is_open {
+                let open_text = self.documents.iter()
+                    .find(|d| d.buffer.file_path() == Some(path))
+                    .map(|d| d.buffer.to_string());
+                if let Some(text) = open_text {
+                    self.lsp.notify_did_change(path, &text);
+                }
+            } else if let Ok(mut temp_buf) = crate::core::buffer::TextBuffer::open(path) {
+                crate::editor::lsp::apply_text_edits(&mut temp_buf, edits.clone());
+                let _ = temp_buf.save();
+            }
+        }
+
+        self.set_status(format!("LSP: Aplicadas {} modificaciones en {} archivo(s)", total_edits, modified_files));
+    }
+
     /// Polls incoming events from the background LSP thread.
     /// Returns true if state changed and redraw is required.
     pub fn poll_lsp_events(&mut self) -> bool {
@@ -2741,6 +3082,96 @@ impl Editor {
                         self.set_status("LSP: No se encontró la definición del símbolo");
                     }
                     needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::ReferencesResponse { references, .. } => {
+                    if references.is_empty() {
+                        self.set_status("LSP: No se encontraron referencias para este símbolo");
+                    } else {
+                        let mut items: Vec<crate::editor::lsp::LspReferenceItem> = Vec::with_capacity(references.len());
+                        for loc in references {
+                            let line_idx = loc.range.start.line;
+                            let line_text = if let Some(open_doc) = self.documents.iter().find(|d| d.buffer.file_path() == Some(&loc.path)) {
+                                open_doc.buffer.line(line_idx).unwrap_or_default().trim().to_string()
+                            } else if let Ok(content) = std::fs::read_to_string(&loc.path) {
+                                content.lines().nth(line_idx).unwrap_or("").trim().to_string()
+                            } else {
+                                String::new()
+                            };
+                            items.push(crate::editor::lsp::LspReferenceItem {
+                                path: loc.path,
+                                range: loc.range,
+                                line_text,
+                            });
+                        }
+                        self.set_status(format!("LSP: {} referencia(s) encontrada(s)", items.len()));
+                        self.mode = EditorMode::ModalPrompt(PromptModal::new_references(items));
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::RenameResponse { edit, .. } => {
+                    if let Some(ws_edit) = edit {
+                        self.apply_workspace_edit(&ws_edit);
+                    } else {
+                        self.set_status("LSP: El servidor no devolvió cambios para el renombre");
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::CodeActionResponse { actions, .. } => {
+                    if actions.is_empty() {
+                        self.set_status("LSP: No hay acciones ni soluciones rápidas disponibles aquí");
+                    } else {
+                        self.set_status(format!("LSP: {} acción(es) disponible(s)", actions.len()));
+                        self.mode = EditorMode::ModalPrompt(PromptModal::new_code_actions(actions));
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::FormattingResponse { edits, .. } => {
+                    if edits.is_empty() {
+                        self.set_status("LSP: El documento ya está correctamente formateado");
+                    } else {
+                        let count = edits.len();
+                        let doc = self.doc_mut();
+                        crate::editor::lsp::apply_text_edits(&mut doc.buffer, edits);
+                        let max_len = doc.buffer.len_chars();
+                        for c in doc.cursors.cursors_mut() {
+                            c.head = c.head.min(max_len);
+                            c.anchor = c.anchor.min(max_len);
+                        }
+                        doc.cursors.normalize();
+                        self.set_status(format!("LSP: Documento formateado ({} cambio(s) aplicado(s))", count));
+                        self.lsp_notify_change_active_doc();
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::DocumentSymbolsResponse { symbols, .. } => {
+                    if symbols.is_empty() {
+                        self.set_status("LSP: No se detectaron símbolos en el documento");
+                    } else {
+                        self.set_status(format!("LSP: {} símbolo(s) cargado(s)", symbols.len()));
+                        self.mode = EditorMode::ModalPrompt(PromptModal::new_document_symbols(symbols));
+                    }
+                    needs_redraw = true;
+                }
+                crate::editor::lsp::LspEvent::InlayHintsResponse { file, hints, .. } => {
+                    let mut map: std::collections::HashMap<usize, Vec<crate::editor::lsp::LspInlayHint>> = std::collections::HashMap::new();
+                    for hint in hints {
+                        map.entry(hint.position.line).or_default().push(hint);
+                    }
+                    for list in map.values_mut() {
+                        list.sort_by_key(|h| h.position.character);
+                    }
+                    if let Some(target_path) = file {
+                        for doc in &mut self.documents {
+                            if doc.buffer.file_path() == Some(&target_path) {
+                                doc.inlay_hints = map.clone();
+                                needs_redraw = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        self.doc_mut().inlay_hints = map;
+                        needs_redraw = true;
+                    }
                 }
                 crate::editor::lsp::LspEvent::SemanticTokensResponse { file, tokens, .. } => {
                     if let Some(target_path) = file {
@@ -3589,6 +4020,70 @@ impl Editor {
                     doc.cursors.set_single(char_offset);
                     doc.scroll_row = safe_line.saturating_sub(view_h / 2);
                     self.set_status(format!("Salto a {}:{}:{}", rel_path, target_line, target_col));
+                }
+            }
+            PromptKind::References => {
+                let matches = modal.matching_references();
+                if !matches.is_empty() && modal.selected_idx < matches.len() {
+                    let item = matches[modal.selected_idx];
+                    let target_path = item.path.clone();
+                    let line_idx = item.range.start.line;
+                    let col_idx = item.range.start.character;
+
+                    self.open_file(&target_path);
+                    let view_h = self.screen.rows.saturating_sub(2);
+                    let doc = self.doc_mut();
+                    let total_lines = doc.buffer.len_lines();
+                    let safe_line = line_idx.min(total_lines.saturating_sub(1));
+                    let line_len = doc.buffer.line_len(safe_line);
+                    let safe_col = col_idx.min(line_len);
+                    let char_offset = doc.buffer.position_to_char(Position::new(safe_line, safe_col));
+                    doc.cursors.set_single(char_offset);
+                    doc.scroll_row = safe_line.saturating_sub(view_h / 2);
+                    let fname = target_path.file_name().and_then(|n| n.to_str()).unwrap_or("archivo");
+                    self.set_status(format!("LSP: Salto a referencia en {}:{}:{}", fname, safe_line + 1, safe_col + 1));
+                }
+            }
+            PromptKind::RenameSymbol => {
+                let new_name = modal.input.trim().to_string();
+                if !new_name.is_empty() {
+                    if let Some(path) = self.doc().buffer.file_path().map(|p| p.to_path_buf()) {
+                        let head = self.doc().cursors.primary().head;
+                        let pos = self.doc().buffer.char_to_position(head);
+                        self.lsp.request_rename(&path, pos.line, pos.col, &new_name);
+                        self.set_status(format!("LSP: Solicitando renombre a '{}'...", new_name));
+                    }
+                }
+            }
+            PromptKind::CodeActions => {
+                let matches = modal.matching_code_actions();
+                if !matches.is_empty() && modal.selected_idx < matches.len() {
+                    let action = matches[modal.selected_idx];
+                    if let Some(ref edit) = action.edit {
+                        let action_title = action.title.clone();
+                        self.apply_workspace_edit(edit);
+                        self.set_status(format!("LSP: Aplicada acción '{}'", action_title));
+                    } else {
+                        self.set_status(format!("LSP: Acción '{}' sin ediciones directas", action.title));
+                    }
+                }
+            }
+            PromptKind::DocumentSymbols => {
+                let matches = modal.matching_document_symbols();
+                if !matches.is_empty() && modal.selected_idx < matches.len() {
+                    let sym = matches[modal.selected_idx];
+                    let line_idx = sym.range.start.line;
+                    let col_idx = sym.range.start.character;
+                    let view_h = self.screen.rows.saturating_sub(2);
+                    let doc = self.doc_mut();
+                    let total_lines = doc.buffer.len_lines();
+                    let safe_line = line_idx.min(total_lines.saturating_sub(1));
+                    let line_len = doc.buffer.line_len(safe_line);
+                    let safe_col = col_idx.min(line_len);
+                    let char_offset = doc.buffer.position_to_char(Position::new(safe_line, safe_col));
+                    doc.cursors.set_single(char_offset);
+                    doc.scroll_row = safe_line.saturating_sub(view_h / 2);
+                    self.set_status(format!("LSP: {} '{}' (línea {})", sym.kind.badge_str(), sym.name, safe_line + 1));
                 }
             }
         }

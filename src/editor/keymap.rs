@@ -114,6 +114,12 @@ pub enum EditorAction {
     TriggerSignatureHelp,
     RestartLspServer,
     RefreshSemanticTokens,
+    LspFindReferences,
+    LspRename,
+    LspCodeActions,
+    LspFormatDocument,
+    LspDocumentSymbols,
+    LspToggleInlayHints,
     Quit,
     None,
 }
@@ -166,8 +172,8 @@ impl Keymap {
             Key::Alt('h') | Key::Alt('H') => EditorAction::ToggleGitHunkDiff,
             Key::Alt('r') | Key::Alt('R') => EditorAction::RevertGitHunk,
 
-            // LSP Semantic Tokens refresh (F5 or Ctrl+Shift+R)
-            Key::F(5) | Key::CtrlShift('r') | Key::CtrlShift('R') => EditorAction::RefreshSemanticTokens,
+            // LSP Semantic Tokens refresh (F5)
+            Key::F(5) => EditorAction::RefreshSemanticTokens,
 
             // Integrated Terminal (Ctrl+` or Ctrl+~)
             Key::Ctrl('`') | Key::Ctrl('~') => EditorAction::ToggleTerminal,
@@ -227,7 +233,12 @@ impl Keymap {
 
             // Language Server Protocol (LSP)
             Key::F(12) => EditorAction::LspGoToDefinition,
-            Key::F(2) | Key::Alt('k') | Key::Alt('K') => EditorAction::LspHover,
+            Key::Alt('k') | Key::Alt('K') => EditorAction::LspHover,
+            Key::F(2) => EditorAction::LspRename,
+            Key::CtrlShift('u') | Key::CtrlShift('U') => EditorAction::LspFindReferences,
+            Key::Ctrl('.') => EditorAction::LspCodeActions,
+            Key::CtrlShift('i') | Key::CtrlShift('I') => EditorAction::LspFormatDocument,
+            Key::CtrlShift('r') | Key::CtrlShift('R') => EditorAction::LspDocumentSymbols,
 
             // Autocomplete trigger (Ctrl+Space)
             Key::Ctrl(' ') | Key::Ctrl('@') => EditorAction::TriggerAutocomplete,

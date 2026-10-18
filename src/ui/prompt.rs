@@ -16,6 +16,10 @@ pub enum PromptKind {
     FileFinder,
     RecentProjects,
     OpenFolder,
+    References,
+    RenameSymbol,
+    CodeActions,
+    DocumentSymbols,
 }
 
 impl PromptKind {
@@ -31,6 +35,10 @@ impl PromptKind {
             PromptKind::FileFinder => "Archivo: ",
             PromptKind::RecentProjects => "Proyecto: ",
             PromptKind::OpenFolder => "Carpeta: ",
+            PromptKind::References => "Filtrar: ",
+            PromptKind::RenameSymbol => "Nuevo nombre: ",
+            PromptKind::CodeActions => "Acción: ",
+            PromptKind::DocumentSymbols => "Símbolo: ",
         }
     }
 
@@ -46,6 +54,10 @@ impl PromptKind {
             PromptKind::FileFinder => "Ir a Archivo (Fuzzy File Finder) [Ctrl+P]",
             PromptKind::RecentProjects => "Espacios de Trabajo y Proyectos Recientes (Ctrl+Alt+P)",
             PromptKind::OpenFolder => "Abrir Carpeta / Proyecto (Ctrl+Shift+O)",
+            PromptKind::References => "Buscar Todas las Referencias (Ctrl+Shift+U)",
+            PromptKind::RenameSymbol => "Renombrar Símbolo en el Proyecto (F2)",
+            PromptKind::CodeActions => "Acciones de Código y Quick Fixes (Ctrl+.)",
+            PromptKind::DocumentSymbols => "Símbolos del Documento / Esquema (Ctrl+Shift+R)",
         }
     }
 }
@@ -141,8 +153,15 @@ pub fn standard_commands() -> Vec<CommandItem> {
         CommandItem { name: "Git: Actualizar Estado del Repositorio", shortcut: "Ctrl+Shift+G", action: EditorAction::RefreshGit },
         CommandItem { name: "Git: Alternar Diff en Gutter (Git Gutter)", shortcut: "", action: EditorAction::ToggleGitGutter },
         CommandItem { name: "LSP: Ir a Definición", shortcut: "F12", action: EditorAction::LspGoToDefinition },
-        CommandItem { name: "LSP: Información de Tipo (Hover)", shortcut: "F2", action: EditorAction::LspHover },
+        CommandItem { name: "LSP: Buscar Todas las Referencias", shortcut: "Ctrl+Shift+U", action: EditorAction::LspFindReferences },
+        CommandItem { name: "LSP: Renombrar Símbolo...", shortcut: "F2", action: EditorAction::LspRename },
+        CommandItem { name: "LSP: Acciones de Código y Quick Fixes...", shortcut: "Ctrl+.", action: EditorAction::LspCodeActions },
+        CommandItem { name: "LSP: Formatear Documento", shortcut: "Ctrl+Shift+I", action: EditorAction::LspFormatDocument },
+        CommandItem { name: "LSP: Símbolos del Documento (Esquema)...", shortcut: "Ctrl+Shift+R", action: EditorAction::LspDocumentSymbols },
+        CommandItem { name: "LSP: Información de Tipo (Hover)", shortcut: "Alt+K", action: EditorAction::LspHover },
         CommandItem { name: "LSP: Firma de Función (Signature Help)", shortcut: "Ctrl+Shift+Space", action: EditorAction::TriggerSignatureHelp },
+        CommandItem { name: "LSP: Alternar Sugerencias en Línea (Inlay Hints)", shortcut: "", action: EditorAction::LspToggleInlayHints },
+        CommandItem { name: "LSP: Refrescar Resaltado Semántico", shortcut: "F5", action: EditorAction::RefreshSemanticTokens },
         CommandItem { name: "LSP: Reiniciar Servidor", shortcut: "", action: EditorAction::RestartLspServer },
         CommandItem { name: "Acerca de Rustext", shortcut: "F1", action: EditorAction::OpenAboutDialog },
         CommandItem { name: "Salir de Rustext", shortcut: "Ctrl+Q", action: EditorAction::Quit },
@@ -280,6 +299,11 @@ pub struct PromptModal {
     // Fuzzy File Finder fields for PromptKind::FileFinder
     pub project_files: Vec<crate::core::ProjectFile>,
     pub file_finder_results: Vec<crate::core::FileFinderMatch>,
+    // LSP Elite Prompt fields
+    pub references: Vec<crate::editor::lsp::LspReferenceItem>,
+    pub rename_symbol_target: Option<String>,
+    pub code_actions: Vec<crate::editor::lsp::LspCodeAction>,
+    pub document_symbols: Vec<crate::editor::lsp::LspDocumentSymbol>,
 }
 
 impl PromptModal {
@@ -308,6 +332,10 @@ impl PromptModal {
             recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
+            references: Vec::new(),
+            rename_symbol_target: None,
+            code_actions: Vec::new(),
+            document_symbols: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -354,6 +382,10 @@ impl PromptModal {
             recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
+            references: Vec::new(),
+            rename_symbol_target: None,
+            code_actions: Vec::new(),
+            document_symbols: Vec::new(),
         };
         if modal.is_file_dialog() {
             modal.refresh_dir_entries();
@@ -387,6 +419,10 @@ impl PromptModal {
             recent_projects: Vec::new(),
             project_files: Vec::new(),
             file_finder_results: Vec::new(),
+            references: Vec::new(),
+            rename_symbol_target: None,
+            code_actions: Vec::new(),
+            document_symbols: Vec::new(),
         };
         if !modal.input.trim().is_empty() {
             modal.update_global_search();
@@ -426,6 +462,10 @@ impl PromptModal {
             recent_projects: Vec::new(),
             project_files,
             file_finder_results,
+            references: Vec::new(),
+            rename_symbol_target: None,
+            code_actions: Vec::new(),
+            document_symbols: Vec::new(),
         }
     }
 
@@ -476,6 +516,85 @@ impl PromptModal {
                 p.name.to_lowercase().contains(&query)
                     || p.path.to_string_lossy().to_lowercase().contains(&query)
                     || p.kind_tag.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    /// Creates a prompt modal for selecting from symbol references.
+    pub fn new_references(references: Vec<crate::editor::lsp::LspReferenceItem>) -> Self {
+        let mut modal = Self::new(PromptKind::References);
+        modal.references = references;
+        modal
+    }
+
+    /// Returns matching references filtered by input query.
+    pub fn matching_references(&self) -> Vec<&crate::editor::lsp::LspReferenceItem> {
+        let query = self.input.trim().to_lowercase();
+        if query.is_empty() {
+            return self.references.iter().collect();
+        }
+
+        self.references
+            .iter()
+            .filter(|r| {
+                r.path.to_string_lossy().to_lowercase().contains(&query)
+                    || r.line_text.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    /// Creates a prompt modal for renaming a symbol.
+    pub fn new_rename(current_name: &str) -> Self {
+        let mut modal = Self::new(PromptKind::RenameSymbol);
+        modal.input = current_name.to_string();
+        modal.cursor_col = modal.input.chars().count();
+        modal.rename_symbol_target = Some(current_name.to_string());
+        modal
+    }
+
+    /// Creates a prompt modal for selecting code actions and quick fixes.
+    pub fn new_code_actions(actions: Vec<crate::editor::lsp::LspCodeAction>) -> Self {
+        let mut modal = Self::new(PromptKind::CodeActions);
+        modal.code_actions = actions;
+        modal
+    }
+
+    /// Returns matching code actions filtered by input query.
+    pub fn matching_code_actions(&self) -> Vec<&crate::editor::lsp::LspCodeAction> {
+        let query = self.input.trim().to_lowercase();
+        if query.is_empty() {
+            return self.code_actions.iter().collect();
+        }
+
+        self.code_actions
+            .iter()
+            .filter(|a| {
+                a.title.to_lowercase().contains(&query)
+                    || a.kind.as_deref().unwrap_or("").to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    /// Creates a prompt modal for document symbols / code outline.
+    pub fn new_document_symbols(symbols: Vec<crate::editor::lsp::LspDocumentSymbol>) -> Self {
+        let mut modal = Self::new(PromptKind::DocumentSymbols);
+        modal.document_symbols = symbols;
+        modal
+    }
+
+    /// Returns matching document symbols filtered by input query.
+    pub fn matching_document_symbols(&self) -> Vec<&crate::editor::lsp::LspDocumentSymbol> {
+        let query = self.input.trim().to_lowercase();
+        if query.is_empty() {
+            return self.document_symbols.iter().collect();
+        }
+
+        self.document_symbols
+            .iter()
+            .filter(|s| {
+                s.name.to_lowercase().contains(&query)
+                    || s.detail.to_lowercase().contains(&query)
+                    || s.kind.badge_str().to_lowercase().contains(&query)
             })
             .collect()
     }
