@@ -14,9 +14,9 @@
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust" alt="Rust 2024 Edition" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg" alt="0 Dependencies" /></a>
   <a href="https://github.com/boleklolek/rustext/actions"><img src="https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="tests/"><img src="https://img.shields.io/badge/Tests-221%20passed-success.svg" alt="Tests" /></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/Tests-160%20passed-success.svg" alt="Tests" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg" alt="Platforms" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/LSP-rust--analyzer%20%7C%20pylsp%20%7C%20clangd-blueviolet.svg" alt="LSP" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg" alt="LSP" /></a>
 </p>
 
 ---
@@ -183,10 +183,13 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Búsqueda reactiva mientras se escribe, soporte para alternar mayúsculas/minúsculas (`Alt + C` o botón `[Aa]`).
   - Snippets de código con resaltado ámbar de coincidencias, insignias de archivo/línea y salto inmediato de cursor y viewport al hacer clic o presionar `Enter`.
 
-- **Restauración de Sesión de Espacio de Trabajo y Modo Hot Exit**:
-  - Persistencia automática de todo el espacio de trabajo en `~/.rustext/session.ini`: pestañas abiertas, cursores exactos, desplazamientos de scroll, paneles divididos (vertical/horizontal y proporciones) y carpeta raíz del proyecto.
+- **Espacios de Trabajo y Gestión de Proyectos (Workspace Management)**:
+  - Apertura de carpetas de proyecto mediante diálogo interactivo con `Ctrl + Shift + O` o menú *Archivo > Abrir Carpeta de Proyecto...*.
+  - Conmutador rápido de espacios de trabajo (`Ctrl + Shift + P` / `Ctrl + Alt + W`) e historial de proyectos recientes en el menú Archivo.
+  - Soporte de archivos de espacio de trabajo `.rustext-workspace` para declarar configuraciones y raíces de repositorios.
+  - **Aislamiento Total de Sesiones por Proyecto**: Guarda y restaura de forma independiente para cada proyecto (`~/.rustext/session_<hash>.ini`) sus pestañas abiertas, cursores exactos, desplazamientos de scroll y paneles divididos sin interferir con otros directorios.
+  - Nombre del proyecto y espacio de trabajo activo visible en el chip de la barra de estado y en la cabecera del explorador lateral.
   - Soporte de *Hot Exit* seguro mediante borradores (`~/.rustext/drafts/*.draft`) para recuperar el contenido modificado ante cierres sin guardar ni perder trabajo.
-  - Totalmente configurable desde `config.ini` (`restore_session = true`, `auto_save_session = true`, `hot_exit = false`).
 
 - **Selector y Filtro de Archivos Recientes (`Ctrl + R`)**:
   - Modal flotante interactivo de acceso rápido con filtro en tiempo real para reabrir rápidamente los archivos recientemente editados.
@@ -208,24 +211,27 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Soporte bidireccional tanto en la interfaz gráfica acelerada (GUI Framebuffer) como en consola (secuencias ANSI de 24-bit en TUI).
 
 - **Soporte Sintáctico Ampliado y Multi-Lenguaje Nativo**:
-  - Detección automática por extensión y por nombre para: **Rust**, **Python**, **C/C++**, **JavaScript/TypeScript**, **HTML**, **CSS/SCSS**, **JSON**, **YAML**, **TOML**, **Shell/Bash** (`.sh`, `.bash`, `.zsh`, `.env`, `.bashrc`, Dockerfile), **SQL** y **Markdown**.
+  - Detección automática por extensión y por nombre para: **Rust**, **Python**, **C/C++**, **JavaScript/TypeScript**, **HTML**, **CSS/SCSS**, **JSON**, **YAML**, **TOML**, **Shell/Bash** (`.sh`, `.bash`, `.zsh`, `.env`, `.bashrc`, Dockerfile), **SQL**, **Markdown** y **Julia** (`.jl`, `.JL`).
+  - **Soporte Especializado para Julia**: Resaltador léxico con comentarios `#` y bloques multilínea `#= ... =#`, cadenas y comandos de consola con backticks (`` `cmd` ``), macros `@inline`, `@time`, `@threads`, etc. clasificadas como `TokenType::Macro`, palabras reservadas y tipos de datos del sistema.
   - Resaltador léxico especializado con clasificación de tags y atributos HTML, selectores y propiedades CSS, variables de entorno y parámetros `$VAR` en Shell, y palabras clave SQL insensibles a mayúsculas/minúsculas.
   - Resaltado jerárquico de Markdown para encabezados (`#`), citas (`>`), listas (`-`, `*`) y bloques de código inline (`` `código` ``).
 
-- **Autocompletado Contextual Inteligente (`Ctrl + Espacio`) y Cliente LSP**:
-  - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
-  - Palabras clave nativas y tipos primitivos de todos los lenguajes soportados más identificadores extraídos en vivo de todos los búferes abiertos.
-  - **Integración con Servidores LSP (`rust-analyzer`, `pylsp`, `clangd`, etc.)**: Autocompletado semántico enriquecido con documentación Markdown, inserción inteligente de texto y diagnóstico en tiempo real.
-  - **Resaltado Semántico de Precisión de Compilador (`Semantic Tokens`, `textDocument/semanticTokens/full`)**: Negociación dinámica de capacidades LSP y decodificación de secuencias 5-tuplas relativas (`deltaLine`, `deltaStartChar`, `length`, `tokenType`, `tokenModifiers`). Superpone sobre el coloreado léxico clasificaciones semánticas exactas del compilador (funciones, métodos, structs, traits, macros, parámetros, constantes y campos de estructuras) con paletas adaptadas a los 8 temas. Atajo rápido `F5` / `Ctrl + Shift + R` para refresco manual de tokens semánticos.
-  - **Firma de Métodos y Parámetros Flotante (`Signature Help`, `Ctrl + Shift + Espacio`)**: Muestra en tiempo real la firma del método o función que se está invocando con resaltado en negrita del parámetro activo y previsualización de su documentación. Se activa automáticamente al escribir `(` o `,`.
-  - **Navegación Semántica LSP**: Salto directo a la definición de símbolos con `F12` y consulta de tipos flotante (*Hover*) con `Shift + F1` / `F2`.
-  - Compatibilidad total con edición multicursor (aplica la palabra seleccionada en todos los cursores activos al mismo tiempo).
-  - Navegación fluida por teclado (`↑`/`↓`, `Tab`/`Enter`, `Esc`) y ratón (hover y clic).
+- **Capacidades LSP de Élite (Suite Completa Zero-Dependency, `std::*`)**:
+  - **Buscar Referencias en el Workspace (`Ctrl + Shift + U`)**: Modal flotante con vista previa interactiva del código circundante, ruta de archivo, línea y columna con salto inmediato de cursor y viewport.
+  - **Renombrado de Símbolos en Todo el Workspace (`F2`)**: Transacciones `WorkspaceEdit` atómicas aplicadas en orden inverso por offsets tanto en pestañas activas como en archivos cerrados en disco sin pérdida de offsets.
+  - **Acciones Rápidas y Quick-Fixes (`Ctrl + .`)**: Solución de errores y refactorizaciones sugeridas por el servidor con insignias temáticas (`💡 [QuickFix]`, `🛠️ [Refactor]`, `📦 [Source]`, `★ [Preferido]`).
+  - **Formateo de Documento con LSP (`Ctrl + Shift + I`)**: Aplica `TextEdit[]` en orden inverso con total preservación de índices y compatibilidad multicursor.
+  - **Esquema de Símbolos / Outline (`Ctrl + Shift + R`)**: Explorador jerárquico y plano de funciones, structs, enums, traits y módulos con insignias sintácticas (`[fn]`, `[struct]`, `[enum]`, `[trait]`, etc.) y filtrado difuso.
+  - **Inlay Hints (`textDocument/inlayHint`)**: Pistas visuales en línea de nombres de parámetros (`param:`) y tipos inferidos (`: Type`) con micro-píldoras estéticas sin alterar columnas de caracteres ni romper la precisión de multicursores.
+  - **Resaltado Semántico de Compilador (`Semantic Tokens`, `F5` / `textDocument/semanticTokens/full`)**: Negociación dinámica de capacidades LSP y decodificación de secuencias relativas para superponer tipos semánticos precisos del compilador sobre el análisis léxico.
+  - **Firma de Métodos y Parámetros Flotante (`Signature Help`, `Ctrl + Shift + Espacio`)**: Muestra en tiempo real la firma del método con resaltado en negrita del parámetro activo al escribir `(` o `,`.
+  - **Salto a Definición (`F12`) e Información de Tipo Flotante (`Alt + K`)**.
+  - **10 Servidores de Lenguaje Preconfigurados**: Rust (`rust-analyzer`), Python (`pylsp`), C/C++ (`clangd`), TypeScript/JavaScript (`typescript-language-server --stdio`), Go (`gopls`), HTML/CSS (`vscode-html-language-server --stdio`), JSON (`vscode-json-language-server --stdio`), Markdown (`marksman server`), Zig (`zls`) y Julia (`julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'`).
 
 - **Ergonomía de Edición Élite y Pila de Navegación (Jump List)**:
   - **Mover Líneas Arriba / Abajo (`Alt + Up` / `Alt + Down`)**: Desplaza líneas individuales o bloques seleccionados verticalmente manteniendo intactos los cursores y selecciones relativas.
   - **Duplicar Líneas Abajo (`Shift + Alt + Down` / `Ctrl + Shift + D`)**: Clona la línea o bloque actual inmediatamente debajo en una única operación atómica con historial de deshacer.
-  - **Alternar Comentarios Multi-lenguaje (`Ctrl + /` / `Ctrl + _`)**: Comenta y descomenta inteligentemente líneas según la sintaxis del lenguaje (`//` en Rust/C/JS, `#` en Python/Shell/YAML/TOML, `<!-- -->` en HTML/Markdown, `/* */` en CSS, `--` en SQL) preservando los niveles de indentación.
+  - **Alternar Comentarios Multi-lenguaje (`Ctrl + /` / `Ctrl + _`)**: Comenta y descomenta inteligentemente líneas según la sintaxis del lenguaje (`//` en Rust/C/JS, `#` en Python/Shell/YAML/TOML/Julia, `<!-- -->` en HTML/Markdown, `/* */` en CSS, `--` en SQL) preservando los niveles de indentación.
   - **Pila de Saltos Histórica (`Alt + Left` / `Alt + Right`)**: Registra automáticamente la ubicación del cursor antes de saltos mayores (ir a definición, diagnósticos, abrir archivos, búsquedas) permitiendo retroceder y avanzar de forma instantánea al estilo VS Code y Vim.
 
 - **Diagnósticos del Compilador y Linter en Vivo**:
@@ -234,12 +240,13 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Navegación rápida entre errores con `F8` (Siguiente) y `Shift + F8` (Anterior).
 
 - **Formateo Automático de Código**:
-  - Formateo instantáneo con `Ctrl + Shift + I` mediante los formateadores del sistema (`rustfmt`, `black`, `clang-format`, `prettier`, `shfmt`, `gofmt`).
+  - Formateo instantáneo con `Ctrl + Shift + I` mediante los formateadores del sistema (`rustfmt`, `black`, `clang-format`, `prettier`, `shfmt`, `gofmt`, `JuliaFormatter`).
   - Opción de formateo y comprobación automática al guardar (`format_on_save`, `check_on_save`).
 
 - **Motor de Snippets e Indentación Inteligente**:
   - Snippets de lenguaje expandibles con `Tab` para todos los lenguajes soportados:
     - **Rust**: `fn`, `pfn`, `struct`, `enum`, `impl`, `for`, `match`, `if`, `test`, `println`, `main`.
+    - **Julia**: `fn`, `fun`, `struct`, `mstruct`, `for`, `while`, `if`, `ifelse`, `try`, `mod`, `macro`, `pl`, `println`, `test`.
     - **Python**: `def`, `class`, `if`, `for`, `main`, `try`, `print`.
     - **C / C++**: `main`, `fn`, `struct`, `for`, `if`, `inc`.
     - **JavaScript / TypeScript**: `fn`, `afn`, `clg`, `for`, `if`, `try`.
@@ -352,6 +359,8 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | :--- | :--- |
 | `Ctrl + S` | Guardar el archivo actual |
 | `Ctrl + O` | Abrir archivo mediante diálogo interactivo |
+| `Ctrl + Shift + O` | **Abrir Carpeta de Proyecto / Espacio de Trabajo** |
+| `Ctrl + Shift + P` / `Ctrl + Alt + W` | **Cambiar Espacio de Trabajo / Proyectos Recientes** |
 | `Ctrl + R` | **Abrir Archivo Reciente... (Selector con filtro difuso)** |
 | `Ctrl + T` | Abrir nueva pestaña vacía |
 | `Ctrl + W` | Cerrar pestaña activa |
@@ -373,7 +382,7 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Ctrl + H` | Buscar y Reemplazar |
 | `Ctrl + Shift + F` | **Búsqueda Global en Todo el Proyecto** |
 | `Ctrl + Espacio` | **Autocompletado Contextual Inteligente** |
-| `Ctrl + P` | **Abrir Paleta de Comandos** |
+| `Ctrl + P` | **Ir a Archivo / Abrir Paleta de Comandos (`>`)** |
 | `Ctrl + Shift + T` | **Selector de Fuentes y Tipografía (Modal con Vista Previa)** |
 | `Ctrl + +` / `Ctrl + =` | **Aumentar tamaño de fuente (Zoom In)** |
 | `Ctrl + -` | **Disminuir tamaño de fuente (Zoom Out)** |
@@ -383,26 +392,30 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Shift + Alt + Down` / `Ctrl + Shift + D` | **Duplicar línea(s) abajo** |
 | `Ctrl + /` / `Ctrl + _` | **Alternar comentario de línea (Toggle Comment)** |
 | `Alt + Left` / `Alt + Right` | **Pila de navegación: saltar atrás / adelante (Jump List)** |
+| `Ctrl + Shift + U` | **LSP: Buscar Todas las Referencias en el Workspace** |
+| `F2` | **LSP: Renombrar Símbolo en Todo el Workspace** |
+| `Ctrl + .` | **LSP: Acciones Rápidas y Quick-Fixes (Code Actions)** |
+| `Ctrl + Shift + R` | **LSP: Esquema / Símbolos del Documento (Outline)** |
+| `Ctrl + Shift + I` | **LSP / Formateo: Formatear Documento** |
+| `F12` | **LSP: Ir a la Definición del Símbolo** |
+| `Alt + K` | **LSP: Información de Tipo Flotante (Hover)** |
 | `Ctrl + Shift + Espacio` | **LSP: Firma de métodos y parámetros (Signature Help)** |
-| `F12` | **LSP: Ir a la definición del símbolo** |
-| `F2` / `Shift + F1` | **LSP: Información de tipo flotante (Hover)** |
-| `F5` / `Ctrl + Shift + R` | **LSP: Refrescar resaltado de tokens semánticos** |
+| `F5` | **LSP: Refrescar Resaltado de Tokens Semánticos** |
 | `Alt + Z` | **Alternar ajuste de línea (Word Wrap)** |
 | `Alt + I` | **Alternar guías visuales de indentación** |
 | `Alt + [` / `F9` | **Plegar / desplegar bloque de código (Fold)** |
 | `Alt + 0` / `Alt + J` | **Plegar todo / Desplegar todo** |
 | `Tab` | Indentación o expandir snippet (`fn`, `struct`, etc.) |
-| `Ctrl + Shift + I` | **Formatear documento con herramienta del sistema** |
 | `F7` | **Comprobar errores (Lint / Check)** |
 | `F8` / `Shift + F8` | Saltar al siguiente / anterior error de compilación |
-| `F1` | Ventana Acerca de Rustext |
+| `F1` | **Ventana Acerca de Rustext (Logotipo Faceted Ribbon R)** |
 
 ---
 
 ## ⚙️ Configuración (`config.ini`)
 
 Rustext crea y lee automáticamente su configuración en formato INI estándar:
-- **Linux / macOS**: `~/.config/rustext/config.ini`
+- **Linux / macOS**: `~/.config/rustext/config.ini` o `~/.rustext/config.ini`
 - **Windows**: `%APPDATA%\rustext\config.ini`
 
 Cualquier cambio guardado en `config.ini` se recarga en caliente de manera inmediata sin necesidad de reiniciar el editor.
@@ -456,6 +469,21 @@ font_hinting = medium     # Alineación al píxel: none, slight, medium, full
 smooth_shadows = true     # Sombras suaves gaussianas y efecto frosted glass acrílico
 animation_enabled = true  # Transiciones y curvas de aceleración (easing)
 edge_perception = true    # Adaptación de contraste perceptual de bordes (Weber-Fechner)
+
+[lsp]
+enabled = true
+auto_start = true
+rust_server = rust-analyzer
+python_server = pylsp
+c_server = clangd
+typescript_server = typescript-language-server --stdio
+go_server = gopls
+html_css_server = vscode-html-language-server --stdio
+json_server = vscode-json-language-server --stdio
+markdown_server = marksman server
+zig_server = zls
+julia_server = julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'
+inlay_hints = true
 ```
 
 ---

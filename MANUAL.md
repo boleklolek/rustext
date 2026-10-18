@@ -4,9 +4,9 @@
 [![Rust](https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust)](Cargo.toml)
 [![Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg)](Cargo.toml)
 [![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
-[![Tests](https://img.shields.io/badge/Tests-207%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-160%20passed-success.svg)](tests/)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
-[![LSP](https://img.shields.io/badge/LSP-rust--analyzer%20%7C%20pylsp%20%7C%20clangd-blueviolet.svg)](#)
+[![LSP](https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg)](#)
 
 **Rustext** es un editor de texto y código fuente nativo de ultra-baja latencia y alto rendimiento, licenciado bajo la **GNU Affero General Public License v3.0 (AGPLv3)**, escrito **100% en Rust puro utilizando exclusivamente la biblioteca estándar (`std`)**, sin dependencias externas ni crates de terceros.
 
@@ -28,7 +28,12 @@ Este manual ofrece una guía exhaustiva de operación, arquitectura interna, ata
    - [3.7 Selector de Fuentes Interactivo y Sistema Tipográfico Avanzado](#37-selector-de-fuentes-interactivo-y-sistema-tipográfico-avanzado)
    - [3.8 Backend Nativo Wayland para Linux (wl_shm + xdg_shell + memfd_create)](#38-backend-nativo-wayland-para-linux-wl_shm--xdg_shell--memfd_create)
    - [3.9 Motor Vectorial TrueType (.ttf), Anti-Aliasing Subpíxel y Caché Tipográfica](#39-motor-vectorial-truetype-ttf-anti-aliasing-subpíxel-y-caché-tipográfica)
-4. [Árbol de Proyecto y Explorador Lateral](#4-árbol-de-proyecto-y-explorador-lateral)
+   - [3.10 Identidad Visual Oficial: "The Faceted Ribbon R" y Desktop Launcher](#310-identidad-visual-oficial-the-faceted-ribbon-r-y-desktop-launcher)
+4. [Árbol de Proyecto, Espacios de Trabajo y Gestión de Proyectos](#4-árbol-de-proyecto-espacios-de-trabajo-y-gestión-de-proyectos)
+   - [4.1 Árbol de Proyecto y Explorador Lateral (Sidebar)](#41-árbol-de-proyecto-y-explorador-lateral)
+   - [4.2 Espacios de Trabajo y Archivos .rustext-workspace](#42-espacios-de-trabajo-y-archivos-rustext-workspace)
+   - [4.3 Aislamiento de Sesiones por Proyecto (session_hash.ini)](#43-aislamiento-de-sesiones-por-proyecto-session_hashini)
+   - [4.4 Conmutación Ágil y Proyectos Recientes](#44-conmutación-ágil-y-proyectos-recientes)
 5. [División de Vistas (Split Editor) y Minimapa Gráfico](#5-división-de-vistas-split-editor-y-minimapa-gráfico)
 6. [Integración Git en Vivo (Git Gutter & Control de Versiones)](#6-integración-git-en-vivo-git-gutter--control-de-versiones)
 7. [Motor de Edición, Multicursor, Soft Wrap y Code Folding](#7-motor-de-edición-multicursor-soft-wrap-y-code-folding)
@@ -548,22 +553,40 @@ subpixel_antialiasing = true
 
 ---
 
-## 4. Árbol de Proyecto y Explorador Lateral
+### 3.10 Identidad Visual Oficial: "The Faceted Ribbon R" y Desktop Launcher
+
+Rustext adopta una identidad visual distintiva inspirada en la velocidad, el minimalismo geométrico y el renderizado nativo: **Concept 1: The Faceted Ribbon R**.
+
+1. **Renderizado Geométrico Analítico**:
+   - Dibuja una cinta continua facetada en 3D que conforma la letra "R" mediante polígonos analíticos con gradientes lineales y sombreado de luz incidente.
+   - Tonos naranja Rust profundo (`#E05D44`, `#F74C00`), azul cibernético (`#7AA2F7`) y acentos titanio.
+   - Integrado de forma nativa en la ventana flotante de información (*Acerca de*, `F1`), en los encabezados de diálogo y en la barra de título.
+
+2. **Integración con el Escritorio de Linux (Wayland y X11)**:
+   - Al ejecutarse en entornos Linux con Wayland o X11, Rustext detecta automáticamente si el lanzador de escritorio (`~/.local/share/applications/rustext.desktop`) y los iconos en alta resolución (`~/.local/share/icons/hicolor/...`) están presentes.
+   - Si no existen o están desactualizados, los genera e instala automáticamente de forma silenciosa e idempotente, resolviendo el clásico problema de Wayland donde la ventana muestra un icono genérico ("W").
+   - Define el `app_id` `rustext` en el protocolo `xdg_toplevel` de Wayland y `WM_CLASS` en X11 para un anclaje perfecto en muelles (*docks* como GNOME Dash, KDE Latte/Taskbar, Sway/Waybar).
+
+---
+
+## 4. Árbol de Proyecto, Espacios de Trabajo y Gestión de Proyectos
+
+### 4.1 Árbol de Proyecto y Explorador Lateral (Sidebar)
 
 El **Explorador Lateral (File Explorer Sidebar)** permite gestionar proyectos completos sin salir del editor.
 
-### Características:
+#### Características:
 1. **Escaneo Perezoso (Lazy Scanning)**: Solo lee del disco las carpetas que el usuario decide expandir, evitando consumo de memoria en proyectos con miles de ficheros.
 2. **Filtro Automático**: Oculta automáticamente directorios ruidosos o de compilación (`.git`, `target`, `node_modules`, `.DS_Store`, `.idea`, `.vscode`).
 3. **Pistas de Color por Extensión**:
    - Naranja: Archivos `.rs`.
    - Cian: Archivos `.toml`, `.ini`, `.json`, `.yaml`.
    - Verde: Archivos `.md`, `.txt`, `.py`.
-   - Púrpura: Archivos `.c`, `.cpp`, `.h`.
+   - Púrpura: Archivos `.c`, `.cpp`, `.h`, `.sql`, `.jl` (Julia).
    - Acento: Archivos web `.html`, `.css`, `.js`, `.ts`.
 4. **Flechas Jerárquicas**: Glifos bitmap embebidos `▼` para directorios abiertos y `▶` para carpetas cerradas.
 
-### Controles del Explorador:
+#### Controles del Explorador:
 - `Ctrl + B`: Alternar visibilidad de la barra lateral (Mostrar / Ocultar).
 - **Clic en Archivo**: Abre el archivo en una pestaña (o conmuta a ella si ya está abierta).
 - **Clic en Carpeta**: Expande o contrae la carpeta.
@@ -575,6 +598,26 @@ El **Explorador Lateral (File Explorer Sidebar)** permite gestionar proyectos co
   - `→` / `Enter`: Expandir carpeta o abrir archivo seleccionado.
   - `←`: Contraer carpeta o saltar a la carpeta contenedora.
   - `Esc`: Devolver el foco al editor de código.
+
+### 4.2 Espacios de Trabajo y Archivos `.rustext-workspace`
+
+Rustext soporta la gestión integral de espacios de trabajo multiproyecto sin dependencias externas:
+- **Abrir Carpeta de Proyecto (`Ctrl + Shift + O`)**: Abre un diálogo interactivo para seleccionar cualquier directorio del sistema como raíz del proyecto.
+- **Archivos de Espacio de Trabajo (`.rustext-workspace`)**: Permite declarar configuraciones, exclusiones y directorios compartidos para repositorios individuales o monorrepositorios.
+- Guardar espacio de trabajo actual con el menú **Archivo > Guardar Espacio de Trabajo Como...**.
+
+### 4.3 Aislamiento de Sesiones por Proyecto (`session_<hash>.ini`)
+
+A diferencia de los editores convencionales que mezclan el estado de todas las carpetas en un único archivo de sesión global:
+- Rustext computa un hash unívoco para la ruta canónica de cada proyecto.
+- Almacena el estado completo en `~/.rustext/session_<hash>.ini`: pestañas abiertas, cursores exactos, desplazamientos de scroll y paneles divididos.
+- Al alternar entre proyectos, las pestañas y el estado del proyecto anterior se guardan atómicamente y se restauran las del nuevo proyecto sin interferencias.
+
+### 4.4 Conmutación Ágil y Proyectos Recientes
+
+- **Cambiar Espacio de Trabajo (`Ctrl + Shift + P` / `Ctrl + Alt + W`)**: Despliega un selector difuso rápido para saltar entre proyectos abiertos recientemente.
+- Menú **Archivo > Proyectos Recientes**: Historial ordenado por fecha de acceso con eliminación automática de rutas inexistentes.
+- La barra de estado inferior y la cabecera del explorador lateral reflejan en tiempo real el nombre del espacio de trabajo activo.
 
 ## 5. División de Vistas (Split Editor) y Minimapa Gráfico
 
@@ -823,6 +866,7 @@ Rustext detecta automáticamente el lenguaje por extensión o nombre:
 - **Shell / Bash** (`.sh`, `.bash`, `.zsh`, `.fish`, `.env`, `.bashrc`, `.profile`, `Dockerfile`)
 - **SQL** (`.sql`)
 - **Markdown** (`.md`, `.markdown`)
+- **Julia** (`.jl`, `.JL`): Resaltador sintáctico especializado con soporte para comentarios de una línea (`#`), comentarios de bloque multilínea (`#= ... =#`), literales de cadena (`"..."`), caracteres (`'c'`), comandos de sistema entre comillas invertidas (`` `cmd` ``), macros nativas clasificadas como `TokenType::Macro` (`@inline`, `@time`, `@threads`, `@test`, etc.), palabras clave y tipos primitivos de la biblioteca base de Julia.
 
 ### 10.3 Catálogo de Snippets Integrados:
 Escriba el disparador y presione `Tab` para expandirlo:
@@ -836,6 +880,18 @@ Escriba el disparador y presione `Tab` para expandirlo:
 | **Rust** | `impl` | Bloque implementación | `impl Type { ... }` |
 | **Rust** | `match` | Expresión match | `match expr { pattern => expr, _ => todo!() }` |
 | **Rust** | `test` | Test unitario | `#[test] fn test_name() { assert!(true); }` |
+| **Julia** | `fn` | Definición de función | `function name(args)\n ... \nend` |
+| **Julia** | `fun` | Función de una línea | `name(args) = expr` |
+| **Julia** | `struct` | Estructura inmutable | `struct Name\n ... \nend` |
+| **Julia** | `mstruct` | Estructura mutable | `mutable struct Name\n ... \nend` |
+| **Julia** | `for` | Bucle for iterativo | `for i in 1:n\n ... \nend` |
+| **Julia** | `while` | Bucle condicional | `while condition\n ... \nend` |
+| **Julia** | `if` / `ifelse` | Condicional if / else | `if condition\n ... \nelse\n ... \nend` |
+| **Julia** | `try` | Manejo de excepciones | `try\n ... \ncatch e\n ... \nend` |
+| **Julia** | `mod` | Definición de módulo | `module ModuleName\nexport sym\n ... \nend` |
+| **Julia** | `macro` | Definición de macro | `macro name(args)\n ... \nend` |
+| **Julia** | `pl` / `println`| Salida estándar | `println("message")` |
+| **Julia** | `test` | Suite de pruebas Testset | `@testset "test_name" begin\n @test true\nend` |
 | **Python** | `def` | Función con docstring | `def name(args): """Docstring""" pass` |
 | **Python** | `class` | Definición de clase | `class ClassName: def __init__(self): pass` |
 | **Python** | `main` | Bloque de entrada | `if __name__ == "__main__": main()` |
@@ -886,13 +942,15 @@ Rustext incluye herramientas de verificación y corrección de código integrada
 - `Shift + F8`: Salta al **error anterior**.
 
 ### 3. Formateo Automático de Código (`Ctrl + Shift + I`):
-Alinea el archivo utilizando el formateador del lenguaje disponible en el sistema operativo:
-- Rust: `rustfmt`
-- Python: `black` o `autopep8`
-- C/C++: `clang-format`
-- Web / HTML / CSS / JS / TS / JSON / YAML / Markdown: `prettier`
-- Shell / Bash: `shfmt`
-- Go: `gofmt`
+Alinea el archivo utilizando el servidor LSP activo o el formateador del lenguaje disponible en el sistema operativo:
+- **Rust**: LSP (`rust-analyzer`) o `rustfmt`
+- **Julia**: `JuliaFormatter.jl` / `julia -e "using JuliaFormatter; print(format_text(read(stdin, String)))"`
+- **Python**: LSP (`pylsp`) o `black` / `ruff format`
+- **C/C++**: LSP (`clangd`) o `clang-format`
+- **Web / HTML / CSS / JS / TS / JSON / YAML / Markdown**: LSP o `prettier`
+- **Shell / Bash**: `shfmt`
+- **Go**: LSP (`gopls`) o `gofmt`
+- **Zig**: LSP (`zls`)
 
 ### 4. Ondulaciones Wavy Squiggles de Diagnóstico:
 Rustext dibuja subrayados ondulados realistas (sinusoidales/zigzag) bajo el rango exacto de columnas donde el compilador o servidor de lenguaje reporta un problema:
@@ -901,27 +959,66 @@ Rustext dibuja subrayados ondulados realistas (sinusoidales/zigzag) bajo el rang
 - **Azul Claro (`0xFF8BE9FD`)**: Sugerencias informativas (`DiagnosticSeverity::Info`).
 - **Soporte Completo**: Las ondulaciones se calculan y adaptan matemáticamente a resoluciones HiDPI, ajuste de línea envolvente (Soft Wrap), paneles divididos (Split Editor) y encabezados fijos de Sticky Scroll.
 
-### 5. Cliente LSP Nativo (Language Server Protocol) y `rust-analyzer`:
-Rustext implementa un cliente **LSP (Language Server Protocol) nativo conforme a la especificación JSON-RPC 2.0**, construido puramente con la biblioteca estándar de Rust (`std::*`), sin dependencias de terceros:
-- **Servidores Soportados**: `rust-analyzer` (Rust), `pylsp` (Python) y `clangd` (C / C++).
-- **Diagnósticos Push Asíncronos (`textDocument/publishDiagnostics`)**: Actualiza en segundo plano los errores y advertencias en el gutter y las ondulaciones wavy squiggles mientras edita el código.
-- **Ir a Definición (`F12`, `textDocument/definition`)**: Salta de inmediato al archivo, línea y columna exactos donde fue definido el símbolo bajo el cursor.
-- **Información de Tipo y Documentación (Hover, `F2` o `Alt + K`, `textDocument/hover`)**: Muestra en la barra de estado la firma de tipo, parámetros y documentación del símbolo activo.
-- **Autocompletado Semántico Enriquecido (`textDocument/completion`)**: Combina el catálogo de palabras y snippets locales con las sugerencias semánticas del servidor de lenguaje en la ventana flotante de autocompletado.
-- **Resaltado Semántico de Precisión de Compilador (`Semantic Tokens`, `textDocument/semanticTokens/full`)**:
-  - Negocia de forma dinámica capacidades semánticas con el servidor LSP durante el handshake `initialize`, parseando la leyenda provista (`tokenTypes` y `tokenModifiers`).
-  - Decodifica secuencias relativas de deltas en 5-tuplas: `[deltaLine, deltaStartChar, length, tokenType, tokenModifiers]`.
-  - Mapea de forma precisa símbolos del compilador:
-    - **Funciones y Métodos** (`Function`, `Method`): Azul intenso / negrita.
-    - **Estructuras, Clases e Interfaces** (`Struct`): Amarillo dorado / negrita.
-    - **Traits y Protocolos** (`Trait`): Verde esmeralda / negrita.
-    - **Macros** (`Macro`): Magenta / púrpura vibrante.
-    - **Parámetros** (`Parameter`): Cian celeste.
-    - **Constantes y Variables Estáticas** (`Constant`): Rojo coral / bermellón.
-    - **Propiedades y Campos** (`Field`): Azul cielo suave.
-  - El motor de renderizado superpone (`SyntaxHighlighter::apply_semantic_spans`) estos tokens semánticos sobre el análisis léxico con cero copias y total seguridad UTF-8.
-  - Refresco automático al abrir, sincronizar o modificar el documento, además de atajo manual `F5` / `Ctrl + Shift + R` y menú **Herramientas > Refrescar Tokens Semánticos (LSP)**.
-- **Sincronización Incremental de Documentos**: Envía notificaciones automáticas `didOpen`, `didChange`, `didSave` y `didClose` para mantener el árbol sintáctico del servidor sincronizado con las transacciones del editor.
+### 5. Suite LSP de Élite (Language Server Protocol) y Multi-Lenguaje:
+Rustext implementa un cliente **LSP (Language Server Protocol) de nivel IDE conforme a JSON-RPC 2.0**, construido 100% con la biblioteca estándar de Rust (`std::*`), con **cero dependencias externas**:
+
+#### Capacidades Implementadas:
+1. **Buscar Todas las Referencias (`textDocument/references`, `Ctrl + Shift + U`)**:
+   - Envía la posición del cursor y consulta todas las ocurrencias del símbolo a través de todo el espacio de trabajo.
+   - Ventana modal interactiva con insignias de archivo y línea, y **vista previa del snippet** de código donde aparece la referencia.
+   - Navegación por teclado (`↑`/`↓`, `PageUp`/`PageDown`, `Enter`, `Esc`) o clic de ratón con salto inmediato y centrado de pantalla.
+
+2. **Renombrado de Símbolos en Todo el Workspace (`textDocument/rename`, `F2`)**:
+   - Abre un prompt modal interactivo con el nombre del identificador actual precargado.
+   - Procesa transacciones atómicas `WorkspaceEdit` (`changes` y `documentChanges`) aplicando las ediciones en orden inverso por offsets.
+   - Actualiza de forma segura pestañas abiertas en memoria y archivos cerrados en el disco sin pérdida de offsets ni corrupción.
+
+3. **Acciones Rápidas y Quick-Fixes (`textDocument/codeAction`, `Ctrl + .`)**:
+   - Envía los diagnósticos activos del cursor al servidor para solicitar correcciones automáticas y refactorizaciones.
+   - Modal flotante con insignias temáticas: `💡 [QuickFix]`, `🛠️ [Refactor]`, `📦 [Source]` y `★ [Preferido]`.
+   - Aplica inmediatamente las ediciones asociadas a la acción confirmada.
+
+4. **Formateo de Documento con LSP (`textDocument/formatting`, `Ctrl + Shift + I`)**:
+   - Solicita el formateo estructurado del búfer al servidor de lenguaje.
+   - Procesa la lista de `TextEdit[]` en orden inverso por posición para evitar desplazamientos, manteniendo intactos los cursores y el historial atómico de deshacer.
+
+5. **Esquema de Símbolos del Documento / Outline (`textDocument/documentSymbol`, `Ctrl + Shift + R`)**:
+   - Modal difuso interactivo para explorar la estructura y jerarquía del código.
+   - Soporte para estructuras jerárquicas y planas con insignias sintácticas distintivas (`[fn]`, `[struct]`, `[enum]`, `[trait]`, `[method]`, `[mod]`, `[const]`, etc.).
+   - Filtrado en tiempo real con salto inmediato a la declaración del símbolo.
+
+6. **Inlay Hints (`textDocument/inlayHint`)**:
+   - Consulta y renderiza anotaciones visuales en línea para nombres de parámetros (`param:`) y tipos inferidos (`: Type`).
+   - Diseño estético de micro-píldora coloreada (`#7AA2F7` para tipos, `#BB9AF7` para parámetros).
+   - **Aislamiento geométrico estricto**: Se renderizan visualmente sin desplazar los índices del Piece Table ni las columnas de caracteres, preservando la exactitud del cursor, selecciones multicursor y clics de ratón.
+   - Conmutable en tiempo real desde el menú **Herramientas > Alternar Inlay Hints** y configurable en `config.ini` (`inlay_hints = true`).
+
+7. **Resaltado Semántico de Compilador (`Semantic Tokens`, `textDocument/semanticTokens/full`, `F5`)**:
+   - Negocia de forma dinámica capacidades semánticas con el servidor LSP durante el handshake `initialize`, parseando la leyenda provista (`tokenTypes` y `tokenModifiers`).
+   - Decodifica secuencias relativas de deltas en 5-tuplas: `[deltaLine, deltaStartChar, length, tokenType, tokenModifiers]`.
+   - Superpone clasificaciones semánticas precisas del compilador (funciones, métodos, structs, traits, macros, parámetros, constantes y campos) sobre el análisis léxico con paletas adaptadas a los 8 temas.
+
+8. **Firma de Métodos Flotante (`Signature Help`, `textDocument/signatureHelp`, `Ctrl + Shift + Espacio`)**:
+   - Muestra en tiempo real la firma del método o función que se está invocando con resaltado en negrita del parámetro activo y documentación asociada. Se activa automáticamente al escribir `(` o `,`.
+
+9. **Navegación Semántica y Consulta de Tipos**:
+   - **Ir a Definición (`F12`, `textDocument/definition`)**: Salta de inmediato al archivo y coordenadas exactas de la declaración.
+   - **Hover (`Alt + K`, `textDocument/hover`)**: Muestra la firma de tipo, parámetros y documentación en la barra de estado.
+
+10. **Ecosistema de 10 Servidores de Lenguaje Soportados**:
+    - **Rust**: `rust-analyzer`
+    - **Julia**: `julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()'`
+    - **Python**: `pylsp`
+    - **C / C++**: `clangd`
+    - **TypeScript / JavaScript**: `typescript-language-server --stdio`
+    - **Go**: `gopls`
+    - **HTML / CSS**: `vscode-html-language-server --stdio`
+    - **JSON**: `vscode-json-language-server --stdio`
+    - **Markdown**: `marksman server`
+    - **Zig**: `zls`
+    - Totalmente configurables en la sección `[lsp]` de `config.ini`.
+
+11. **Sincronización Incremental de Documentos**: Envía notificaciones automáticas `didOpen`, `didChange`, `didSave` y `didClose` para mantener el servidor sincronizado en tiempo real con las transacciones del editor.
 
 ### 6. Automatización al Guardar:
 Configure en `config.ini` `format_on_save = true` o `check_on_save = true` para formatear y verificar el código automáticamente al presionar `Ctrl + S`.
@@ -943,6 +1040,8 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + Shift + P`| **Abrir Paleta de Comandos** | Ver > Paleta de Comandos... |
 | `Ctrl + S` | Guardar archivo actual | Archivo > Guardar |
 | `Ctrl + O` | Abrir diálogo de archivo | Archivo > Abrir Archivo... |
+| `Ctrl + Shift + O` | **Abrir Carpeta de Proyecto / Workspace** | Archivo > Abrir Carpeta de Proyecto... |
+| `Ctrl + Shift + P` / `Ctrl + Alt + W` | **Cambiar Espacio de Trabajo / Proyectos Recientes** | Archivo > Cambiar Espacio de Trabajo... |
 | `Ctrl + R` | **Abrir Archivo Reciente...** | Archivo > Abrir Archivo Reciente... |
 | `Ctrl + T` | Abrir nueva pestaña | Archivo > Nueva Pestaña |
 | `Ctrl + W` | Cerrar pestaña actual | Archivo > Cerrar Pestaña |
@@ -987,15 +1086,19 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + Shift + G`| **Actualizar Estado Git (Git Gutter)** | Herramientas > Actualizar Estado Git |
 | `Alt + H` | **Git: Inspeccionar Git Hunk Diff** | Herramientas > Inspeccionar Git Hunk Diff |
 | `Alt + R` | **Git: Revertir Git Hunk Diff** | Herramientas > Revertir Git Hunk Diff |
-| `Ctrl + Shift + I`| Formatear Documento | Herramientas > Formatear Documento |
+| `Ctrl + Shift + U`| **LSP: Buscar Referencias en el Workspace** | Herramientas > Buscar Referencias |
+| `F2` | **LSP: Renombrar Símbolo en Todo el Workspace** | Herramientas > Renombrar Símbolo |
+| `Ctrl + .` | **LSP: Acciones Rápidas y Quick-Fixes** | Herramientas > Acciones Rápidas (Code Actions) |
+| `Ctrl + Shift + R`| **LSP: Esquema / Símbolos del Documento** | Herramientas > Esquema / Símbolos del Documento |
+| `Ctrl + Shift + I`| **LSP / Formateo: Formatear Documento** | Herramientas > Formatear Documento |
+| `F12` | **LSP: Ir a Definición** | Herramientas > LSP: Ir a Definición |
+| `Alt + K` | **LSP: Información de Tipo (Hover)** | Herramientas > LSP: Información de Tipo (Hover) |
+| `Ctrl + Shift + Espacio` | **LSP: Firma de Métodos (Signature Help)** | Herramientas > LSP: Firma de Métodos |
+| `F5` | **LSP: Refrescar Tokens Semánticos** | Herramientas > Refrescar Tokens Semánticos (LSP) |
 | `F7` | Comprobar Errores (Check / Lint)| Herramientas > Comprobar Errores |
 | `F8` | Saltar al Siguiente Error | Herramientas > Siguiente Error |
 | `Shift + F8` | Saltar al Error Anterior | Herramientas > Error Anterior |
-| `F12` | **LSP: Ir a Definición** | Herramientas > LSP: Ir a Definición |
-| `F2` / `Alt + K` | **LSP: Información de Tipo (Hover)** | Herramientas > LSP: Información de Tipo (Hover) |
-| `Ctrl + Shift + Espacio` | **LSP: Firma de Métodos (Signature Help)** | Herramientas > LSP: Firma de Métodos |
-| `F5` / `Ctrl + Shift + R` | **LSP: Refrescar Tokens Semánticos** | Herramientas > Refrescar Tokens Semánticos (LSP) |
-| `F1` | Ventana Acerca de Rustext | Ayuda > Acerca de Rustext |
+| `F1` | **Ventana Acerca de Rustext (Logotipo Faceted Ribbon R)** | Ayuda > Acerca de Rustext |
 
 ---
 
@@ -1062,6 +1165,14 @@ auto_start = true        # Iniciar automáticamente el servidor según el lengua
 rust_server = rust-analyzer  # Binario del servidor de lenguaje para Rust
 python_server = pylsp        # Binario del servidor de lenguaje para Python
 c_server = clangd            # Binario del servidor de lenguaje para C / C++
+typescript_server = typescript-language-server --stdio # TypeScript / JavaScript
+go_server = gopls            # Binario del servidor para Go
+html_css_server = vscode-html-language-server --stdio  # HTML / CSS
+json_server = vscode-json-language-server --stdio      # JSON
+markdown_server = marksman server # Markdown
+zig_server = zls             # Zig
+julia_server = julia --startup-file=no --history-file=no -e 'using LanguageServer; runserver()' # Julia
+inlay_hints = true           # Mostrar sugerencias de tipo y parámetros en línea (Inlay Hints)
 ```
 
 ---
