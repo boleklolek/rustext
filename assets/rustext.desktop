@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Rustext
+GenericName=Text Editor
+Comment=Blazing fast native code editor written in pure Rust
+Exec=rustext %F
+Icon=rustext
+Terminal=false
+Categories=Development;TextEditor;Utility;
+MimeType=text/plain;text/x-rust;text/x-c;text/x-c++;text/x-python;text/javascript;application/json;application/xml;text/markdown;
+StartupNotify=true
+Keywords=editor;text;code;rust;development;

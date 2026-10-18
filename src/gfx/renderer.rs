@@ -2802,6 +2802,28 @@ impl GfxRenderer {
             }
         }
 
+        // Welcome / Hero watermark on clean empty untitled buffer
+        if doc.buffer.len_chars() == 0 && doc.buffer.file_path().is_none() && pane_w >= self.scale_coord(260) && content_h >= self.scale_coord(220) {
+            let hero_size = self.scale_coord(64);
+            let hero_x = pane_x + (pane_w.saturating_sub(hero_size)) / 2;
+            let hero_y = content_y + (content_h.saturating_sub(hero_size + self.scale_coord(60))) / 2;
+            self.render_logo(fb, hero_x, hero_y, hero_size, true);
+
+            let welcome_str = "Rustext";
+            let w_width = welcome_str.chars().count() * self.char_width();
+            let w_x = pane_x + (pane_w.saturating_sub(w_width)) / 2;
+            let w_y = hero_y + hero_size + self.scale_coord(10);
+            fb.draw_text(welcome_str, w_x, w_y, 0x00E2E8F0, None);
+
+            let hint_str = "Ctrl+P: Archivos  •  Ctrl+Shift+P: Comandos";
+            let h_width = hint_str.chars().count() * self.char_width();
+            let h_x = pane_x + (pane_w.saturating_sub(h_width)) / 2;
+            let h_y = w_y + self.char_height() + self.scale_coord(4);
+            if h_x > pane_x + self.scale_coord(10) {
+                fb.draw_text_truncated(hint_str, h_x, h_y, pane_x + pane_w - self.scale_coord(10), 0x0064748B, None);
+            }
+        }
+
         // 5b. Sticky Scroll Scope Headers
         self.render_sticky_scroll(
             fb,
@@ -3405,6 +3427,29 @@ impl GfxRenderer {
                         fb.draw_char('~', canvas_x_start + self.char_width(), text_y, self.colors.gutter_fg, None);
                     }
                     screen_row += 1;
+                }
+            }
+
+            // Welcome / Hero watermark on clean empty untitled buffer
+            let canvas_w = max_code_x.saturating_sub(canvas_x_start);
+            if doc.buffer.len_chars() == 0 && doc.buffer.file_path().is_none() && canvas_w >= self.scale_coord(260) && content_height >= self.scale_coord(220) {
+                let hero_size = self.scale_coord(80);
+                let hero_x = canvas_x_start + (canvas_w.saturating_sub(hero_size)) / 2;
+                let hero_y = content_y_start + (content_height.saturating_sub(hero_size + self.scale_coord(60))) / 2;
+                self.render_logo(fb, hero_x, hero_y, hero_size, true);
+
+                let welcome_str = "Rustext";
+                let w_width = welcome_str.chars().count() * self.char_width();
+                let w_x = canvas_x_start + (canvas_w.saturating_sub(w_width)) / 2;
+                let w_y = hero_y + hero_size + self.scale_coord(12);
+                fb.draw_text(welcome_str, w_x, w_y, 0x00E2E8F0, None);
+
+                let hint_str = "Ctrl+P: Archivos  •  Ctrl+Shift+P: Comandos  •  F1: Acerca de";
+                let h_width = hint_str.chars().count() * self.char_width();
+                let h_x = canvas_x_start + (canvas_w.saturating_sub(h_width)) / 2;
+                let h_y = w_y + self.char_height() + self.scale_coord(4);
+                if h_x > canvas_x_start + self.scale_coord(10) {
+                    fb.draw_text_truncated(hint_str, h_x, h_y, max_code_x - self.scale_coord(10), 0x0064748B, None);
                 }
             }
 
@@ -4961,6 +5006,93 @@ impl GfxRenderer {
         fb.draw_text("Doble clic o Enter para abrir carpeta", list_x, btn_bar_y + self.scale_coord(4), 0x00858585, None);
     }
 
+    /// Renders the official Rustext logo: Concept 1 "The Faceted Ribbon R".
+    /// High-performance geometric 3D faceted ribbon rendered using analytical subpixel antialiasing.
+    /// Can be rendered as an application icon badge (with dark squircle and subtle border)
+    /// or as a standalone faceted vector graphic.
+    pub fn render_logo(&self, fb: &mut Framebuffer, x: usize, y: usize, size: usize, with_badge: bool) {
+        if size == 0 {
+            return;
+        }
+
+        let ox = x as f64;
+        let oy = y as f64;
+        let sf = size as f64;
+
+        if with_badge {
+            let radius = sf * 0.203;
+            // 1. Dark squircle app icon base (#181926)
+            fb.fill_rounded_rect_alpha_aa(ox, oy, sf, sf, radius, 0x00181926, 255);
+            // 2. Subtle top inner highlight
+            fb.fill_rounded_rect_alpha_aa(
+                ox + 1.0,
+                oy + 1.0,
+                (sf - 2.0).max(0.0),
+                (sf * 0.38).min(sf),
+                (radius - 1.0).max(0.0),
+                0x0024283B,
+                80,
+            );
+            // 3. Squircle perimeter border (#3B4261)
+            let stroke_w = (sf / 160.0).max(1.0);
+            fb.draw_rounded_outline_aa(ox, oy, sf, sf, radius, stroke_w, 0x003B4261);
+        }
+
+        let pt = |u: f64, v: f64| -> (f64, f64) {
+            (ox + (u / 512.0) * sf, oy + (v / 512.0) * sf)
+        };
+
+        // Concept 1: The Faceted Ribbon R Geometry
+        // 1. Left Spine Facet (Orange Top / Spine)
+        fb.fill_triangle_aa(pt(170.0, 110.0), pt(240.0, 110.0), pt(240.0, 260.0), 0x00FF6B35);
+        fb.fill_triangle_aa(pt(170.0, 110.0), pt(240.0, 260.0), pt(170.0, 330.0), 0x00E0401D);
+
+        // 2. Left Spine Lower Facet (Cyan Wedge)
+        fb.fill_triangle_aa(pt(170.0, 330.0), pt(240.0, 260.0), pt(240.0, 390.0), 0x000EA5E9);
+        fb.fill_triangle_aa(pt(170.0, 330.0), pt(240.0, 390.0), pt(170.0, 390.0), 0x000284C7);
+
+        // 3. Top Horizontal Bar (Bright Orange)
+        fb.fill_triangle_aa(pt(240.0, 110.0), pt(330.0, 110.0), pt(290.0, 180.0), 0x00FF7A45);
+        fb.fill_triangle_aa(pt(240.0, 110.0), pt(290.0, 180.0), pt(240.0, 180.0), 0x00FF6B35);
+
+        // 4. Upper Outer Loop (Electric Cyan Wing)
+        fb.fill_triangle_aa(pt(330.0, 110.0), pt(380.0, 165.0), pt(290.0, 180.0), 0x007DD3FC);
+        fb.fill_triangle_aa(pt(290.0, 180.0), pt(380.0, 165.0), pt(330.0, 210.0), 0x0038BDF8);
+        fb.fill_triangle_aa(pt(380.0, 165.0), pt(380.0, 225.0), pt(330.0, 210.0), 0x000EA5E9);
+        fb.fill_triangle_aa(pt(330.0, 210.0), pt(380.0, 225.0), pt(330.0, 270.0), 0x000284C7);
+        fb.fill_triangle_aa(pt(330.0, 210.0), pt(330.0, 270.0), pt(290.0, 270.0), 0x000369A1);
+
+        // 5. Diagonal Leg Upper Transition (Faceted Shading)
+        fb.fill_triangle_aa(pt(240.0, 240.0), pt(290.0, 240.0), pt(330.0, 270.0), 0x00C2410C);
+        fb.fill_triangle_aa(pt(240.0, 240.0), pt(330.0, 270.0), pt(270.0, 290.0), 0x009A3412);
+
+        // 6. Diagonal Leg Forward Cut (Bright Orange Core)
+        fb.fill_triangle_aa(pt(270.0, 290.0), pt(330.0, 270.0), pt(380.0, 390.0), 0x00F97316);
+        fb.fill_triangle_aa(pt(270.0, 290.0), pt(380.0, 390.0), pt(310.0, 390.0), 0x00EA580C);
+
+        // 7. Inner Negative Space Cutout
+        let cutout_col = if with_badge { 0x00181926 } else { self.colors.background };
+        fb.fill_triangle_aa(pt(240.0, 180.0), pt(290.0, 180.0), pt(310.0, 210.0), cutout_col);
+        fb.fill_triangle_aa(pt(240.0, 180.0), pt(310.0, 210.0), pt(290.0, 240.0), cutout_col);
+        fb.fill_triangle_aa(pt(240.0, 180.0), pt(290.0, 240.0), pt(240.0, 240.0), cutout_col);
+
+        // 8. Titanium Highlights & Crease Lines
+        let stroke_w = (sf / 160.0).max(1.0);
+        // Spine left highlight
+        fb.draw_line_aa(ox + (170.0 / 512.0) * sf, oy + (390.0 / 512.0) * sf, ox + (170.0 / 512.0) * sf, oy + (110.0 / 512.0) * sf, stroke_w, 0x00E2E8F0);
+        // Top edge highlight
+        fb.draw_line_aa(ox + (170.0 / 512.0) * sf, oy + (110.0 / 512.0) * sf, ox + (330.0 / 512.0) * sf, oy + (110.0 / 512.0) * sf, stroke_w, 0x00FFFFFF);
+        // Outer loop shoulder highlight
+        fb.draw_line_aa(ox + (330.0 / 512.0) * sf, oy + (110.0 / 512.0) * sf, ox + (380.0 / 512.0) * sf, oy + (165.0 / 512.0) * sf, stroke_w, 0x00CBD5E1);
+
+        // Leg highlight crease
+        fb.draw_line_aa(ox + (240.0 / 512.0) * sf, oy + (240.0 / 512.0) * sf, ox + (330.0 / 512.0) * sf, oy + (270.0 / 512.0) * sf, stroke_w * 0.8, 0x00FDBA74);
+        fb.draw_line_aa(ox + (330.0 / 512.0) * sf, oy + (270.0 / 512.0) * sf, ox + (380.0 / 512.0) * sf, oy + (390.0 / 512.0) * sf, stroke_w * 0.9, 0x00FED7AA);
+
+        // Cyan wedge crease
+        fb.draw_line_aa(ox + (170.0 / 512.0) * sf, oy + (330.0 / 512.0) * sf, ox + (240.0 / 512.0) * sf, oy + (260.0 / 512.0) * sf, stroke_w * 0.8, 0x007DD3FC);
+    }
+
     /// Renders a native-styled About Dialog Window with title bar, close button, author details, and logo.
     pub fn render_about_dialog(
         &self,
@@ -5014,25 +5146,14 @@ impl GfxRenderer {
         // Title bar separator
         fb.fill_rect(win_x, win_y + title_h, win_w, 1, self.colors.scrollbar_border);
 
-        // Rustext ASCII Banner
-        let banner_lines = [
-            "  ____            _            _   ",
-            " |  _ \\ _   _ ___| |_ _____  _| |_ ",
-            " | |_) | | | / __| __/ _ \\ \\/ / __|",
-            " |  _ <| |_| \\__ \\ ||  __/>  <| |_ ",
-            " |_| \\_\\\\__,_|___/\\__\\___/_/\\_\\\\__|",
-        ];
-        let mut cur_y = body_y + self.scale_coord(12);
-        let banner_color = self.colors.accent;
-        for line in &banner_lines {
-            let line_w = line.chars().count() * self.char_width();
-            let line_x = win_x + (win_w.saturating_sub(line_w)) / 2;
-            fb.draw_text(line, line_x, cur_y, banner_color, None);
-            cur_y += self.char_height() + 2;
-        }
+        // Rustext Logo Badge (Concept 1: The Faceted Ribbon R)
+        let logo_size = self.scale_coord(64);
+        let logo_x = win_x + (win_w.saturating_sub(logo_size)) / 2;
+        let logo_y = body_y + self.scale_coord(10);
+        self.render_logo(fb, logo_x, logo_y, logo_size, true);
 
         // Subtitle & Version
-        cur_y += self.scale_coord(4);
+        let mut cur_y = logo_y + logo_size + self.scale_coord(8);
         let title_str = "Rustext Editor v0.1.0";
         let title_x = win_x + (win_w.saturating_sub(title_str.chars().count() * self.char_width())) / 2;
         fb.draw_text(title_str, title_x, cur_y, 0x00FFFFFF, None);

@@ -5649,6 +5649,57 @@ fn test_lsp_semantic_tokens_overlay_and_theme_colors() {
     assert_eq!(theme.token_color(TokenType::Field), theme.syntax_field);
 }
 
+#[test]
+fn test_render_logo_faceted_ribbon_and_badge() {
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+
+    // 1. Boundary check: size 0 must not panic
+    renderer.render_logo(&mut fb, 50, 50, 0, true);
+    renderer.render_logo(&mut fb, 50, 50, 0, false);
+
+    // 2. Render logo badge at 64x64
+    let x = 100;
+    let y = 100;
+    let size = 64;
+    renderer.render_logo(&mut fb, x, y, size, true);
+
+    // Verify squircle background and facets were drawn
+    let mut non_zero_pixels = 0;
+    let mut has_orange = false;
+    let mut has_cyan = false;
+
+    for py in y..y + size {
+        for px in x..x + size {
+            let p = fb.get_pixel(px, py);
+            if p != 0 {
+                non_zero_pixels += 1;
+            }
+            // Check for Rust orange facet components (high red, medium green, low blue)
+            let r = (p >> 16) & 0xFF;
+            let g = (p >> 8) & 0xFF;
+            let b = p & 0xFF;
+            if r >= 200 && (50..=150).contains(&g) && b <= 70 {
+                has_orange = true;
+            }
+            // Check for electric cyan facet components (high blue, medium-high green)
+            if b >= 180 && g >= 100 && r <= 150 {
+                has_cyan = true;
+            }
+        }
+    }
+
+    assert!(non_zero_pixels > (size * size) / 2, "Logo badge should fill significant area");
+    assert!(has_orange, "Logo must contain faceted Rust orange pixels");
+    assert!(has_cyan, "Logo must contain faceted electric cyan pixels");
+
+    // 3. Render standalone ribbon without badge at 96x96
+    let mut fb2 = Framebuffer::new(400, 400);
+    renderer.render_logo(&mut fb2, 50, 50, 96, false);
+    let non_zero_fb2 = fb2.pixels.iter().filter(|&&p| p != 0).count();
+    assert!(non_zero_fb2 > 200, "Standalone logo ribbon should render facets without badge");
+}
+
 
 
 
