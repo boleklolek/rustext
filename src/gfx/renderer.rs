@@ -57,6 +57,14 @@ pub struct ThemeColors {
     pub syntax_operator: u32,
     pub syntax_punctuation: u32,
     pub syntax_plain: u32,
+    pub syntax_function: u32,
+    pub syntax_method: u32,
+    pub syntax_struct: u32,
+    pub syntax_trait: u32,
+    pub syntax_macro: u32,
+    pub syntax_parameter: u32,
+    pub syntax_constant: u32,
+    pub syntax_field: u32,
     pub bracket_0: u32,
     pub bracket_1: u32,
     pub bracket_2: u32,
@@ -106,6 +114,14 @@ impl ThemeColors {
             syntax_operator: 0x0089DDFF,
             syntax_punctuation: 0x00C0CAF5,
             syntax_plain: 0x00C0CAF5,
+            syntax_function: 0x007AA2F7,
+            syntax_method: 0x007AA2F7,
+            syntax_struct: 0x000DB9D7,
+            syntax_trait: 0x0073DACA,
+            syntax_macro: 0x00BB9AF7,
+            syntax_parameter: 0x00E0AF68,
+            syntax_constant: 0x00FF9E64,
+            syntax_field: 0x007DCFFF,
             bracket_0: 0x00FFD700,
             bracket_1: 0x00BB9AF7,
             bracket_2: 0x007DCFFF,
@@ -154,6 +170,14 @@ impl ThemeColors {
             syntax_operator: 0x0089DCEB,
             syntax_punctuation: 0x00CDD6F4,
             syntax_plain: 0x00CDD6F4,
+            syntax_function: 0x0089B4FA,
+            syntax_method: 0x0089B4FA,
+            syntax_struct: 0x00F9E2AF,
+            syntax_trait: 0x00A6E3A1,
+            syntax_macro: 0x00CBA6F7,
+            syntax_parameter: 0x00FAB387,
+            syntax_constant: 0x00FAB387,
+            syntax_field: 0x0089DCEB,
             bracket_0: 0x00F9E2AF,
             bracket_1: 0x00CBA6F7,
             bracket_2: 0x0089DCEB,
@@ -202,6 +226,14 @@ impl ThemeColors {
             syntax_operator: 0x0056B6C2,
             syntax_punctuation: 0x00ABB2BF,
             syntax_plain: 0x00ABB2BF,
+            syntax_function: 0x0061AFEF,
+            syntax_method: 0x0061AFEF,
+            syntax_struct: 0x00E5C07B,
+            syntax_trait: 0x0098C379,
+            syntax_macro: 0x00C678DD,
+            syntax_parameter: 0x00D19A66,
+            syntax_constant: 0x00D19A66,
+            syntax_field: 0x00E06C75,
             bracket_0: 0x00E5C07B,
             bracket_1: 0x00C678DD,
             bracket_2: 0x0061AFEF,
@@ -250,6 +282,14 @@ impl ThemeColors {
             syntax_operator: 0x00D4D4D4,
             syntax_punctuation: 0x00D4D4D4,
             syntax_plain: 0x00D4D4D4,
+            syntax_function: 0x00DCDCAA,
+            syntax_method: 0x00DCDCAA,
+            syntax_struct: 0x004EC9B0,
+            syntax_trait: 0x00B5CEA8,
+            syntax_macro: 0x00C586C0,
+            syntax_parameter: 0x009CDCFE,
+            syntax_constant: 0x004FC1FF,
+            syntax_field: 0x009CDCFE,
             bracket_0: 0x00FFD700,
             bracket_1: 0x00DA70D6,
             bracket_2: 0x00179FFF,
@@ -298,6 +338,14 @@ impl ThemeColors {
             syntax_operator: 0x00F92672,
             syntax_punctuation: 0x00F8F8F2,
             syntax_plain: 0x00F8F8F2,
+            syntax_function: 0x00A6E22E,
+            syntax_method: 0x00A6E22E,
+            syntax_struct: 0x0066D9EF,
+            syntax_trait: 0x00A6E22E,
+            syntax_macro: 0x00F92672,
+            syntax_parameter: 0x00FD971F,
+            syntax_constant: 0x00AE81FF,
+            syntax_field: 0x00F8F8F2,
             bracket_0: 0x00E6DB74,
             bracket_1: 0x00AE81FF,
             bracket_2: 0x0066D9EF,
@@ -346,6 +394,14 @@ impl ThemeColors {
             syntax_operator: 0x00859900,
             syntax_punctuation: 0x0093A1A1,
             syntax_plain: 0x00839496,
+            syntax_function: 0x00268BD2,
+            syntax_method: 0x00268BD2,
+            syntax_struct: 0x00B58900,
+            syntax_trait: 0x00859900,
+            syntax_macro: 0x00D33682,
+            syntax_parameter: 0x00CB4B16,
+            syntax_constant: 0x006C71C4,
+            syntax_field: 0x0093A1A1,
             bracket_0: 0x00B58900,
             bracket_1: 0x006C71C4,
             bracket_2: 0x002AA198,
@@ -394,6 +450,14 @@ impl ThemeColors {
             syntax_operator: 0x00CF222E,
             syntax_punctuation: 0x0024292F,
             syntax_plain: 0x0024292F,
+            syntax_function: 0x008250DF,
+            syntax_method: 0x008250DF,
+            syntax_struct: 0x00953800,
+            syntax_trait: 0x00116329,
+            syntax_macro: 0x00CF222E,
+            syntax_parameter: 0x0024292F,
+            syntax_constant: 0x000550AE,
+            syntax_field: 0x006E7781,
             bracket_0: 0x00B8860B,
             bracket_1: 0x008B008B,
             bracket_2: 0x00008B8B,
@@ -425,6 +489,14 @@ impl ThemeColors {
             TokenType::Operator => self.syntax_operator,
             TokenType::Punctuation => self.syntax_punctuation,
             TokenType::Identifier | TokenType::PlainText => self.syntax_plain,
+            TokenType::Function => self.syntax_function,
+            TokenType::Method => self.syntax_method,
+            TokenType::Struct => self.syntax_struct,
+            TokenType::Trait => self.syntax_trait,
+            TokenType::Macro => self.syntax_macro,
+            TokenType::Parameter => self.syntax_parameter,
+            TokenType::Constant => self.syntax_constant,
+            TokenType::Field => self.syntax_field,
             TokenType::Bracket(depth) => match depth % 3 {
                 0 => self.bracket_0,
                 1 => self.bracket_1,
@@ -615,6 +687,8 @@ pub struct GfxRenderer {
     pub git_branch: Option<String>,
     pub git_statuses: Option<std::collections::HashMap<std::path::PathBuf, crate::editor::git::GitFileStatus>>,
     pub git_gutter_enabled: bool,
+    pub inline_blame: Option<String>,
+    pub active_hunk_popup: Option<crate::editor::git::GitHunk>,
     pub terminal_inset: usize,
     pub font_ligatures: bool,
     pub font_hinting: HintingLevel,
@@ -678,6 +752,8 @@ impl GfxRenderer {
             git_branch: None,
             git_statuses: None,
             git_gutter_enabled: true,
+            inline_blame: None,
+            active_hunk_popup: None,
             terminal_inset: 0,
             font_ligatures: true,
             font_hinting: HintingLevel::Medium,
@@ -1740,6 +1816,130 @@ impl GfxRenderer {
         }
     }
 
+    /// Renders a floating Hunk Diff modal showing old lines vs new lines and revert action.
+    pub fn render_hunk_diff_popup(
+        &self,
+        fb: &mut Framebuffer,
+        hunk: &crate::editor::git::GitHunk,
+    ) {
+        let total_diff_rows = (hunk.old_lines.len() + hunk.new_lines.len()).min(16).max(2);
+        let row_h = self.line_height();
+
+        let pop_w = self.scale_coord(640).min(fb.width.saturating_sub(40)).max(360);
+        let header_h = self.scale_coord(32);
+        let footer_h = self.scale_coord(38);
+        let content_h = total_diff_rows * row_h + self.scale_coord(16);
+        let pop_h = (header_h + content_h + footer_h).min(fb.height.saturating_sub(60));
+
+        let pop_x = (fb.width.saturating_sub(pop_w)) / 2;
+        let pop_y = (fb.height.saturating_sub(pop_h)) / 2;
+
+        // Dim overlay background
+        fb.fill_rect_alpha(0, 0, fb.width, fb.height, 0x00000000, 100);
+
+        // Drop shadow
+        if self.shadows {
+            self.render_shadow(fb, pop_x, pop_y, pop_w, pop_h, 12, 8);
+        } else {
+            fb.fill_rect(pop_x + 4, pop_y + 4, pop_w, pop_h, 0x00101010);
+        }
+
+        // Modal container
+        if self.rounded_corners {
+            fb.fill_rounded_rect(pop_x, pop_y, pop_w, pop_h, 6, self.colors.modal_bg);
+            fb.draw_rounded_outline(pop_x, pop_y, pop_w, pop_h, 6, self.colors.modal_border);
+        } else {
+            fb.fill_rect(pop_x, pop_y, pop_w, pop_h, self.colors.modal_bg);
+            fb.draw_rect_outline(pop_x, pop_y, pop_w, pop_h, self.colors.modal_border);
+        }
+
+        // Header
+        fb.fill_rect(pop_x, pop_y, pop_w, header_h, self.colors.modal_header_bg);
+        let header_title = format!(" Git Diff Hunk (Líneas {}..={})", hunk.start_line + 1, hunk.end_line + 1);
+        let title_y = pop_y + (header_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(&header_title, pop_x + self.scale_coord(12), title_y, self.colors.accent, None);
+
+        let close_hint = "[Esc] Cerrar  [Alt+R] Deshacer";
+        let hint_w = close_hint.chars().count() * self.char_width();
+        if pop_x + pop_w >= hint_w + self.scale_coord(12) {
+            fb.draw_text(close_hint, pop_x + pop_w - hint_w - self.scale_coord(12), title_y, self.colors.gutter_fg, None);
+        }
+        fb.fill_rect(pop_x, pop_y + header_h.saturating_sub(1), pop_w, 1, self.colors.gutter_border);
+
+        // Content: list old lines (- in red), new lines (+ in green)
+        let mut curr_y = pop_y + header_h + self.scale_coord(8);
+        let content_max_y = pop_y + pop_h - footer_h;
+        let pad_x = pop_x + self.scale_coord(12);
+        let max_text_x = pop_x + pop_w - self.scale_coord(12);
+
+        // Old lines
+        if hunk.old_lines.is_empty() {
+            if curr_y + row_h <= content_max_y {
+                fb.draw_text_truncated("(Sin líneas previas en HEAD — Todo añadido)", pad_x, curr_y, max_text_x, self.colors.gutter_fg, None);
+                curr_y += row_h;
+            }
+        } else {
+            for old_l in &hunk.old_lines {
+                if curr_y + row_h > content_max_y {
+                    break;
+                }
+                fb.fill_rect_alpha(pop_x + 4, curr_y, pop_w.saturating_sub(8), row_h, 0x00F7768E, 40);
+                let diff_line = format!("- {}", old_l);
+                fb.draw_text_truncated(&diff_line, pad_x, curr_y, max_text_x, 0x00F7768E, None);
+                curr_y += row_h;
+            }
+        }
+
+        // New lines
+        if hunk.new_lines.is_empty() {
+            if curr_y + row_h <= content_max_y {
+                fb.draw_text_truncated("(Líneas eliminadas en esta versión)", pad_x, curr_y, max_text_x, self.colors.gutter_fg, None);
+                curr_y += row_h;
+            }
+        } else {
+            for new_l in &hunk.new_lines {
+                if curr_y + row_h > content_max_y {
+                    break;
+                }
+                fb.fill_rect_alpha(pop_x + 4, curr_y, pop_w.saturating_sub(8), row_h, 0x009ECE6A, 40);
+                let diff_line = format!("+ {}", new_l);
+                fb.draw_text_truncated(&diff_line, pad_x, curr_y, max_text_x, 0x009ECE6A, None);
+                curr_y += row_h;
+            }
+        }
+
+        // Footer
+        let _ = curr_y;
+        let footer_y = pop_y + pop_h - footer_h;
+        fb.fill_rect(pop_x, footer_y, pop_w, 1, self.colors.gutter_border);
+
+        let btn_h = self.scale_coord(26);
+        let btn_y = footer_y + (footer_h.saturating_sub(btn_h)) / 2;
+
+        // Revert button
+        let rev_text = " Deshacer Hunk (Alt+R) ";
+        let rev_w = rev_text.chars().count() * self.char_width() + self.scale_coord(12);
+        let rev_x = pop_x + self.scale_coord(12);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(rev_x, btn_y, rev_w, btn_h, 4, self.colors.button_bg);
+        } else {
+            fb.fill_rect(rev_x, btn_y, rev_w, btn_h, self.colors.button_bg);
+        }
+        let btn_text_y = btn_y + (btn_h.saturating_sub(self.char_height())) / 2;
+        fb.draw_text(rev_text, rev_x + self.scale_coord(6), btn_text_y, self.colors.button_fg, None);
+
+        // Close button
+        let close_text = " Cerrar (Esc) ";
+        let close_w = close_text.chars().count() * self.char_width() + self.scale_coord(12);
+        let close_x = rev_x + rev_w + self.scale_coord(12);
+        if self.rounded_corners {
+            fb.fill_rounded_rect(close_x, btn_y, close_w, btn_h, 4, self.colors.input_bg);
+        } else {
+            fb.fill_rect(close_x, btn_y, close_w, btn_h, self.colors.input_bg);
+        }
+        fb.draw_text(close_text, close_x + self.scale_coord(6), btn_text_y, self.colors.button_fg, None);
+    }
+
     /// Renders a complete editor frame into the software framebuffer with default scrollbar state.
     pub fn render(
         &self,
@@ -1898,7 +2098,12 @@ impl GfxRenderer {
             // 3. Render syntax highlighted code tokens
             let text_start_x = pane_x + gutter_w + char_w;
             let line_cow = doc.buffer.line_cow(line_idx).unwrap_or(std::borrow::Cow::Borrowed(""));
-            let tokens = crate::core::syntax::SyntaxHighlighter::tokenize_line(&line_cow, doc.language);
+            let lexical_tokens = crate::core::syntax::SyntaxHighlighter::tokenize_line(&line_cow, doc.language);
+            let tokens = if let Some(sem_spans) = doc.semantic_tokens.get(&line_idx) {
+                crate::core::syntax::SyntaxHighlighter::apply_semantic_spans(&line_cow, lexical_tokens, sem_spans)
+            } else {
+                lexical_tokens
+            };
             self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.sticky_header_bg);
             self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, &line_cow, text_start_x, text_y, max_code_x, 0, None, doc.scroll_col);
 
@@ -2281,7 +2486,12 @@ impl GfxRenderer {
                     }
 
                     // Syntax Highlighted Tokens
-                    let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+                    let lexical_tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+                    let tokens = if let Some(sem_spans) = doc.semantic_tokens.get(&line_idx) {
+                        SyntaxHighlighter::apply_semantic_spans(line_text, lexical_tokens, sem_spans)
+                    } else {
+                        lexical_tokens
+                    };
                     self.render_token_line(fb, &tokens, text_start_x, text_y, max_code_x, doc.scroll_col, self.colors.background);
                     self.render_diagnostic_squiggles_for_line(fb, doc, line_idx, line_text, text_start_x, text_y, max_code_x, 0, None, doc.scroll_col);
 
@@ -2318,6 +2528,17 @@ impl GfxRenderer {
                                 }
                             }
                         }
+
+                        // Inline Git Blame (dimmed annotation at end of primary cursor line)
+                        if doc.buffer.char_to_position(doc.cursors.primary().head).line == line_idx {
+                            if let Some(ref blame) = self.inline_blame {
+                                let text_chars = line_text.chars().count();
+                                let blame_x = text_start_x + (text_chars.saturating_sub(doc.scroll_col) + 4) * self.char_width();
+                                if blame_x < max_code_x {
+                                    fb.draw_text_truncated(blame, blame_x, text_y, max_code_x, self.colors.gutter_fg, None);
+                                }
+                            }
+                        }
                     }
 
                     // Advance to next visible line for the next screen row
@@ -2350,7 +2571,12 @@ impl GfxRenderer {
                     start_sub_idx = 0;
                 }
 
-                let tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+                let lexical_tokens = SyntaxHighlighter::tokenize_line(line_text, doc.language);
+                let tokens = if let Some(sem_spans) = doc.semantic_tokens.get(&line_idx) {
+                    SyntaxHighlighter::apply_semantic_spans(line_text, lexical_tokens, sem_spans)
+                } else {
+                    lexical_tokens
+                };
 
                 for sub_idx in start_sub_idx..sublines.len() {
                     if screen_row >= visible_lines {
@@ -3285,7 +3511,12 @@ impl GfxRenderer {
             self.render_signature_help(fb, sig, doc, sidebar_w, menu_bar.is_some());
         }
 
-        // 11. Draw Prompt Modal overlay if present
+        // 11. Draw Git Hunk Diff Popup if active
+        if let Some(ref hunk) = self.active_hunk_popup {
+            self.render_hunk_diff_popup(fb, hunk);
+        }
+
+        // 12. Draw Prompt Modal overlay if present
         if let Some(m) = modal {
             self.render_prompt_overlay(fb, m);
         }

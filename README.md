@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust)](Cargo.toml)
 [![Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg)](Cargo.toml)
 [![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
-[![Tests](https://img.shields.io/badge/Tests-207%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-221%20passed-success.svg)](tests/)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
 [![LSP](https://img.shields.io/badge/LSP-rust--analyzer%20%7C%20pylsp%20%7C%20clangd-blueviolet.svg)](#)
 
@@ -52,8 +52,11 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Añadir cursores en líneas contiguas con `Ctrl + K` (arriba) y `Ctrl + J` (abajo).
   - Transacciones atómicas reversibles con `Ctrl + Z` (Undo) y `Ctrl + Y` (Redo).
 
-- **Integración Git en Vivo (Git Gutter & Control de Versiones)**:
+- **Integración Git en Vivo (Git Gutter, Inline Blame & Hunk Diff Popup)**:
   - Gutter con barras verticales coloreadas en tiempo real para diffs instantáneos (+ verde para líneas añadidas, ~ azul para modificadas, ▲ rojo para eliminadas).
+  - **Inline Git Blame en Tiempo Real**: Anotación atenuada (*ghost text*) al final de la línea del cursor primario con autor, tiempo relativo y mensaje de commit (`autor, hace X • mensaje`). Consulta no bloqueante con caché asociativa $\mathcal{O}(1)$ en memoria para una latencia de renderizado de 0 ms.
+  - **Ventana Flotante de Git Hunk Diff (`Alt + H`)**: Modal flotante translúcido con sombra suave que muestra el bloque de cambios exacto contra Git HEAD, resaltando líneas eliminadas (`-` en rojo suave) y añadidas (`+` en verde suave).
+  - **Reversión Atómica de Hunks (`Alt + R`)**: Restaura al instante el bloque de código modificado, añadido o eliminado a su versión de Git HEAD sin afectar al resto del archivo, integrado de forma transparente con el historial de deshacer/rehacer (`Ctrl + Z`).
   - Chip de rama activa en la barra de estado con contadores de cambio (`git: main (+3 ~1)`).
   - Insignias visuales de estado en el Explorador Lateral (`M` modificado en amarillo, `U` sin rastrear en verde, `D` eliminado en rojo, `A` añadido en cian).
   - Detección ultrarrápida leyendo directamente `.git/HEAD` sin bloquear el editor y algoritmo LCS en memoria de alta velocidad.
@@ -200,6 +203,7 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Menú emergente flotante anclado a las coordenadas exactas del cursor con ranking léxico y por longitud.
   - Palabras clave nativas y tipos primitivos de todos los lenguajes soportados más identificadores extraídos en vivo de todos los búferes abiertos.
   - **Integración con Servidores LSP (`rust-analyzer`, `pylsp`, `clangd`, etc.)**: Autocompletado semántico enriquecido con documentación Markdown, inserción inteligente de texto y diagnóstico en tiempo real.
+  - **Resaltado Semántico de Precisión de Compilador (`Semantic Tokens`, `textDocument/semanticTokens/full`)**: Negociación dinámica de capacidades LSP y decodificación de secuencias 5-tuplas relativas (`deltaLine`, `deltaStartChar`, `length`, `tokenType`, `tokenModifiers`). Superpone sobre el coloreado léxico clasificaciones semánticas exactas del compilador (funciones, métodos, structs, traits, macros, parámetros, constantes y campos de estructuras) con paletas adaptadas a los 8 temas. Atajo rápido `F5` / `Ctrl + Shift + R` para refresco manual de tokens semánticos.
   - **Firma de Métodos y Parámetros Flotante (`Signature Help`, `Ctrl + Shift + Espacio`)**: Muestra en tiempo real la firma del método o función que se está invocando con resaltado en negrita del parámetro activo y previsualización de su documentación. Se activa automáticamente al escribir `(` o `,`.
   - **Navegación Semántica LSP**: Salto directo a la definición de símbolos con `F12` y consulta de tipos flotante (*Hover*) con `Shift + F1` / `F2`.
   - Compatibilidad total con edición multicursor (aplica la palabra seleccionada en todos los cursores activos al mismo tiempo).
@@ -341,6 +345,8 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Ctrl + Q` | Salir de Rustext |
 | `Ctrl + B` | **Alternar Explorador Lateral (Árbol de Proyecto)** |
 | `Ctrl + Shift + G` | **Actualizar Estado Git (Git Refresh)** |
+| `Alt + H` | **Git: Abrir / cerrar inspección de Hunk Diff en el cursor** |
+| `Alt + R` | **Git: Revertir atómicamente el Hunk actual a Git HEAD** |
 | `Ctrl + M` | **Alternar Minimapa Gráfico de Código** |
 | `Ctrl + \`` / `Ctrl + ~` | **Alternar Terminal Integrado Nativo (Consola)** |
 | `Ctrl + \` | **Alternar División Vertical de Pantalla (Split Editor)** |
@@ -367,6 +373,7 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | `Ctrl + Shift + Espacio` | **LSP: Firma de métodos y parámetros (Signature Help)** |
 | `F12` | **LSP: Ir a la definición del símbolo** |
 | `F2` / `Shift + F1` | **LSP: Información de tipo flotante (Hover)** |
+| `F5` / `Ctrl + Shift + R` | **LSP: Refrescar resaltado de tokens semánticos** |
 | `Alt + Z` | **Alternar ajuste de línea (Word Wrap)** |
 | `Alt + I` | **Alternar guías visuales de indentación** |
 | `Alt + [` / `F9` | **Plegar / desplegar bloque de código (Fold)** |

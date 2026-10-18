@@ -79,6 +79,8 @@ pub enum EditorAction {
     // Git Integration
     RefreshGit,
     ToggleGitGutter,
+    ToggleGitHunkDiff,
+    RevertGitHunk,
     // Integrated Terminal
     ToggleTerminal,
     FocusTerminal,
@@ -107,6 +109,7 @@ pub enum EditorAction {
     LspHover,
     TriggerSignatureHelp,
     RestartLspServer,
+    RefreshSemanticTokens,
     Quit,
     None,
 }
@@ -154,8 +157,13 @@ impl Keymap {
             Key::CtrlShift('\\') | Key::CtrlShift('|') => EditorAction::ToggleSplitHorizontal,
             Key::Alt('\\') => EditorAction::SwitchSplitPane,
 
-            // Git Integration (Ctrl+Shift+G)
+            // Git Integration (Ctrl+Shift+G, Alt+H for hunk diff, Alt+R for revert)
             Key::CtrlShift('g') | Key::CtrlShift('G') => EditorAction::RefreshGit,
+            Key::Alt('h') | Key::Alt('H') => EditorAction::ToggleGitHunkDiff,
+            Key::Alt('r') | Key::Alt('R') => EditorAction::RevertGitHunk,
+
+            // LSP Semantic Tokens refresh (F5 or Ctrl+Shift+R)
+            Key::F(5) | Key::CtrlShift('r') | Key::CtrlShift('R') => EditorAction::RefreshSemanticTokens,
 
             // Integrated Terminal (Ctrl+` or Ctrl+~)
             Key::Ctrl('`') | Key::Ctrl('~') => EditorAction::ToggleTerminal,

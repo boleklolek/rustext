@@ -62,6 +62,44 @@ impl GitLineStatus {
     }
 }
 
+/// Git blame information for a single line in a file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitBlameLine {
+    pub commit_hash: String,
+    pub author: String,
+    pub time_relative: String,
+    pub summary: String,
+}
+
+impl GitBlameLine {
+    pub fn new(commit_hash: String, author: String, time_relative: String, summary: String) -> Self {
+        Self {
+            commit_hash,
+            author,
+            time_relative,
+            summary,
+        }
+    }
+
+    /// Formats a clean inline annotation: "Author, 2 days ago • Commit summary"
+    pub fn format_inline(&self) -> String {
+        if self.commit_hash.chars().all(|c| c == '0') || self.author == "Not Committed Yet" {
+            return "You, Not Committed Yet • Uncommitted changes".to_string();
+        }
+        format!("{}, {} • {}", self.author, self.time_relative, self.summary)
+    }
+}
+
+/// A contiguous changed hunk in the document relative to Git HEAD.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHunk {
+    pub start_line: usize, // 0-indexed line in current document
+    pub end_line: usize,   // 0-indexed line in current document (inclusive)
+    pub old_lines: Vec<String>,
+    pub new_lines: Vec<String>,
+    pub status: GitLineStatus,
+}
+
 /// Results of a line-by-line diff against Git HEAD.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitGutterDiff {
@@ -270,6 +308,238 @@ pub fn compute_gutter_diff(old_text: &str, new_text: &str) -> GitGutterDiff {
     }
 }
 
+/// Formats a timestamp in seconds to a human-readable relative time string.
+pub fn format_relative_time(timestamp: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(timestamp);
+    if now <= timestamp {
+        return "just now".to_string();
+    }
+    let diff = now - timestamp;
+    if diff < 60 {
+        format!("{}s ago", diff)
+    } else if diff < 3600 {
+        let mins = diff / 60;
+        format!("{} min{} ago", mins, if mins == 1 { "" } else { "s" })
+    } else if diff < 86400 {
+        let hours = diff / 3600;
+        format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
+    } else if diff < 86400 * 30 {
+        let days = diff / 86400;
+        format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
+    } else if diff < 86400 * 365 {
+        let months = diff / (86400 * 30);
+        format!("{} month{} ago", months, if months == 1 { "" } else { "s" })
+    } else {
+        let years = diff / (86400 * 365);
+        format!("{} year{} ago", years, if years == 1 { "" } else { "s" })
+    }
+}
+
+/// Computes contiguous diff hunks against Git HEAD.
+pub fn compute_hunks(old_text: &str, new_text: &str) -> Vec<GitHunk> {
+    let old_lines: Vec<&str> = if old_text.is_empty() {
+        Vec::new()
+    } else {
+        old_text.split('\n').collect()
+    };
+    let new_lines: Vec<&str> = if new_text.is_empty() {
+        Vec::new()
+    } else {
+        new_text.split('\n').collect()
+    };
+
+    let n = new_lines.len();
+    let m = old_lines.len();
+
+    if n == 0 && m == 0 {
+        return Vec::new();
+    }
+
+    if n == 0 {
+        return vec![GitHunk {
+            start_line: 0,
+            end_line: 0,
+            old_lines: old_lines.into_iter().map(String::from).collect(),
+            new_lines: Vec::new(),
+            status: GitLineStatus::DeletedAbove,
+        }];
+    }
+
+    if m == 0 {
+        return vec![GitHunk {
+            start_line: 0,
+            end_line: n - 1,
+            old_lines: Vec::new(),
+            new_lines: new_lines.into_iter().map(String::from).collect(),
+            status: GitLineStatus::Added,
+        }];
+    }
+
+    // 1. Identify common prefix
+    let mut prefix_len = 0;
+    while prefix_len < m && prefix_len < n && old_lines[prefix_len] == new_lines[prefix_len] {
+        prefix_len += 1;
+    }
+
+    // 2. Identify common suffix
+    let mut suffix_len = 0;
+    while suffix_len < (m - prefix_len)
+        && suffix_len < (n - prefix_len)
+        && old_lines[m - 1 - suffix_len] == new_lines[n - 1 - suffix_len]
+    {
+        suffix_len += 1;
+    }
+
+    let mid_old_len = m - prefix_len - suffix_len;
+    let mid_new_len = n - prefix_len - suffix_len;
+
+    if mid_old_len == 0 && mid_new_len == 0 {
+        return Vec::new();
+    }
+
+    let mut hunks = Vec::new();
+
+    if mid_old_len == 0 && mid_new_len > 0 {
+        let new_slice = (0..mid_new_len)
+            .map(|i| new_lines[prefix_len + i].to_string())
+            .collect();
+        hunks.push(GitHunk {
+            start_line: prefix_len,
+            end_line: prefix_len + mid_new_len - 1,
+            old_lines: Vec::new(),
+            new_lines: new_slice,
+            status: GitLineStatus::Added,
+        });
+    } else if mid_old_len > 0 && mid_new_len == 0 {
+        let old_slice = (0..mid_old_len)
+            .map(|i| old_lines[prefix_len + i].to_string())
+            .collect();
+        let target_line = prefix_len.min(n.saturating_sub(1));
+        hunks.push(GitHunk {
+            start_line: target_line,
+            end_line: target_line,
+            old_lines: old_slice,
+            new_lines: Vec::new(),
+            status: GitLineStatus::DeletedAbove,
+        });
+    } else {
+        const MAX_LCS_CELLS: usize = 2000 * 2000;
+        if mid_old_len * mid_new_len <= MAX_LCS_CELLS {
+            let mut dp = vec![0u16; (mid_old_len + 1) * (mid_new_len + 1)];
+            let stride = mid_new_len + 1;
+
+            for i in 0..mid_old_len {
+                for j in 0..mid_new_len {
+                    if old_lines[prefix_len + i] == new_lines[prefix_len + j] {
+                        dp[(i + 1) * stride + (j + 1)] = dp[i * stride + j].saturating_add(1);
+                    } else {
+                        let top = dp[i * stride + (j + 1)];
+                        let left = dp[(i + 1) * stride + j];
+                        dp[(i + 1) * stride + (j + 1)] = top.max(left);
+                    }
+                }
+            }
+
+            let mut is_old_matched = vec![false; mid_old_len];
+            let mut is_new_matched = vec![false; mid_new_len];
+
+            let mut i = mid_old_len;
+            let mut j = mid_new_len;
+            while i > 0 && j > 0 {
+                if old_lines[prefix_len + i - 1] == new_lines[prefix_len + j - 1] {
+                    is_old_matched[i - 1] = true;
+                    is_new_matched[j - 1] = true;
+                    i -= 1;
+                    j -= 1;
+                } else if dp[(i - 1) * stride + j] >= dp[i * stride + (j - 1)] {
+                    i -= 1;
+                } else {
+                    j -= 1;
+                }
+            }
+
+            let mut old_idx = 0;
+            let mut new_idx = 0;
+
+            while old_idx < mid_old_len || new_idx < mid_new_len {
+                if old_idx < mid_old_len
+                    && new_idx < mid_new_len
+                    && is_old_matched[old_idx]
+                    && is_new_matched[new_idx]
+                {
+                    old_idx += 1;
+                    new_idx += 1;
+                } else {
+                    let start_new = new_idx;
+                    while new_idx < mid_new_len && !is_new_matched[new_idx] {
+                        new_idx += 1;
+                    }
+                    let count_new = new_idx - start_new;
+
+                    let start_old = old_idx;
+                    while old_idx < mid_old_len && !is_old_matched[old_idx] {
+                        old_idx += 1;
+                    }
+                    let count_old = old_idx - start_old;
+
+                    let old_slice = (0..count_old)
+                        .map(|k| old_lines[prefix_len + start_old + k].to_string())
+                        .collect::<Vec<_>>();
+                    let new_slice = (0..count_new)
+                        .map(|k| new_lines[prefix_len + start_new + k].to_string())
+                        .collect::<Vec<_>>();
+
+                    if count_old > 0 && count_new > 0 {
+                        hunks.push(GitHunk {
+                            start_line: prefix_len + start_new,
+                            end_line: prefix_len + start_new + count_new - 1,
+                            old_lines: old_slice,
+                            new_lines: new_slice,
+                            status: GitLineStatus::Modified,
+                        });
+                    } else if count_new > 0 {
+                        hunks.push(GitHunk {
+                            start_line: prefix_len + start_new,
+                            end_line: prefix_len + start_new + count_new - 1,
+                            old_lines: Vec::new(),
+                            new_lines: new_slice,
+                            status: GitLineStatus::Added,
+                        });
+                    } else if count_old > 0 {
+                        let target_line = (prefix_len + start_new).min(n.saturating_sub(1));
+                        hunks.push(GitHunk {
+                            start_line: target_line,
+                            end_line: target_line,
+                            old_lines: old_slice,
+                            new_lines: Vec::new(),
+                            status: GitLineStatus::DeletedAbove,
+                        });
+                    }
+                }
+            }
+        } else {
+            let old_slice = (0..mid_old_len)
+                .map(|i| old_lines[prefix_len + i].to_string())
+                .collect();
+            let new_slice = (0..mid_new_len)
+                .map(|i| new_lines[prefix_len + i].to_string())
+                .collect();
+            hunks.push(GitHunk {
+                start_line: prefix_len,
+                end_line: prefix_len + mid_new_len - 1,
+                old_lines: old_slice,
+                new_lines: new_slice,
+                status: GitLineStatus::Modified,
+            });
+        }
+    }
+
+    hunks
+}
+
 /// Git manager responsible for branch detection, repository root finding,
 /// file status tracking, and per-document gutter diffs.
 #[derive(Debug, Clone)]
@@ -278,6 +548,7 @@ pub struct GitManager {
     pub branch: Option<String>,
     pub file_statuses: HashMap<PathBuf, GitFileStatus>,
     pub cached_diffs: HashMap<PathBuf, GitGutterDiff>,
+    pub blame_cache: HashMap<(PathBuf, usize), Option<GitBlameLine>>,
     pub is_enabled: bool,
 }
 
@@ -292,6 +563,7 @@ impl GitManager {
             branch,
             file_statuses: HashMap::new(),
             cached_diffs: HashMap::new(),
+            blame_cache: HashMap::new(),
             is_enabled: true,
         };
 
@@ -359,6 +631,7 @@ impl GitManager {
 
         self.branch = Self::detect_branch(&root);
         self.file_statuses.clear();
+        self.blame_cache.clear();
 
         // Run `git status --porcelain=v1 -uall`
         let output = Command::new("git")
@@ -480,6 +753,80 @@ impl GitManager {
         }
         format!(" {}", branch)
     }
+
+    /// Retrieves cached or fresh Git blame line for a given 0-indexed line.
+    pub fn get_line_blame(&mut self, file_path: &Path, line_idx_0: usize) -> Option<GitBlameLine> {
+        let canon = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+        if let Some(cached) = self.blame_cache.get(&(canon.clone(), line_idx_0)) {
+            return cached.clone();
+        }
+
+        let root = self.git_root.as_ref()?;
+        let rel_path = file_path.strip_prefix(root).ok().unwrap_or(file_path);
+        let line_1 = line_idx_0 + 1;
+
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["blame", "-L", &format!("{},{}", line_1, line_1), "--porcelain", "--"])
+            .arg(rel_path)
+            .output()
+            .ok()?;
+
+        if !out.status.success() {
+            self.blame_cache.insert((canon, line_idx_0), None);
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut lines = stdout.lines();
+        let first_line = lines.next()?;
+        let commit_hash = first_line.split_whitespace().next()?.to_string();
+
+        let mut author = String::new();
+        let mut author_time: u64 = 0;
+        let mut summary = String::new();
+
+        for line in lines {
+            if let Some(rest) = line.strip_prefix("author ") {
+                author = rest.trim().to_string();
+            } else if let Some(rest) = line.strip_prefix("author-time ") {
+                author_time = rest.trim().parse::<u64>().unwrap_or(0);
+            } else if let Some(rest) = line.strip_prefix("summary ") {
+                summary = rest.trim().to_string();
+            }
+        }
+
+        let time_relative = if author_time > 0 {
+            format_relative_time(author_time)
+        } else {
+            "recently".to_string()
+        };
+
+        let blame = GitBlameLine::new(commit_hash, author, time_relative, summary);
+        self.blame_cache.insert((canon, line_idx_0), Some(blame.clone()));
+        Some(blame)
+    }
+
+    /// Finds the Git diff hunk spanning `line_idx` (0-indexed) in the active document.
+    pub fn find_hunk_at_line(
+        &self,
+        file_path: Option<&Path>,
+        current_text: &str,
+        line_idx: usize,
+    ) -> Option<GitHunk> {
+        let head = match file_path {
+            Some(p) => self.get_head_file_content(p).unwrap_or_default(),
+            None => String::new(),
+        };
+        let hunks = compute_hunks(&head, current_text);
+        for hunk in hunks {
+            if line_idx >= hunk.start_line && line_idx <= hunk.end_line {
+                return Some(hunk);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -553,5 +900,44 @@ mod tests {
         let mgr = GitManager::new(&cur);
         assert!(mgr.git_root.is_some());
         assert_eq!(mgr.branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn test_compute_hunks_modifications_and_additions() {
+        let old = "line 1\nline 2\nline 3\nline 4";
+        let new = "line 1\nline TWO\nline 3\nline 4\nline 5";
+        let hunks = compute_hunks(old, new);
+        assert_eq!(hunks.len(), 2);
+        // Hunk 1: modified line 1 (line TWO)
+        assert_eq!(hunks[0].status, GitLineStatus::Modified);
+        assert_eq!(hunks[0].start_line, 1);
+        assert_eq!(hunks[0].end_line, 1);
+        assert_eq!(hunks[0].old_lines, vec!["line 2"]);
+        assert_eq!(hunks[0].new_lines, vec!["line TWO"]);
+        // Hunk 2: added line 4 (line 5)
+        assert_eq!(hunks[1].status, GitLineStatus::Added);
+        assert_eq!(hunks[1].start_line, 4);
+        assert_eq!(hunks[1].end_line, 4);
+        assert_eq!(hunks[1].old_lines, Vec::<String>::new());
+        assert_eq!(hunks[1].new_lines, vec!["line 5"]);
+    }
+
+    #[test]
+    fn test_git_blame_formatting() {
+        let blame = GitBlameLine::new(
+            "9774f1af16e23a3a8e8ca16085db720abf583872".to_string(),
+            "boleklolek".to_string(),
+            "2 hours ago".to_string(),
+            "docs: update license".to_string(),
+        );
+        assert_eq!(blame.format_inline(), "boleklolek, 2 hours ago • docs: update license");
+
+        let uncommitted = GitBlameLine::new(
+            "0000000000000000000000000000000000000000".to_string(),
+            "Not Committed Yet".to_string(),
+            "just now".to_string(),
+            "".to_string(),
+        );
+        assert_eq!(uncommitted.format_inline(), "You, Not Committed Yet • Uncommitted changes");
     }
 }

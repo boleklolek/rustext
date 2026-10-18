@@ -471,15 +471,69 @@ pub struct LspCompletionItem {
     pub insert_text: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticTokensLegend {
+    pub token_types: Vec<String>,
+    pub token_modifiers: Vec<String>,
+}
+
+impl Default for SemanticTokensLegend {
+    fn default() -> Self {
+        Self {
+            token_types: vec![
+                "comment".to_string(),
+                "keyword".to_string(),
+                "string".to_string(),
+                "number".to_string(),
+                "regexp".to_string(),
+                "operator".to_string(),
+                "namespace".to_string(),
+                "type".to_string(),
+                "struct".to_string(),
+                "class".to_string(),
+                "interface".to_string(),
+                "enum".to_string(),
+                "enumMember".to_string(),
+                "typeParameter".to_string(),
+                "function".to_string(),
+                "method".to_string(),
+                "property".to_string(),
+                "macro".to_string(),
+                "variable".to_string(),
+                "parameter".to_string(),
+                "modifier".to_string(),
+            ],
+            token_modifiers: vec![
+                "declaration".to_string(),
+                "definition".to_string(),
+                "readonly".to_string(),
+                "static".to_string(),
+                "deprecated".to_string(),
+                "abstract".to_string(),
+                "async".to_string(),
+                "modification".to_string(),
+                "documentation".to_string(),
+                "defaultLibrary".to_string(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LspEvent {
     ServerStarted { server_name: String },
-    Initialized,
+    Initialized { legend: Option<SemanticTokensLegend> },
     PublishDiagnostics { file: PathBuf, diagnostics: Vec<Diagnostic> },
     CompletionResponse { request_id: u64, items: Vec<LspCompletionItem> },
     HoverResponse { request_id: u64, hover: Option<LspHover> },
     SignatureHelpResponse { request_id: u64, signature_help: Option<LspSignatureHelp> },
     DefinitionResponse { request_id: u64, location: Option<LspLocation> },
+    SemanticTokensRawResponse { request_id: u64, raw_data: Vec<u64> },
+    SemanticTokensResponse {
+        request_id: u64,
+        file: Option<PathBuf>,
+        tokens: HashMap<usize, Vec<crate::core::syntax::SemanticTokenSpan>>,
+    },
     ServerExited { code: Option<i32> },
     Error { message: String },
 }
@@ -501,6 +555,8 @@ pub struct LspClient {
     pub root_dir: PathBuf,
     pub status: ServerStatus,
     pub active_language: Language,
+    pub server_legend: Option<SemanticTokensLegend>,
+    pub pending_semantic_requests: HashMap<u64, PathBuf>,
     next_id: Arc<AtomicU64>,
     stdin_tx: Option<Sender<String>>,
     event_rx: Option<Receiver<LspEvent>>,
@@ -515,6 +571,8 @@ impl LspClient {
             root_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             status: ServerStatus::Disconnected,
             active_language: Language::Rust,
+            server_legend: None,
+            pending_semantic_requests: HashMap::new(),
             next_id: Arc::new(AtomicU64::new(1)),
             stdin_tx: None,
             event_rx: None,
@@ -632,6 +690,7 @@ impl LspClient {
         self.stdin_tx = None;
         self.event_rx = None;
         self.open_docs.clear();
+        self.pending_semantic_requests.clear();
 
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
@@ -647,8 +706,22 @@ impl LspClient {
                 match rx.try_recv() {
                     Ok(ev) => {
                         match &ev {
-                            LspEvent::Initialized => {
+                            LspEvent::Initialized { legend } => {
                                 self.status = ServerStatus::Ready;
+                                if legend.is_some() {
+                                    self.server_legend = legend.clone();
+                                }
+                            }
+                            LspEvent::SemanticTokensRawResponse { request_id, raw_data } => {
+                                let file = self.pending_semantic_requests.remove(request_id);
+                                let legend = self.server_legend.clone().unwrap_or_default();
+                                let tokens = Self::decode_semantic_tokens(raw_data, &legend);
+                                events.push(LspEvent::SemanticTokensResponse {
+                                    request_id: *request_id,
+                                    file,
+                                    tokens,
+                                });
+                                continue;
                             }
                             LspEvent::ServerExited { .. } => {
                                 self.status = ServerStatus::Disconnected;
@@ -752,6 +825,46 @@ impl LspClient {
                                 ]),
                             )]),
                         )]),
+                    ),
+                    (
+                        "semanticTokens".to_string(),
+                        JsonValue::Object(vec![
+                            ("dynamicRegistration".to_string(), JsonValue::Bool(false)),
+                            (
+                                "requests".to_string(),
+                                JsonValue::Object(vec![("full".to_string(), JsonValue::Bool(true))]),
+                            ),
+                            (
+                                "tokenTypes".to_string(),
+                                JsonValue::Array(
+                                    vec![
+                                        "comment", "keyword", "string", "number", "regexp", "operator",
+                                        "namespace", "type", "struct", "class", "interface", "enum",
+                                        "enumMember", "typeParameter", "function", "method", "property",
+                                        "macro", "variable", "parameter", "modifier",
+                                    ]
+                                    .into_iter()
+                                    .map(|s| JsonValue::String(s.to_string()))
+                                    .collect(),
+                                ),
+                            ),
+                            (
+                                "tokenModifiers".to_string(),
+                                JsonValue::Array(
+                                    vec![
+                                        "declaration", "definition", "readonly", "static", "deprecated",
+                                        "abstract", "async", "modification", "documentation", "defaultLibrary",
+                                    ]
+                                    .into_iter()
+                                    .map(|s| JsonValue::String(s.to_string()))
+                                    .collect(),
+                                ),
+                            ),
+                            (
+                                "formats".to_string(),
+                                JsonValue::Array(vec![JsonValue::String("relative".to_string())]),
+                            ),
+                        ]),
                     ),
                 ]),
             ),
@@ -909,6 +1022,17 @@ impl LspClient {
         self.send_request("textDocument/signatureHelp", params)
     }
 
+    pub fn request_semantic_tokens(&mut self, path: &Path) -> u64 {
+        let uri = path_to_uri(path);
+        let params = JsonValue::Object(vec![(
+            "textDocument".to_string(),
+            JsonValue::Object(vec![("uri".to_string(), JsonValue::String(uri))]),
+        )]);
+        let id = self.send_request("textDocument/semanticTokens/full", params);
+        self.pending_semantic_requests.insert(id, path.to_path_buf());
+        id
+    }
+
     fn dispatch_incoming_json(json: &JsonValue, event_tx: &Sender<LspEvent>) {
         // 1. Check for notifications (method present, no id)
         if let Some(method) = json.get("method").and_then(|v| v.as_str()) {
@@ -935,8 +1059,24 @@ impl LspClient {
         if let Some(id) = json.get("id").and_then(|v| v.as_u64()) {
             // Check if response to 'initialize'
             if let Some(result) = json.get("result") {
-                if result.get("capabilities").is_some() {
-                    let _ = event_tx.send(LspEvent::Initialized);
+                if let Some(caps) = result.get("capabilities") {
+                    let legend = caps.get_path(&["semanticTokensProvider", "legend"]).map(|leg| {
+                        let types = leg
+                            .get("tokenTypes")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                            .unwrap_or_default();
+                        let mods = leg
+                            .get("tokenModifiers")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                            .unwrap_or_default();
+                        SemanticTokensLegend {
+                            token_types: types,
+                            token_modifiers: mods,
+                        }
+                    });
+                    let _ = event_tx.send(LspEvent::Initialized { legend });
                     return;
                 }
             }
@@ -974,8 +1114,105 @@ impl LspClient {
                     request_id: id,
                     location: loc,
                 });
+                return;
+            }
+
+            // Semantic Tokens Response
+            if let Some(data) = Self::try_parse_semantic_tokens_response(json) {
+                let _ = event_tx.send(LspEvent::SemanticTokensRawResponse {
+                    request_id: id,
+                    raw_data: data,
+                });
             }
         }
+    }
+
+    fn try_parse_semantic_tokens_response(json: &JsonValue) -> Option<Vec<u64>> {
+        let result = json.get("result")?;
+        let data_arr = result.get("data")?.as_array()?;
+        let mut data = Vec::with_capacity(data_arr.len());
+        for item in data_arr {
+            data.push(item.as_u64()?);
+        }
+        Some(data)
+    }
+
+    pub fn decode_semantic_tokens(
+        data: &[u64],
+        legend: &SemanticTokensLegend,
+    ) -> HashMap<usize, Vec<crate::core::syntax::SemanticTokenSpan>> {
+        let mut result = HashMap::new();
+        if data.len() < 5 {
+            return result;
+        }
+
+        let mut current_line: usize = 0;
+        let mut current_col: usize = 0;
+
+        let chunk_count = data.len() / 5;
+        for i in 0..chunk_count {
+            let delta_line = data[5 * i + 0] as usize;
+            let delta_start_char = data[5 * i + 1] as usize;
+            let length = data[5 * i + 2] as usize;
+            let token_type_idx = data[5 * i + 3] as usize;
+            let token_modifiers = data[5 * i + 4];
+
+            if delta_line > 0 {
+                current_line += delta_line;
+                current_col = delta_start_char;
+            } else {
+                current_col += delta_start_char;
+            }
+
+            let type_name = legend
+                .token_types
+                .get(token_type_idx)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            let token_type = match type_name {
+                "function" => crate::core::syntax::TokenType::Function,
+                "method" => crate::core::syntax::TokenType::Method,
+                "struct" | "class" | "interface" | "enum" | "union" | "typeAlias" => {
+                    crate::core::syntax::TokenType::Struct
+                }
+                "trait" => crate::core::syntax::TokenType::Trait,
+                "macro" => crate::core::syntax::TokenType::Macro,
+                "parameter" => crate::core::syntax::TokenType::Parameter,
+                "variable" => {
+                    let is_constant = legend
+                        .token_modifiers
+                        .iter()
+                        .enumerate()
+                        .any(|(bit, mod_name)| {
+                            (mod_name == "readonly" || mod_name == "static")
+                                && (token_modifiers & (1 << bit)) != 0
+                        });
+                    if is_constant {
+                        crate::core::syntax::TokenType::Constant
+                    } else {
+                        crate::core::syntax::TokenType::Identifier
+                    }
+                }
+                "property" | "field" => crate::core::syntax::TokenType::Field,
+                "type" | "typeParameter" => crate::core::syntax::TokenType::Type,
+                "keyword" | "modifier" => crate::core::syntax::TokenType::Keyword,
+                "string" => crate::core::syntax::TokenType::StringLiteral,
+                "number" => crate::core::syntax::TokenType::Number,
+                "comment" => crate::core::syntax::TokenType::Comment,
+                "operator" => crate::core::syntax::TokenType::Operator,
+                _ => crate::core::syntax::TokenType::Identifier,
+            };
+
+            let span = crate::core::syntax::SemanticTokenSpan::new(
+                current_col,
+                current_col + length,
+                token_type,
+            );
+            result.entry(current_line).or_insert_with(Vec::new).push(span);
+        }
+
+        result
     }
 
     fn parse_publish_diagnostics(params: &JsonValue) -> Option<(PathBuf, Vec<Diagnostic>)> {
@@ -1299,5 +1536,37 @@ mod tests {
         assert_eq!(items[0].kind, CompletionKind::Function);
         assert_eq!(items[1].label, "String");
         assert_eq!(items[1].kind, CompletionKind::Type);
+    }
+
+    #[test]
+    fn test_decode_semantic_tokens() {
+        let legend = SemanticTokensLegend::default();
+        // Encoded 5-tuples:
+        // Token 1: line 0, col 3, len 4 (type 14 = "function", mod 0)
+        // Token 2: line 0 (delta 0), col +5 (col 8), len 3 (type 8 = "struct", mod 0)
+        // Token 3: line 2 (delta 2), col 4, len 5 (type 17 = "macro", mod 0)
+        let data = vec![
+            0, 3, 4, 14, 0,
+            0, 5, 3, 8, 0,
+            2, 4, 5, 17, 0,
+        ];
+        let decoded = LspClient::decode_semantic_tokens(&data, &legend);
+        assert_eq!(decoded.len(), 2);
+
+        let line0 = &decoded[&0];
+        assert_eq!(line0.len(), 2);
+        assert_eq!(line0[0].start_col, 3);
+        assert_eq!(line0[0].end_col, 7);
+        assert_eq!(line0[0].token_type, crate::core::syntax::TokenType::Function);
+
+        assert_eq!(line0[1].start_col, 8);
+        assert_eq!(line0[1].end_col, 11);
+        assert_eq!(line0[1].token_type, crate::core::syntax::TokenType::Struct);
+
+        let line2 = &decoded[&2];
+        assert_eq!(line2.len(), 1);
+        assert_eq!(line2[0].start_col, 4);
+        assert_eq!(line2[0].end_col, 9);
+        assert_eq!(line2[0].token_type, crate::core::syntax::TokenType::Macro);
     }
 }

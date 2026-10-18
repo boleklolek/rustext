@@ -136,6 +136,7 @@ pub struct Editor {
     pub lsp: crate::editor::lsp::LspClient,
     pub jump_list: crate::editor::jump_list::JumpList,
     pub signature_help: Option<crate::editor::lsp::LspSignatureHelp>,
+    pub active_hunk_popup: Option<crate::editor::git::GitHunk>,
 }
 
 impl Editor {
@@ -219,6 +220,7 @@ impl Editor {
             lsp: crate::editor::lsp::LspClient::new(),
             jump_list: crate::editor::jump_list::JumpList::default(),
             signature_help: None,
+            active_hunk_popup: None,
         };
 
         if editor.config.lsp.enabled && editor.config.lsp.auto_start {
@@ -273,6 +275,26 @@ impl Editor {
             }
             self.terminal.handle_key(key);
             return;
+        }
+
+        // If hunk diff popup is active, allow Esc to close or Alt+R to revert
+        if self.active_hunk_popup.is_some() {
+            match key {
+                Key::Esc => {
+                    self.active_hunk_popup = None;
+                    self.set_status("Git Hunk Diff cerrado");
+                    return;
+                }
+                Key::Alt('r') | Key::Alt('R') => {
+                    self.revert_active_hunk();
+                    return;
+                }
+                Key::Alt('h') | Key::Alt('H') => {
+                    self.active_hunk_popup = None;
+                    return;
+                }
+                _ => {}
+            }
         }
 
         match &mut self.mode {
@@ -1289,6 +1311,16 @@ impl Editor {
             EditorAction::RestartLspServer => {
                 self.lsp_restart();
             }
+            EditorAction::ToggleGitHunkDiff => {
+                self.toggle_git_hunk_diff();
+            }
+            EditorAction::RevertGitHunk => {
+                self.revert_active_hunk();
+            }
+            EditorAction::RefreshSemanticTokens => {
+                self.refresh_semantic_tokens();
+                self.set_status("LSP: Tokens semánticos actualizados");
+            }
 
             EditorAction::None => {}
         }
@@ -1833,6 +1865,131 @@ impl Editor {
         self.set_status(format!("Git Gutter {}", if self.config.gui.git_gutter { "activado" } else { "desactivado" }));
     }
 
+    /// Toggles the Git Hunk diff popup for the line under the primary cursor (Alt+H).
+    pub fn toggle_git_hunk_diff(&mut self) {
+        if self.active_hunk_popup.is_some() {
+            self.active_hunk_popup = None;
+            self.set_status("Git Hunk Diff cerrado");
+            return;
+        }
+
+        let (path, current_text, cursor_line) = {
+            let doc = self.doc();
+            let path = doc.buffer.file_path().map(|p| p.to_path_buf());
+            let current_text = doc.buffer.to_string();
+            let cursor_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+            (path, current_text, cursor_pos.line)
+        };
+
+        if let Some(hunk) = self.git.find_hunk_at_line(path.as_deref(), &current_text, cursor_line) {
+            let lines_info = format!("líneas {}..={}", hunk.start_line + 1, hunk.end_line + 1);
+            self.set_status(format!("Git Hunk Diff ({}) [Alt+R: Deshacer, Esc: Cerrar]", lines_info));
+            self.active_hunk_popup = Some(hunk);
+        } else {
+            self.set_status("Sin cambios Git en la línea actual");
+        }
+    }
+
+    /// Atomically reverts the currently open hunk diff (or hunk at cursor) back to Git HEAD (Alt+R).
+    pub fn revert_active_hunk(&mut self) {
+        let hunk = match self.active_hunk_popup.take() {
+            Some(h) => h,
+            None => {
+                let (path, current_text, cursor_line) = {
+                    let doc = self.doc();
+                    let path = doc.buffer.file_path().map(|p| p.to_path_buf());
+                    let current_text = doc.buffer.to_string();
+                    let cursor_pos = doc.buffer.char_to_position(doc.cursors.primary().head);
+                    (path, current_text, cursor_pos.line)
+                };
+                match self.git.find_hunk_at_line(path.as_deref(), &current_text, cursor_line) {
+                    Some(h) => h,
+                    None => {
+                        self.set_status("No hay ningún cambio Git para revertir");
+                        return;
+                    }
+                }
+            }
+        };
+
+        let doc = self.doc_mut();
+        let total_lines = doc.buffer.len_lines();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+
+        match hunk.status {
+            crate::editor::git::GitLineStatus::Added => {
+                if hunk.start_line < total_lines {
+                    let start_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(hunk.start_line, 0));
+                    let end_char = if hunk.end_line + 1 < total_lines {
+                        doc.buffer.position_to_char(crate::core::buffer::Position::new(hunk.end_line + 1, 0))
+                    } else if hunk.start_line > 0 {
+                        let prev_line_len = doc.buffer.line_len(hunk.start_line - 1);
+                        let adj_start = doc.buffer.position_to_char(crate::core::buffer::Position::new(hunk.start_line - 1, prev_line_len));
+                        let adj_end = doc.buffer.len_chars();
+                        let deleted = doc.buffer.get_text_range(adj_start, adj_end);
+                        doc.buffer.delete_range(adj_start, adj_end);
+                        tx.ops.push(EditOp::Delete { offset: adj_start, text: deleted });
+                        doc.cursors.set_single(adj_start);
+                        tx.cursors_after = doc.cursors.cursors().to_vec();
+                        doc.history.record(tx);
+                        self.git.refresh_statuses();
+                        self.lsp_notify_change_active_doc();
+                        self.set_status(format!("Hunk revertido: {} líneas añadidas eliminadas", hunk.new_lines.len()));
+                        return;
+                    } else {
+                        doc.buffer.len_chars()
+                    };
+
+                    if end_char > start_char {
+                        let deleted = doc.buffer.get_text_range(start_char, end_char);
+                        doc.buffer.delete_range(start_char, end_char);
+                        tx.ops.push(EditOp::Delete { offset: start_char, text: deleted });
+                    }
+                    doc.cursors.set_single(start_char);
+                }
+            }
+            crate::editor::git::GitLineStatus::Modified => {
+                let start_line = hunk.start_line.min(total_lines.saturating_sub(1));
+                let end_line = hunk.end_line.min(total_lines.saturating_sub(1));
+                let start_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(start_line, 0));
+                let end_char = doc.buffer.position_to_char(crate::core::buffer::Position::new(end_line, doc.buffer.line_len(end_line)));
+
+                let replacement = hunk.old_lines.join("\n");
+                let deleted = doc.buffer.get_text_range(start_char, end_char);
+                doc.buffer.delete_range(start_char, end_char);
+                tx.ops.push(EditOp::Delete { offset: start_char, text: deleted });
+                doc.buffer.insert(start_char, &replacement);
+                tx.ops.push(EditOp::Insert { offset: start_char, text: replacement });
+                doc.cursors.set_single(start_char);
+            }
+            crate::editor::git::GitLineStatus::DeletedAbove => {
+                let mut text_to_insert = hunk.old_lines.join("\n");
+                let start_char = if total_lines == 0 || doc.buffer.len_chars() == 0 {
+                    0
+                } else if hunk.start_line < total_lines {
+                    text_to_insert.push('\n');
+                    doc.buffer.position_to_char(crate::core::buffer::Position::new(hunk.start_line, 0))
+                } else {
+                    let mut s = String::from("\n");
+                    s.push_str(&text_to_insert);
+                    text_to_insert = s;
+                    doc.buffer.len_chars()
+                };
+
+                doc.buffer.insert(start_char, &text_to_insert);
+                tx.ops.push(EditOp::Insert { offset: start_char, text: text_to_insert });
+                doc.cursors.set_single(start_char);
+            }
+            _ => {}
+        }
+
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.git.refresh_statuses();
+        self.lsp_notify_change_active_doc();
+        self.set_status("Hunk revertido a la versión de Git HEAD");
+    }
+
     /// Returns the active column width available for text wrapping.
     #[inline]
     pub fn active_max_cols(&self) -> usize {
@@ -2286,6 +2443,7 @@ impl Editor {
         };
 
         self.lsp.notify_did_open(&path, lang, &text);
+        self.lsp.request_semantic_tokens(&path);
     }
 
     /// Sends didChange notification for the active document.
@@ -2303,6 +2461,7 @@ impl Editor {
         };
 
         self.lsp.notify_did_change(&path, &text);
+        self.lsp.request_semantic_tokens(&path);
     }
 
     /// Sends didOpen for all open documents.
@@ -2319,7 +2478,19 @@ impl Editor {
                     _ => continue,
                 };
                 self.lsp.notify_did_open(path, lang_id, &doc.buffer.to_string());
+                self.lsp.request_semantic_tokens(path);
             }
+        }
+    }
+
+    /// Requests a semantic token refresh from LSP for the active document.
+    pub fn refresh_semantic_tokens(&mut self) {
+        if !self.config.lsp.enabled || !self.lsp.is_running() {
+            return;
+        }
+        if let Some(path) = self.doc().buffer.file_path() {
+            let path_buf = path.to_path_buf();
+            self.lsp.request_semantic_tokens(&path_buf);
         }
     }
 
@@ -2428,9 +2599,10 @@ impl Editor {
                     self.set_status(format!("LSP: Servidor '{}' iniciado", server_name));
                     needs_redraw = true;
                 }
-                crate::editor::lsp::LspEvent::Initialized => {
+                crate::editor::lsp::LspEvent::Initialized { .. } => {
                     self.set_status(format!("LSP: Servidor '{}' inicializado y listo", self.lsp.server_name));
                     self.lsp_sync_open_documents();
+                    self.refresh_semantic_tokens();
                     needs_redraw = true;
                 }
                 crate::editor::lsp::LspEvent::PublishDiagnostics { file, diagnostics } => {
@@ -2491,6 +2663,21 @@ impl Editor {
                     }
                     needs_redraw = true;
                 }
+                crate::editor::lsp::LspEvent::SemanticTokensResponse { file, tokens, .. } => {
+                    if let Some(target_path) = file {
+                        for doc in &mut self.documents {
+                            if doc.buffer.file_path() == Some(&target_path) {
+                                doc.semantic_tokens = tokens.clone();
+                                needs_redraw = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        self.doc_mut().semantic_tokens = tokens;
+                        needs_redraw = true;
+                    }
+                }
+                crate::editor::lsp::LspEvent::SemanticTokensRawResponse { .. } => {}
                 crate::editor::lsp::LspEvent::ServerExited { code } => {
                     self.set_status(format!("LSP: Servidor detenido (código: {:?})", code));
                     needs_redraw = true;
@@ -6038,6 +6225,17 @@ impl Editor {
             renderer.git_gutter_enabled = self.config.gui.git_gutter;
             renderer.terminal_inset = term_inset;
             renderer.signature_help = self.signature_help.clone();
+
+            // C: Inline Git Blame on primary cursor line
+            if let Some(path) = primary_doc.buffer.file_path() {
+                let cursor_line = primary_doc.buffer.char_to_position(primary_doc.cursors.primary().head).line;
+                renderer.inline_blame = self.git.get_line_blame(path, cursor_line).map(|b| b.format_inline());
+            } else {
+                renderer.inline_blame = None;
+            }
+
+            // Hunk Diff Popup
+            renderer.active_hunk_popup = self.active_hunk_popup.clone();
 
             renderer.render_full_frame_with_split(
                 &mut fb,

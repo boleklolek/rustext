@@ -5443,6 +5443,214 @@ fn test_lsp_signature_help_parsing_and_rendering() {
     assert!(drawn_pixels > 0, "Signature help tooltip should draw frame pixels");
 }
 
+#[test]
+fn test_inline_git_blame_formatting_and_rendering() {
+    use rustext::editor::git::{GitBlameLine, format_relative_time};
+    use rustext::gfx::ThemeColors;
+
+    // 1. Test relative time formatting
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    assert_eq!(format_relative_time(now - 10), "10s ago");
+    assert_eq!(format_relative_time(now - 120), "2 mins ago");
+    assert_eq!(format_relative_time(now - 7200), "2 hours ago");
+    assert_eq!(format_relative_time(now - 86400 * 3), "3 days ago");
+
+    // 2. Test GitBlameLine formatting
+    let blame = GitBlameLine {
+        commit_hash: "a1b2c3d4e5f6".to_string(),
+        author: "bolek".to_string(),
+        summary: "feat: add semantic tokens".to_string(),
+        time_relative: "5 mins ago".to_string(),
+    };
+
+    let formatted = blame.format_inline();
+    assert!(formatted.contains("bolek"));
+    assert!(formatted.contains("5 mins ago"));
+    assert!(formatted.contains("feat: add semantic tokens"));
+
+    // 3. Test rendering inline blame on editor line
+    let mut fb = Framebuffer::new(800, 600);
+    let mut renderer = GfxRenderer::new();
+    let doc = Document::new(TextBuffer::from_str("fn main() {\n    println!(\"hello\");\n}\n"));
+    let colors = ThemeColors::tokyo_night();
+
+    renderer.inline_blame = Some(formatted);
+    renderer.render_editor_pane(
+        &mut fb,
+        &doc,
+        0,
+        0,
+        800,
+        600,
+        true,
+        "main.rs",
+        false,
+        false,
+        false,
+        false,
+    );
+
+    // Framebuffer should contain non-zero pixels
+    let mut pixel_count = 0;
+    for &p in fb.pixels.iter() {
+        if p != colors.background {
+            pixel_count += 1;
+        }
+    }
+    assert!(pixel_count > 0, "Inline git blame should be rendered into framebuffer");
+}
+
+#[test]
+fn test_git_hunk_diff_popup_and_atomic_revert() {
+    use rustext::editor::git::{GitHunk, GitLineStatus, compute_hunks};
+    use rustext::editor::{Editor, EditorAction};
+
+    // 1. Test compute_hunks
+    let old_text = "line 1\nline 2\nline 3\n";
+    let new_text = "line 1\nline 2 MODIFIED\nline 3\nline 4 ADDED\n";
+
+    let hunks = compute_hunks(old_text, new_text);
+    assert!(!hunks.is_empty(), "Hunks should be detected");
+
+    // 2. Test Hunk Diff Popup rendering
+    let mut fb = Framebuffer::new(800, 600);
+    let renderer = GfxRenderer::new();
+    let test_hunk = GitHunk {
+        start_line: 1,
+        end_line: 1,
+        old_lines: vec!["line 2".to_string()],
+        new_lines: vec!["line 2 MODIFIED".to_string()],
+        status: GitLineStatus::Modified,
+    };
+
+    renderer.render_hunk_diff_popup(&mut fb, &test_hunk);
+
+    let mut painted_pixels = 0;
+    for &p in fb.pixels.iter() {
+        if p != 0 {
+            painted_pixels += 1;
+        }
+    }
+    assert!(painted_pixels > 100, "Popup modal should render with drop shadow and content");
+
+    // 3. Test Editor atomic hunk revert for Modified hunk
+    let mut editor = Editor::new(TextBuffer::from_str("alpha\nbeta-mod\ngamma\n"));
+    editor.active_hunk_popup = Some(GitHunk {
+        start_line: 1,
+        end_line: 1,
+        old_lines: vec!["beta-original".to_string()],
+        new_lines: vec!["beta-mod".to_string()],
+        status: GitLineStatus::Modified,
+    });
+
+    editor.revert_active_hunk();
+
+    // Verify buffer content restored
+    assert_eq!(editor.doc().buffer.to_string(), "alpha\nbeta-original\ngamma\n");
+    assert!(editor.active_hunk_popup.is_none(), "Popup should be closed after revert");
+
+    // Verify undo restores the modification
+    editor.execute_action(EditorAction::Undo);
+    assert_eq!(editor.doc().buffer.to_string(), "alpha\nbeta-mod\ngamma\n");
+
+    // 4. Test Editor atomic hunk revert for Added hunk
+    let mut editor_added = Editor::new(TextBuffer::from_str("alpha\nnew-line-1\nnew-line-2\ngamma\n"));
+    editor_added.active_hunk_popup = Some(GitHunk {
+        start_line: 1,
+        end_line: 2,
+        old_lines: Vec::new(),
+        new_lines: vec!["new-line-1".to_string(), "new-line-2".to_string()],
+        status: GitLineStatus::Added,
+    });
+
+    editor_added.revert_active_hunk();
+    assert_eq!(editor_added.doc().buffer.to_string(), "alpha\ngamma\n");
+
+    // 5. Test Editor atomic hunk revert for DeletedAbove hunk
+    let mut editor_deleted = Editor::new(TextBuffer::from_str("alpha\ngamma\n"));
+    editor_deleted.active_hunk_popup = Some(GitHunk {
+        start_line: 1,
+        end_line: 1,
+        old_lines: vec!["restored-beta".to_string()],
+        new_lines: Vec::new(),
+        status: GitLineStatus::DeletedAbove,
+    });
+
+    editor_deleted.revert_active_hunk();
+    assert_eq!(editor_deleted.doc().buffer.to_string(), "alpha\nrestored-beta\ngamma\n");
+}
+
+#[test]
+fn test_lsp_semantic_tokens_overlay_and_theme_colors() {
+    use rustext::core::syntax::{Language, SemanticTokenSpan, SyntaxHighlighter, TokenType};
+    use rustext::editor::lsp::{LspClient, SemanticTokensLegend};
+    use rustext::gfx::ThemeColors;
+
+    // 1. Test decode_semantic_tokens
+    let legend = SemanticTokensLegend::default();
+    let raw_data = vec![
+        0, 4, 8, 14, 0,
+        1, 4, 6, 18, 4,
+    ];
+
+    let tokens_map = LspClient::decode_semantic_tokens(&raw_data, &legend);
+    assert_eq!(tokens_map.len(), 2);
+    assert!(tokens_map.contains_key(&0));
+    assert!(tokens_map.contains_key(&1));
+
+    let line0_tokens = &tokens_map[&0];
+    assert_eq!(line0_tokens.len(), 1);
+    assert_eq!(line0_tokens[0].token_type, TokenType::Function);
+    assert_eq!(line0_tokens[0].start_col, 4);
+    assert_eq!(line0_tokens[0].end_col, 12);
+
+    let line1_tokens = &tokens_map[&1];
+    assert_eq!(line1_tokens.len(), 1);
+    assert_eq!(line1_tokens[0].token_type, TokenType::Constant);
+
+    // 2. Test apply_semantic_spans character overlay
+    let line_str = "    function_name(param);";
+    let lexical = SyntaxHighlighter::tokenize_line(line_str, Language::Rust);
+    let semantic = vec![
+        SemanticTokenSpan {
+            start_col: 4,
+            end_col: 17,
+            token_type: TokenType::Function,
+        },
+        SemanticTokenSpan {
+            start_col: 18,
+            end_col: 23,
+            token_type: TokenType::Parameter,
+        },
+    ];
+
+    let merged = SyntaxHighlighter::apply_semantic_spans(line_str, lexical, &semantic);
+    let func_tok = merged.iter().find(|t| t.token_type == TokenType::Function);
+    assert!(func_tok.is_some(), "Function token should be overlaid");
+    assert_eq!(func_tok.unwrap().text, "function_name");
+
+    let param_tok = merged.iter().find(|t| t.token_type == TokenType::Parameter);
+    assert!(param_tok.is_some(), "Parameter token should be overlaid");
+    assert_eq!(param_tok.unwrap().text, "param");
+
+    // 3. Test ThemeColors token color resolution for new semantic tokens
+    let theme = ThemeColors::catppuccin_mocha();
+    assert_eq!(theme.token_color(TokenType::Function), theme.syntax_function);
+    assert_eq!(theme.token_color(TokenType::Method), theme.syntax_method);
+    assert_eq!(theme.token_color(TokenType::Struct), theme.syntax_struct);
+    assert_eq!(theme.token_color(TokenType::Trait), theme.syntax_trait);
+    assert_eq!(theme.token_color(TokenType::Macro), theme.syntax_macro);
+    assert_eq!(theme.token_color(TokenType::Parameter), theme.syntax_parameter);
+    assert_eq!(theme.token_color(TokenType::Constant), theme.syntax_constant);
+    assert_eq!(theme.token_color(TokenType::Field), theme.syntax_field);
+}
+
+
+
 
 
 

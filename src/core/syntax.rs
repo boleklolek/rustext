@@ -86,6 +86,15 @@ pub enum TokenType {
     Identifier,
     PlainText,
     Bracket(usize),
+    // Semantic Tokens (LSP)
+    Function,
+    Method,
+    Struct,
+    Trait,
+    Macro,
+    Parameter,
+    Constant,
+    Field,
 }
 
 impl TokenType {
@@ -101,11 +110,36 @@ impl TokenType {
             TokenType::Punctuation => "\x1b[37m",     // White
             TokenType::Identifier => "\x1b[39m",      // Default text
             TokenType::PlainText => "\x1b[39m",       // Default text
+            TokenType::Function | TokenType::Method => "\x1b[1;34m", // Bold Blue
+            TokenType::Struct => "\x1b[1;33m",                       // Bold Yellow
+            TokenType::Trait => "\x1b[1;32m",                        // Bold Green
+            TokenType::Macro => "\x1b[1;35m",                        // Bold Magenta
+            TokenType::Parameter => "\x1b[36m",                      // Cyan
+            TokenType::Constant => "\x1b[1;31m",                     // Bold Red
+            TokenType::Field => "\x1b[34m",                          // Blue
             TokenType::Bracket(depth) => match depth % 3 {
                 0 => "\x1b[1;33m",                    // Bold Yellow (Level 0)
                 1 => "\x1b[1;35m",                    // Bold Magenta (Level 1)
                 _ => "\x1b[1;36m",                    // Bold Cyan (Level 2)
             },
+        }
+    }
+}
+
+/// A semantic token span covering character range `start_col..end_col` on a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticTokenSpan {
+    pub start_col: usize,
+    pub end_col: usize,
+    pub token_type: TokenType,
+}
+
+impl SemanticTokenSpan {
+    pub fn new(start_col: usize, end_col: usize, token_type: TokenType) -> Self {
+        Self {
+            start_col,
+            end_col,
+            token_type,
         }
     }
 }
@@ -126,6 +160,73 @@ impl<'a> TokenSpan<'a> {
 pub struct SyntaxHighlighter;
 
 impl SyntaxHighlighter {
+    /// Merges lexical token spans with compiler semantic token spans.
+    /// If semantic spans overlap lexical tokens, the semantic classification takes precedence.
+    pub fn apply_semantic_spans<'a>(
+        line: &'a str,
+        lexical: Vec<TokenSpan<'a>>,
+        semantic: &[SemanticTokenSpan],
+    ) -> Vec<TokenSpan<'a>> {
+        if semantic.is_empty() || line.is_empty() {
+            return lexical;
+        }
+
+        let char_count = line.chars().count();
+        let mut char_types = vec![TokenType::PlainText; char_count];
+
+        // 1. Fill with lexical types
+        let mut col = 0;
+        for span in &lexical {
+            let span_chars = span.text.chars().count();
+            for i in 0..span_chars {
+                if col + i < char_count {
+                    char_types[col + i] = span.token_type;
+                }
+            }
+            col += span_chars;
+        }
+
+        // 2. Overlay semantic types
+        for sem in semantic {
+            let start = sem.start_col.min(char_count);
+            let end = sem.end_col.min(char_count);
+            for i in start..end {
+                char_types[i] = sem.token_type;
+            }
+        }
+
+        // 3. Reconstruct coalesced TokenSpans from byte offsets
+        let char_indices = line.char_indices().collect::<Vec<_>>();
+        if char_indices.is_empty() {
+            return lexical;
+        }
+
+        let mut result = Vec::new();
+        let mut seg_start_char = 0;
+        let mut current_type = char_types[0];
+
+        for i in 1..char_count {
+            if char_types[i] != current_type {
+                let start_byte = char_indices[seg_start_char].0;
+                let end_byte = char_indices[i].0;
+                result.push(TokenSpan {
+                    text: &line[start_byte..end_byte],
+                    token_type: current_type,
+                });
+                seg_start_char = i;
+                current_type = char_types[i];
+            }
+        }
+
+        let start_byte = char_indices[seg_start_char].0;
+        result.push(TokenSpan {
+            text: &line[start_byte..],
+            token_type: current_type,
+        });
+
+        result
+    }
+
     /// Tokenizes a single line of text according to language rules with zero heap allocations.
     #[inline]
     pub fn tokenize_line<'a>(line: &'a str, lang: Language) -> Vec<TokenSpan<'a>> {

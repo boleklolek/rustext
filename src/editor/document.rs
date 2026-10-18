@@ -16,6 +16,7 @@ pub struct Document {
     pub scroll_col: usize,
     pub scroll_subline: usize,
     pub folding: crate::editor::folding::FoldingManager,
+    pub semantic_tokens: std::collections::HashMap<usize, Vec<crate::core::syntax::SemanticTokenSpan>>,
 }
 
 impl Document {
@@ -36,6 +37,7 @@ impl Document {
             scroll_col: 0,
             scroll_subline: 0,
             folding: crate::editor::folding::FoldingManager::new(),
+            semantic_tokens: std::collections::HashMap::new(),
         }
     }
 

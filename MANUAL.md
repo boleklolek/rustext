@@ -658,7 +658,28 @@ Rustext cuenta con un subsistema nativo de control de versiones Git que opera de
      - 🟥 **`D` (Eliminado)**: Archivo marcado para eliminación.
      - 🟪 **`R` (Renombrado)**: Archivo renombrado.
 
-4. **Actualización Reactiva**:
+4. **Inline Git Blame en Tiempo Real**:
+   - Muestra una anotación atenuada (*ghost text*) de baja luminosidad a la derecha del código en la línea donde se encuentra el cursor principal.
+   - Formato compacto: `autor, tiempo_relativo • mensaje_del_commit` (por ejemplo: `bolek, 2 hours ago • feat: add semantic tokens`).
+   - El tiempo transcurrido se calcula de forma humana relativa (`just now`, `Xs ago`, `X mins ago`, `X hours ago`, `X days ago`, `X months ago`, `X years ago`).
+   - **Rendimiento $\mathcal{O}(1)$ Cero Latencia**: Almacena los resultados en `blame_cache: HashMap<(PathBuf, usize), Option<GitBlameLine>>`. Al mover el cursor dentro de la misma línea o en fotogramas sucesivos, la resolución es instantánea en memoria sin ejecutar subprocesos, permitiendo un renderizado a más de 500 FPS.
+
+5. **Ventana Flotante de Git Hunk Diff (`Alt + H`) y Reversión Atómica (`Alt + R`)**:
+   - Al presionar `Alt + H` (o desde el menú **Herramientas > Inspeccionar Git Hunk Diff**), el editor analiza el hunk o bloque de diferencias contiguo en la posición del cursor respecto a `Git HEAD`.
+   - Abre un diálogo flotante centrado con fondo translúcido y sombra proyectada que muestra:
+     - Cabecera con el rango de líneas exacto (` Git Diff Hunk (Líneas X..=Y)`).
+     - Líneas eliminadas o versión previa en Git HEAD (`- ` con fondo rojo translúcido).
+     - Líneas actuales modificadas o añadidas (`+ ` con fondo verde translúcido).
+   - **Reversión Atómica (`Alt + R`)**:
+     - Al presionar `Alt + R` o hacer clic en el botón `[Revertir Hunk (Alt+R)]`, el editor revierte atómicamente el bloque a su estado en Git HEAD:
+       - **Líneas Añadidas**: Se eliminan limpiamente del búfer y se reajustan los cursores.
+       - **Líneas Modificadas**: Se reemplazan por el contenido original de Git HEAD.
+       - **Líneas Eliminadas**: Se reinsertan en la posición exacta original.
+     - La acción se registra como una `Transaction` en el historial de `History`, por lo que puede deshacerse en cualquier momento con `Ctrl + Z`.
+     - Se notifica inmediatamente al servidor LSP del cambio y se actualizan los indicadores del gutter.
+   - Presionar `Esc` o `Alt + H` cierra el modal instantáneamente.
+
+6. **Actualización Reactiva**:
    - Se refresca automáticamente al guardar cualquier archivo (`Ctrl + S`).
    - Actualización manual instantánea mediante el atajo `Ctrl + Shift + G` o el menú **Herramientas > Actualizar Estado Git**.
 
@@ -887,6 +908,19 @@ Rustext implementa un cliente **LSP (Language Server Protocol) nativo conforme a
 - **Ir a Definición (`F12`, `textDocument/definition`)**: Salta de inmediato al archivo, línea y columna exactos donde fue definido el símbolo bajo el cursor.
 - **Información de Tipo y Documentación (Hover, `F2` o `Alt + K`, `textDocument/hover`)**: Muestra en la barra de estado la firma de tipo, parámetros y documentación del símbolo activo.
 - **Autocompletado Semántico Enriquecido (`textDocument/completion`)**: Combina el catálogo de palabras y snippets locales con las sugerencias semánticas del servidor de lenguaje en la ventana flotante de autocompletado.
+- **Resaltado Semántico de Precisión de Compilador (`Semantic Tokens`, `textDocument/semanticTokens/full`)**:
+  - Negocia de forma dinámica capacidades semánticas con el servidor LSP durante el handshake `initialize`, parseando la leyenda provista (`tokenTypes` y `tokenModifiers`).
+  - Decodifica secuencias relativas de deltas en 5-tuplas: `[deltaLine, deltaStartChar, length, tokenType, tokenModifiers]`.
+  - Mapea de forma precisa símbolos del compilador:
+    - **Funciones y Métodos** (`Function`, `Method`): Azul intenso / negrita.
+    - **Estructuras, Clases e Interfaces** (`Struct`): Amarillo dorado / negrita.
+    - **Traits y Protocolos** (`Trait`): Verde esmeralda / negrita.
+    - **Macros** (`Macro`): Magenta / púrpura vibrante.
+    - **Parámetros** (`Parameter`): Cian celeste.
+    - **Constantes y Variables Estáticas** (`Constant`): Rojo coral / bermellón.
+    - **Propiedades y Campos** (`Field`): Azul cielo suave.
+  - El motor de renderizado superpone (`SyntaxHighlighter::apply_semantic_spans`) estos tokens semánticos sobre el análisis léxico con cero copias y total seguridad UTF-8.
+  - Refresco automático al abrir, sincronizar o modificar el documento, además de atajo manual `F5` / `Ctrl + Shift + R` y menú **Herramientas > Refrescar Tokens Semánticos (LSP)**.
 - **Sincronización Incremental de Documentos**: Envía notificaciones automáticas `didOpen`, `didChange`, `didSave` y `didClose` para mantener el árbol sintáctico del servidor sincronizado con las transacciones del editor.
 
 ### 6. Automatización al Guardar:
@@ -951,6 +985,8 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `Ctrl + 0` | **Restablecer Tamaño de Fuente (Reset Zoom a 12pt)** | Preferencias > Restablecer Tamaño |
 | `Ctrl + Shift + X`| Administrador de Extensiones | Extensiones > Administrador... |
 | `Ctrl + Shift + G`| **Actualizar Estado Git (Git Gutter)** | Herramientas > Actualizar Estado Git |
+| `Alt + H` | **Git: Inspeccionar Git Hunk Diff** | Herramientas > Inspeccionar Git Hunk Diff |
+| `Alt + R` | **Git: Revertir Git Hunk Diff** | Herramientas > Revertir Git Hunk Diff |
 | `Ctrl + Shift + I`| Formatear Documento | Herramientas > Formatear Documento |
 | `F7` | Comprobar Errores (Check / Lint)| Herramientas > Comprobar Errores |
 | `F8` | Saltar al Siguiente Error | Herramientas > Siguiente Error |
@@ -958,6 +994,7 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | `F12` | **LSP: Ir a Definición** | Herramientas > LSP: Ir a Definición |
 | `F2` / `Alt + K` | **LSP: Información de Tipo (Hover)** | Herramientas > LSP: Información de Tipo (Hover) |
 | `Ctrl + Shift + Espacio` | **LSP: Firma de Métodos (Signature Help)** | Herramientas > LSP: Firma de Métodos |
+| `F5` / `Ctrl + Shift + R` | **LSP: Refrescar Tokens Semánticos** | Herramientas > Refrescar Tokens Semánticos (LSP) |
 | `F1` | Ventana Acerca de Rustext | Ayuda > Acerca de Rustext |
 
 ---
