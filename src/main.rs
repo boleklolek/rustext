@@ -31,7 +31,52 @@ fn print_help() {
     );
 }
 
+#[cfg(target_os = "linux")]
+fn ensure_desktop_integration() {
+    if let Ok(home) = env::var("HOME") {
+        let app_dir = PathBuf::from(&home).join(".local/share/applications");
+        let icon_dir = PathBuf::from(&home).join(".local/share/icons/hicolor/scalable/apps");
+        let desktop_file = app_dir.join("rustext.desktop");
+        let icon_file = icon_dir.join("rustext.svg");
+
+        let mut changed = false;
+        if !desktop_file.exists() {
+            let _ = std::fs::create_dir_all(&app_dir);
+            let _ = std::fs::write(&desktop_file, include_str!("../assets/rustext.desktop"));
+            changed = true;
+        }
+
+        if !icon_file.exists() {
+            let _ = std::fs::create_dir_all(&icon_dir);
+            let _ = std::fs::write(&icon_file, include_str!("../assets/logo.svg"));
+            changed = true;
+        }
+
+        if changed {
+            let _ = std::process::Command::new("update-desktop-database").arg(&app_dir).status();
+            let _ = std::process::Command::new("kbuildsycoca6").arg("--noincremental").status();
+            let _ = std::process::Command::new("gtk-update-icon-cache")
+                .arg("-f")
+                .arg("-t")
+                .arg(PathBuf::from(&home).join(".local/share/icons/hicolor"))
+                .status();
+        }
+
+        if let Ok(current_exe) = env::current_exe() {
+            let cargo_bin = PathBuf::from(&home).join(".cargo/bin");
+            let target_link = cargo_bin.join("rustext");
+            if cargo_bin.exists() && !target_link.exists() {
+                #[cfg(unix)]
+                let _ = std::os::unix::fs::symlink(&current_exe, &target_link);
+            }
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    ensure_desktop_integration();
+
     // Install panic hook to restore terminal state if an unhandled panic occurs (SEC-06)
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

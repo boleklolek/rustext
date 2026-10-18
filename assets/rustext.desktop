@@ -9,4 +9,5 @@ Terminal=false
 Categories=Development;TextEditor;Utility;
 MimeType=text/plain;text/x-rust;text/x-c;text/x-c++;text/x-python;text/javascript;application/json;application/xml;text/markdown;
 StartupNotify=true
+StartupWMClass=rustext
 Keywords=editor;text;code;rust;development;
