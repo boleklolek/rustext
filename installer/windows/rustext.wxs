@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product
+        Name="Rustext"
+        Manufacturer="boleklolek"
+        Id="*"
+        UpgradeCode="{3DDF8D9B-05A6-4A87-AE42-E5C8E65FB67A}"
+        Language="1033"
+        Version="0.1.0"
+        Codepage="1252">
+
+        <Package
+            InstallerVersion="500"
+            Compressed="yes"
+            InstallScope="perMachine"
+            Manufacturer="boleklolek"
+            Languages="1033"
+            SummaryCodepage="1252" />
+
+        <MediaTemplate EmbedCab="yes" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLDIR" Name="Rustext" />
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Rustext" />
+            </Directory>
+        </Directory>
+
+        <Feature Id="MainFeature" Title="Rustext" Level="1">
+            <ComponentGroupRef Id="ProductFiles" />
+            <ComponentRef Id="RustextShortcut" />
+        </Feature>
+
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="RustextExecutable" Guid="{D02A1E8B-68D2-403A-9D1D-2EE9A021C7F5}">
+                <File Id="RustextExe" Source="$(var.BuildDir)\rustext.exe" KeyPath="yes" />
+            </Component>
+
+            <Component Id="RustextLicense" Guid="{2B5DE6AA-7F77-42A6-B17F-C58769A40401}">
+                <File Id="RustextLicenseFile" Source="$(var.BuildDir)\LICENSE" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="RustextShortcut" Guid="{EFDE78D2-49FE-41E0-9544-2FA9A6FDB2C5}">
+                <Shortcut Id="RustextMenuShortcut"
+                          Name="Rustext"
+                          Target="[INSTALLDIR]rustext.exe"
+                          WorkingDirectory="INSTALLDIR"
+                          Icon="RustextIcon.exe" />
+                <RemoveFolder Id="RemoveAppProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+                <RegistryValue Root="HKCU" Key="Software\Rustext" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
+        <Icon Id="RustextIcon.exe" SourceFile="$(var.BuildDir)\rustext.exe" />
+
+        <ComponentGroup Id="ProductFiles">
+            <ComponentRef Id="RustextExecutable" />
+            <ComponentRef Id="RustextLicense" />
+        </ComponentGroup>
+
+        <UIRef Id="WixUI_Minimal" />
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(var.BuildDir)\LICENSE.rtf" />
+    </Product>
+</Wix>
