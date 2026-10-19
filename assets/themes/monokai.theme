@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Monokai
+# Paleta clásica de alto contraste Monokai
+# ==============================================================================
+[meta]
+id = monokai
+name = Monokai
+author = Wimer Hazenberg
+type = dark
+
+[ui]
+background = #272822
+gutter_bg = #1F201C
+gutter_fg = #75715E
+gutter_border = #3E3D32
+tab_bar_bg = #1E1F1C
+tab_active_bg = #272822
+tab_inactive_bg = #1A1B18
+tab_active_fg = #F8F8F2
+tab_inactive_fg = #75715E
+status_bar_bg = #75715E
+status_bar_fg = #F8F8F2
+selection_bg = #49483E
+cursor = #F8F8F0
+accent = #F92672
+current_line_bg = #3E3D32
+ruler_color = #3E3D32
+sticky_header_bg = #32332D
+
+modal_bg = #272822
+modal_header_bg = #1E1F1C
+modal_border = #F92672
+input_bg = #3E3D32
+input_border = #F92672
+button_bg = #A6E22E
+button_hover_bg = #B8F53E
+button_fg = #272822
+chip_bg = #3E3D32
+chip_fg = #A6E22E
+
+scrollbar_bg = #272822
+scrollbar_border = #3E3D32
+scrollbar_thumb = #59584E
+scrollbar_thumb_hover = #75715E
+scrollbar_thumb_active = #A6E22E
+
+[syntax]
+keyword = #F92672
+type = #66D9EF
+string = #E6DB74
+number = #AE81FF
+comment = #75715E
+operator = #F92672
+punctuation = #F8F8F2
+plain = #F8F8F2
+function = #A6E22E
+method = #A6E22E
+struct = #66D9EF
+trait = #A6E22E
+macro = #F92672
+parameter = #FD971F
+constant = #AE81FF
+field = #F8F8F2
+
+[brackets]
+bracket_0 = #E6DB74
+bracket_1 = #AE81FF
+bracket_2 = #66D9EF

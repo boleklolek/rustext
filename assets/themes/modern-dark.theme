@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Modern Dark
+# Tema oscuro moderno predeterminado de Rustext
+# ==============================================================================
+[meta]
+id = modern-dark
+name = Modern Dark
+author = Rustext
+type = dark
+
+[ui]
+background = #1E1E1E
+gutter_bg = #252526
+gutter_fg = #858585
+gutter_border = #333333
+tab_bar_bg = #2D2D2D
+tab_active_bg = #1E1E1E
+tab_inactive_bg = #252526
+tab_active_fg = #FFFFFF
+tab_inactive_fg = #969696
+status_bar_bg = #007ACC
+status_bar_fg = #FFFFFF
+selection_bg = #264F78
+cursor = #528BFF
+accent = #007ACC
+current_line_bg = #282828
+ruler_color = #333333
+sticky_header_bg = #252526
+
+modal_bg = #252526
+modal_header_bg = #2D2D2D
+modal_border = #007ACC
+input_bg = #3C3C3C
+input_border = #007ACC
+button_bg = #0E639C
+button_hover_bg = #1177BB
+button_fg = #FFFFFF
+chip_bg = #2D2D2D
+chip_fg = #007ACC
+
+scrollbar_bg = #1E1E1E
+scrollbar_border = #2D2D2D
+scrollbar_thumb = #424242
+scrollbar_thumb_hover = #4F4F4F
+scrollbar_thumb_active = #686868
+
+[syntax]
+keyword = #C586C0
+type = #4EC9B0
+string = #CE9178
+number = #B5CEA8
+comment = #6A9955
+operator = #D4D4D4
+punctuation = #D4D4D4
+plain = #D4D4D4
+function = #DCDCAA
+method = #DCDCAA
+struct = #4EC9B0
+trait = #B5CEA8
+macro = #C586C0
+parameter = #9CDCFE
+constant = #4FC1FF
+field = #9CDCFE
+
+[brackets]
+bracket_0 = #FFD700
+bracket_1 = #DA70D6
+bracket_2 = #179FFF

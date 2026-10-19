@@ -14,6 +14,7 @@ pub enum EditorTheme {
     Monokai,
     SolarizedDark,
     Light,
+    Dracula,
 }
 
 impl EditorTheme {
@@ -26,6 +27,7 @@ impl EditorTheme {
             EditorTheme::Monokai => "monokai",
             EditorTheme::SolarizedDark => "solarized",
             EditorTheme::Light => "light",
+            EditorTheme::Dracula => "dracula",
         }
     }
 
@@ -37,6 +39,7 @@ impl EditorTheme {
             "monokai" => EditorTheme::Monokai,
             "solarized" | "solarized_dark" | "solarized-dark" => EditorTheme::SolarizedDark,
             "light" | "github_light" | "github-light" | "claro" => EditorTheme::Light,
+            "dracula" => EditorTheme::Dracula,
             _ => EditorTheme::Dark,
         }
     }

@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: GitHub Light / Claro
+# Tema claro de alto contraste
+# ==============================================================================
+[meta]
+id = light
+name = GitHub Light
+author = GitHub Community
+type = light
+
+[ui]
+background = #FFFFFF
+gutter_bg = #F6F8FA
+gutter_fg = #8C959F
+gutter_border = #D0D7DE
+tab_bar_bg = #EAEAEA
+tab_active_bg = #FFFFFF
+tab_inactive_bg = #F0F0F0
+tab_active_fg = #24292F
+tab_inactive_fg = #57606A
+status_bar_bg = #007ACC
+status_bar_fg = #FFFFFF
+selection_bg = #B4D5FE
+cursor = #0969DA
+accent = #0969DA
+current_line_bg = #F0F2F5
+ruler_color = #E5E7EB
+sticky_header_bg = #ECEFF4
+
+modal_bg = #FFFFFF
+modal_header_bg = #F6F8FA
+modal_border = #D0D7DE
+input_bg = #F6F8FA
+input_border = #0969DA
+button_bg = #2DA44E
+button_hover_bg = #2C974B
+button_fg = #FFFFFF
+chip_bg = #EFF1F3
+chip_fg = #0969DA
+
+scrollbar_bg = #F6F8FA
+scrollbar_border = #D0D7DE
+scrollbar_thumb = #D0D7DE
+scrollbar_thumb_hover = #AFB8C1
+scrollbar_thumb_active = #0969DA
+
+[syntax]
+keyword = #CF222E
+type = #8250DF
+string = #0A3069
+number = #0550AE
+comment = #6E7781
+operator = #CF222E
+punctuation = #24292F
+plain = #24292F
+function = #8250DF
+method = #8250DF
+struct = #953800
+trait = #116329
+macro = #CF222E
+parameter = #24292F
+constant = #0550AE
+field = #6E7781
+
+[brackets]
+bracket_0 = #B8860B
+bracket_1 = #8B008B
+bracket_2 = #008B8B

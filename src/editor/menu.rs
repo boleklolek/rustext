@@ -157,6 +157,7 @@ impl MenuBar {
                     MenuItem::action("Tema: Monokai", "", EditorAction::SetTheme(EditorTheme::Monokai)),
                     MenuItem::action("Tema: Solarized Dark", "", EditorAction::SetTheme(EditorTheme::SolarizedDark)),
                     MenuItem::action("Tema: Claro (GitHub Light)", "", EditorAction::SetTheme(EditorTheme::Light)),
+                    MenuItem::action("Tema: Dracula", "", EditorAction::SetTheme(EditorTheme::Dracula)),
                 ],
             },
             MenuCategory {

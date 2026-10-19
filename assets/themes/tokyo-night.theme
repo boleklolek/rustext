@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Tokyo Night
+# Inspirado en Folke Tokyo Night
+# ==============================================================================
+[meta]
+id = tokyo-night
+name = Tokyo Night
+author = Tokyo Night Team
+type = dark
+
+[ui]
+background = #1A1B26
+gutter_bg = #16161E
+gutter_fg = #565F89
+gutter_border = #24283B
+tab_bar_bg = #16161E
+tab_active_bg = #1A1B26
+tab_inactive_bg = #13141C
+tab_active_fg = #C0CAF5
+tab_inactive_fg = #565F89
+status_bar_bg = #16161E
+status_bar_fg = #A9B1D6
+selection_bg = #283457
+cursor = #7AA2F7
+accent = #7AA2F7
+current_line_bg = #1F2335
+ruler_color = #24283B
+sticky_header_bg = #1F2335
+
+modal_bg = #1F2335
+modal_header_bg = #16161E
+modal_border = #3B4261
+input_bg = #24283B
+input_border = #7AA2F7
+button_bg = #24283B
+button_hover_bg = #3B4261
+button_fg = #C0CAF5
+chip_bg = #24283B
+chip_fg = #7AA2F7
+
+scrollbar_bg = #1A1B26
+scrollbar_border = #24283B
+scrollbar_thumb = #3B4261
+scrollbar_thumb_hover = #565F89
+scrollbar_thumb_active = #7AA2F7
+
+[syntax]
+keyword = #BB9AF7
+type = #2AC3DE
+string = #9ECE6A
+number = #FF9E64
+comment = #565F89
+operator = #89DDFF
+punctuation = #C0CAF5
+plain = #C0CAF5
+function = #7AA2F7
+method = #7AA2F7
+struct = #0DB9D7
+trait = #73DACA
+macro = #BB9AF7
+parameter = #E0AF68
+constant = #FF9E64
+field = #7DCFFF
+
+[brackets]
+bracket_0 = #FFD700
+bracket_1 = #BB9AF7
+bracket_2 = #7DCFFF

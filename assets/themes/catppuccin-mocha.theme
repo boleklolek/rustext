@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Catppuccin Mocha
+# Paleta oficial Catppuccin Mocha
+# ==============================================================================
+[meta]
+id = catppuccin-mocha
+name = Catppuccin Mocha
+author = Catppuccin Org
+type = dark
+
+[ui]
+background = #1E1E2E
+gutter_bg = #181825
+gutter_fg = #6C7086
+gutter_border = #313244
+tab_bar_bg = #181825
+tab_active_bg = #1E1E2E
+tab_inactive_bg = #11111B
+tab_active_fg = #CDD6F4
+tab_inactive_fg = #6C7086
+status_bar_bg = #181825
+status_bar_fg = #BAC2DE
+selection_bg = #45475A
+cursor = #F5E0DC
+accent = #CBA6F7
+current_line_bg = #26283D
+ruler_color = #313244
+sticky_header_bg = #24273A
+
+modal_bg = #1E1E2E
+modal_header_bg = #181825
+modal_border = #45475A
+input_bg = #313244
+input_border = #CBA6F7
+button_bg = #313244
+button_hover_bg = #45475A
+button_fg = #CDD6F4
+chip_bg = #313244
+chip_fg = #CBA6F7
+
+scrollbar_bg = #1E1E2E
+scrollbar_border = #313244
+scrollbar_thumb = #45475A
+scrollbar_thumb_hover = #585B70
+scrollbar_thumb_active = #B4BEFE
+
+[syntax]
+keyword = #CBA6F7
+type = #89B4FA
+string = #A6E3A1
+number = #FAB387
+comment = #6C7086
+operator = #89DCEB
+punctuation = #CDD6F4
+plain = #CDD6F4
+function = #89B4FA
+method = #89B4FA
+struct = #F9E2AF
+trait = #A6E3A1
+macro = #CBA6F7
+parameter = #FAB387
+constant = #FAB387
+field = #89DCEB
+
+[brackets]
+bracket_0 = #F9E2AF
+bracket_1 = #CBA6F7
+bracket_2 = #89DCEB

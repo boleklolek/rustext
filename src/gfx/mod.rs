@@ -12,6 +12,7 @@ pub mod renderer;
 pub mod sdf;
 pub mod shaping;
 pub mod stem_darkening;
+pub mod theme_loader;
 pub mod ttf;
 
 pub use animation::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
@@ -28,6 +29,7 @@ pub use renderer::{GfxRenderer, ScrollbarGeometry, ThemeColors};
 pub use sdf::{SdfFontRasterizer, SignedDistanceField};
 pub use shaping::{FontShaper, LigatureKind, ShapedGlyph};
 pub use stem_darkening::StemDarkener;
+pub use theme_loader::{list_user_themes, load_user_theme, parse_theme_str, UserThemeInfo};
 pub use ttf::{CacheStats, GlobalTtfCache, SystemFontLoader, TrueTypeFont, TtfGlyphCache, TtfRasterizer};
 
 

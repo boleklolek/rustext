@@ -467,8 +467,19 @@ impl ThemeColors {
         }
     }
 
+    pub fn from_theme_str(content: &str) -> Self {
+        super::theme_loader::parse_theme_str(content)
+    }
+
     pub fn by_name(name: &str) -> Self {
-        match name.to_lowercase().trim() {
+        let trimmed = name.to_lowercase().trim().to_string();
+        // 1. Prioritize external .theme files from user or workspace directories
+        if let Some(user_theme) = super::theme_loader::load_user_theme(&trimmed) {
+            return user_theme;
+        }
+
+        // 2. Fall back to built-in compiled-in palettes
+        match trimmed.as_str() {
             "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => Self::tokyo_night(),
             "catppuccin" | "catppuccin_mocha" | "catppuccin-mocha" | "mocha" => Self::catppuccin_mocha(),
             "onedark" | "one_dark" | "one-dark" | "atom" => Self::one_dark(),
@@ -4669,10 +4680,10 @@ impl GfxRenderer {
                         let sc_x = input_x + input_w - sc_w - self.scale_coord(8);
                         fb.draw_text_clipped(cmd.shortcut, sc_x, row_text_y, input_x + input_w - self.scale_coord(4), sc_fg, None);
                         let name_max_x = sc_x.saturating_sub(self.scale_coord(8));
-                        fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
+                        fb.draw_text_truncated(&cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
                     } else {
                         let name_max_x = input_x + input_w - self.scale_coord(8);
-                        fb.draw_text_truncated(cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
+                        fb.draw_text_truncated(&cmd.name, input_x + self.scale_coord(8), row_text_y, name_max_x, row_fg, None);
                     }
 
                     item_y += item_h;

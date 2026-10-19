@@ -43,6 +43,7 @@ pub enum EditorAction {
     OpenConfig,
     ReloadConfig,
     SetTheme(crate::editor::config::EditorTheme),
+    SetThemeByName(String),
     // Font & Typography
     OpenFontSelector,
     IncreaseFontSize,

@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Solarized Dark
+# Paleta con contraste armónico de Ethan Schoonover
+# ==============================================================================
+[meta]
+id = solarized-dark
+name = Solarized Dark
+author = Ethan Schoonover
+type = dark
+
+[ui]
+background = #002B36
+gutter_bg = #073642
+gutter_fg = #586E75
+gutter_border = #073642
+tab_bar_bg = #073642
+tab_active_bg = #002B36
+tab_inactive_bg = #05222B
+tab_active_fg = #93A1A1
+tab_inactive_fg = #586E75
+status_bar_bg = #268BD2
+status_bar_fg = #FDF6E3
+selection_bg = #073642
+cursor = #2AA198
+accent = #268BD2
+current_line_bg = #073642
+ruler_color = #073642
+sticky_header_bg = #09313C
+
+modal_bg = #073642
+modal_header_bg = #002B36
+modal_border = #268BD2
+input_bg = #002B36
+input_border = #268BD2
+button_bg = #268BD2
+button_hover_bg = #2AA198
+button_fg = #FDF6E3
+chip_bg = #002B36
+chip_fg = #2AA198
+
+scrollbar_bg = #002B36
+scrollbar_border = #073642
+scrollbar_thumb = #586E75
+scrollbar_thumb_hover = #657B83
+scrollbar_thumb_active = #2AA198
+
+[syntax]
+keyword = #859900
+type = #B58900
+string = #2AA198
+number = #D33682
+comment = #586E75
+operator = #859900
+punctuation = #93A1A1
+plain = #839496
+function = #268BD2
+method = #268BD2
+struct = #B58900
+trait = #859900
+macro = #D33682
+parameter = #CB4B16
+constant = #6C71C4
+field = #93A1A1
+
+[brackets]
+bracket_0 = #B58900
+bracket_1 = #6C71C4
+bracket_2 = #2AA198

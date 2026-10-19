@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust)](Cargo.toml)
 [![Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg)](Cargo.toml)
 [![CI](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
-[![Tests](https://img.shields.io/badge/Tests-160%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-166%20passed-success.svg)](tests/)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg)](#)
 [![LSP](https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg)](#)
 
@@ -1128,7 +1128,8 @@ hot_exit = false             # Preservar borradores de cambios no guardados al s
 max_recent_files = 20        # Número máximo de archivos recientes en historial
 
 [theme]
-# Opciones: tokyo-night, catppuccin-mocha, one-dark, modern-dark, monokai, solarized-dark, light, high-contrast
+# Opciones integradas: tokyo-night, catppuccin-mocha, one-dark, modern-dark, monokai, solarized-dark, light, dracula
+# O cualquier archivo de tema personalizado (.theme) ubicado en ~/.rustext/themes/ o ./.rustext/themes/
 name = tokyo-night
 
 [gui]
@@ -1225,15 +1226,36 @@ pub trait Plugin {
 }
 ```
 
-### 4. Temas Visuales y Recarga en Caliente
-Rustext incluye 8 paletas oficiales (`tokyo-night`, `catppuccin`, `onedark`, `dark`, `monokai`, `solarized`, `light`, `high-contrast`).
-* Selección rápida: `Ctrl + P` -> `Tema: ...` o menú **Preferencias > Tema**.
-* Configuración en `~/.config/rustext/config.ini`:
-  ```ini
-  [theme]
-  name = tokyo-night
-  ```
-* Se recarga automáticamente al guardar el archivo sin reiniciar el editor. Consultar [`MANUAL_TEMAS_Y_EXTENSIONES.md`](file:///home/bolek/Proyectos/rustext/MANUAL_TEMAS_Y_EXTENSIONES.md) para añadir temas personalizados en el código.
+### 4. Sistema Dinámico de Temas (`.theme`) y Recarga en Caliente
+
+Rustext incluye un motor declarativo de temas que permite personalizar cualquier color del editor y del resaltado sintáctico sin necesidad de recompilar ni editar el código fuente:
+
+* **8 Paletas Oficiales Modularizadas**: Los temas oficiales se encuentran modularizados en archivos independientes dentro de [`assets/themes/`](assets/themes/):
+  - `tokyo-night.theme`: Azul profundo, violetas y cian neón.
+  - `catppuccin-mocha.theme`: Tonos pastel cálidos sobre fondo chocolate oscuro (`#1e1e2e`).
+  - `one-dark.theme`: Estilo clásico Atom / One Dark Pro equilibrado.
+  - `modern-dark.theme`: Oscuro contemporáneo minimalista (`#1e1e1e`).
+  - `monokai.theme`: Alto contraste con amarillo canario, magenta y verde lima.
+  - `solarized-dark.theme`: Clásico azul verdoso (`#002b36`) con contrastes matemáticos Ethan Schoonover.
+  - `light.theme`: Fondo blanco nítido tipo GitHub Light para entornos luminosos.
+  - `dracula.theme`: Fondo gótico (`#282A36`) con acentos púrpura vampírico, verde y cian.
+
+* **Auto-Despliegue de Plantillas en Primer Arranque**: Al iniciarse por primera vez, si el directorio de usuario `~/.rustext/themes/` está vacío, Rustext copia automáticamente las 8 plantillas oficiales desde los recursos integrados del binario, dejándolas listas para su inspección y modificación directa.
+
+* **Prioridad de Anulación Dinámica (Override)**: Si existe un archivo `.theme` con el mismo nombre en `./.rustext/themes/` (workspace) o en `~/.rustext/themes/` (usuario), Rustext lo carga con máxima prioridad, reemplazando el tema del binario al instante sin alterar el ejecutable.
+
+* **Sintaxis Declarativa de Temas (`.theme` / `.ini`)**:
+  - Utiliza sintaxis INI estándar con secciones opcionales `[meta]`, `[ui]`, `[syntax]` y `[brackets]`.
+  - Soporta valores hexadecimales flexibles: `#RRGGBB`, `0xRRGGBB`, `#RGB` y comentarios en línea con `;` o ` #`.
+  - La propiedad `type = dark` o `type = light` determina los colores de respaldo automáticos para cualquier propiedad omitida.
+
+* **Selección y Recarga Inmediata**:
+  - **Paleta de Comandos (`Ctrl + P`)**: Escriba `Tema:` para ver y aplicar tanto los temas oficiales como los descubiertos dinámicamente en disco (etiquetados como `(Personalizado)`).
+  - **Menú Gráfico**: Vaya a **Preferencias > Tema** para conmutar rápidamente.
+  - **Recarga en Caliente**: Modifique `name = <tema>` en `~/.config/rustext/config.ini`; Rustext recarga y repinta el tema al guardar sin reiniciar el editor.
+
+> [!TIP]
+> Para consultar la especificación completa de todos los slots cromáticos, ejemplos listos para copiar y la guía de creación de temas, consulte el [**Manual de Creación de Temas y Extensiones**](file:///home/bolek/Proyectos/rustext/MANUAL_TEMAS_Y_EXTENSIONES.md).
 
 ---
 
@@ -1403,7 +1425,7 @@ Uno de los vectores de ataque más críticos en el desarrollo de software modern
 
 ### 18.2 Matriz Exhaustiva de Hallazgos y Vulnerabilidades Analizadas
 
-Durante la auditoría de código se identificaron 6 puntos de interés técnico clasificados por severidad, impacto potencial y taxonomía CWE:
+Durante la auditoría de código se identificaron 10 puntos de interés técnico clasificados por severidad, impacto potencial y taxonomía CWE:
 
 | ID | Severidad | Debilidad / Vulnerabilidad | CWE | Vector de Ataque Teórico | Impacto Potencial |
 | :---: | :---: | :--- | :---: | :--- | :--- |
@@ -1413,6 +1435,10 @@ Durante la auditoría de código se identificaron 6 puntos de interés técnico 
 | **SEC-04** | **Baja** | Agotamiento de recursos por bucles de enlaces simbólicos | [CWE-674](https://cwe.mitre.org/data/definitions/674.html)<br>[CWE-59](https://cwe.mitre.org/data/definitions/59.html) | En `GlobalSearchEngine`, la recursión de directorios con `read_dir` puede seguir symlinks recursivos hacia carpetas padre o cíclicas (p. ej. `link -> .`). | Consumo desmedido de descriptores de archivo, desbordamiento de pila o congelamiento de la interfaz (DoS local). |
 | **SEC-05** | **Baja** | Deserialización de rutas de borrador sin validación de contención | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | Un archivo de sesión manipulado (`session.ini`) con una clave `draft_path = "../../../../etc/shadow"` podría inducir lectura o escritura involuntaria de archivos fuera del directorio de borradores. | Travesía de directorios (*Path Traversal*) local ante sesiones alteradas manualmente o por malware. |
 | **SEC-06** | **Info** | Consola en modo crudo (*raw*) tras pánicos no recuperados | [CWE-755](https://cwe.mitre.org/data/definitions/755.html) | Si un pánico inesperado ocurre dentro del bucle de eventos TUI sin alcanzar el bloque destructor RAII (`Drop`), la terminal queda sin eco local y en modo raw. | Molestia operacional que obliga al usuario a escribir a ciegas el comando `reset` o cerrar la terminal. |
+| **SEC-07** | **Baja** | Creación insegura de archivos temporales en memoria compartida (shm) | [CWE-377](https://cwe.mitre.org/data/definitions/377.html)<br>[CWE-59](https://cwe.mitre.org/data/definitions/59.html) | En el backend Wayland, crear buffers `wl_shm` con nombres predecibles en `/dev/shm` susceptible a enlaces simbólicos maliciosos. | Condición de carrera de enlace simbólico (*symlink race*) o colisión de nombres de archivo temporal. |
+| **SEC-08** | **Media** | Travesía de directorios en el cargador dinámico de temas | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | Un nombre de tema malicioso en `config.ini` o entrada interactiva con secuencias de escape (`../../../../etc/passwd`) o ruta absoluta que evade el directorio de temas. | Lectura no autorizada de archivos del sistema o sondeo de existencia de ficheros arbitrarios en el host. |
+| **SEC-09** | **Baja** | Agotamiento de memoria por lectura no acotada de temas y bombas de directorio | [CWE-400](https://cwe.mitre.org/data/definitions/400.html)<br>[CWE-776](https://cwe.mitre.org/data/definitions/776.html) | Colocar archivos `.theme` masivos (>100 MB) o symlinks a dispositivos especiales (`/dev/zero`, `/dev/urandom`) o miles de archivos falsos en `~/.rustext/themes/`. | Consumo excesivo de memoria RAM, congelamiento del bucle de eventos o cuelgue por OOM (Denegación de Servicio local). |
+| **SEC-10** | **Baja** | Fuga acumulativa de memoria en la Paleta de Comandos por cadenas filtradas | [CWE-401](https://cwe.mitre.org/data/definitions/401.html) | Invocar `Box::leak` para convertir dinámicamente nombres de extensiones y temas en `&'static str` cada vez que se abre la Paleta de Comandos (`Ctrl+P`). | Crecimiento no acotado del heap en sesiones prolongadas con uso intensivo de la paleta. |
 
 ---
 
@@ -1463,6 +1489,21 @@ Para cada uno de los vectores identificados, se han formalizado las siguientes d
       default_hook(info);
   }));
   ```
+
+#### 7. Creación Exclusiva de Búferes en Memoria Compartida Wayland (SEC-07)
+- Uso de `memfd_create` o apertura con banderas atómicas `O_CREAT | O_EXCL` y permisos restringidos `0600` en `/dev/shm`, asegurando que ningún proceso no privilegiado pueda pre-crear enlaces simbólicos para secuestrar o interceptar búferes de renderizado.
+
+#### 8. Saneamiento Estricto y Verificación de Contención de Temas (SEC-08)
+- Validación defensiva de nombres de archivo mediante `is_safe_theme_name()`: rechazo inmediato de secuencias de travesía (`..`), separadores de directorio (`/`, `\`), caracteres nulos (`\0`) y nombres superiores a 64 bytes.
+- Verificación canónica de contención (`starts_with(canonical_base)`): garantiza que ningún enlace simbólico (*symlink*) o resolución relativa dentro de `~/.rustext/themes/` pueda acceder a archivos fuera de los directorios autorizados.
+
+#### 9. Límites de Tamaño y Cuotas de Escaneo para Temas (SEC-09)
+- Límite máximo de tamaño de archivo (`MAX_THEME_FILE_SIZE = 512 KB`): verificación de metadatos previo a la lectura en memoria para rechazar ficheros sobredimensionados, tuberías o dispositivos virtuales (`/dev/zero`).
+- Cuota de escaneo de directorios (`MAX_THEME_SCAN_LIMIT = 256`): limita la cantidad de entradas procesadas por directorio para prevenir congelamientos de la interfaz ante carpetas con decenas de miles de archivos.
+
+#### 10. Erradicación de Fugas de Memoria en la Paleta de Comandos vía `Cow<'static, str>` (SEC-10)
+- Reemplazo del uso de `Box::leak` para cadenas dinámicas por `std::borrow::Cow<'static, str>` en `CommandItem`.
+- Los comandos nativos e integrados continúan utilizando punteros estáticos prestados `Cow::Borrowed(&'static str)` sin costo de asignación dinámica, mientras que los comandos generados por extensiones y temas externos se gestionan como `Cow::Owned(String)`, liberándose automáticamente de la memoria al cerrar el modal.
 
 ---
 

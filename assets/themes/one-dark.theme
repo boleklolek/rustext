@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: One Dark Pro
+# Paleta clásica Atom / One Dark
+# ==============================================================================
+[meta]
+id = one-dark
+name = One Dark
+author = Atom Community
+type = dark
+
+[ui]
+background = #282C34
+gutter_bg = #21252B
+gutter_fg = #5C6370
+gutter_border = #181A1F
+tab_bar_bg = #21252B
+tab_active_bg = #282C34
+tab_inactive_bg = #1B1D23
+tab_active_fg = #ABB2BF
+tab_inactive_fg = #5C6370
+status_bar_bg = #21252B
+status_bar_fg = #9DA5B4
+selection_bg = #3E4451
+cursor = #528BFF
+accent = #61AFEF
+current_line_bg = #2C313C
+ruler_color = #3E4451
+sticky_header_bg = #252931
+
+modal_bg = #282C34
+modal_header_bg = #21252B
+modal_border = #3E4451
+input_bg = #1E2227
+input_border = #61AFEF
+button_bg = #353B45
+button_hover_bg = #3E4451
+button_fg = #ABB2BF
+chip_bg = #353B45
+chip_fg = #61AFEF
+
+scrollbar_bg = #282C34
+scrollbar_border = #21252B
+scrollbar_thumb = #4B5263
+scrollbar_thumb_hover = #5C6370
+scrollbar_thumb_active = #61AFEF
+
+[syntax]
+keyword = #C678DD
+type = #E5C07B
+string = #98C379
+number = #D19A66
+comment = #5C6370
+operator = #56B6C2
+punctuation = #ABB2BF
+plain = #ABB2BF
+function = #61AFEF
+method = #61AFEF
+struct = #E5C07B
+trait = #98C379
+macro = #C678DD
+parameter = #D19A66
+constant = #D19A66
+field = #E06C75
+
+[brackets]
+bracket_0 = #E5C07B
+bracket_1 = #C678DD
+bracket_2 = #61AFEF

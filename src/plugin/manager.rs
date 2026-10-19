@@ -323,14 +323,10 @@ impl ExtensionManager {
             for cmd in &ext.commands {
                 // Prepend extension badge for clarity in Command Palette
                 let full_name = format!("[Ext] {}", cmd.label);
-                // Leaked static string to satisfy CommandItem lifetime requirements
-                let leaked_name: &'static str = Box::leak(full_name.into_boxed_str());
-                let leaked_cmd_id: &'static str = Box::leak(cmd.id.clone().into_boxed_str());
-
                 commands.push(CommandItem {
-                    name: leaked_name,
+                    name: full_name.into(),
                     shortcut: "",
-                    action: EditorAction::ExecuteExtensionCommand(leaked_cmd_id.to_string()),
+                    action: EditorAction::ExecuteExtensionCommand(cmd.id.clone()),
                 });
             }
         }

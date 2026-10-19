@@ -1,0 +1,68 @@
+# ==============================================================================
+# Rustext Theme: Dracula
+# Paleta oficial Dracula Theme
+# ==============================================================================
+[meta]
+id = dracula
+name = Dracula
+author = Dracula Theme Team
+type = dark
+
+[ui]
+background = #282A36
+gutter_bg = #21222C
+gutter_fg = #6272A4
+gutter_border = #191A21
+tab_bar_bg = #191A21
+tab_active_bg = #282A36
+tab_inactive_bg = #21222C
+tab_active_fg = #F8F8F2
+tab_inactive_fg = #6272A4
+status_bar_bg = #21222C
+status_bar_fg = #F8F8F2
+selection_bg = #44475A
+cursor = #F8F8F0
+accent = #BD93F9
+current_line_bg = #44475A
+ruler_color = #44475A
+sticky_header_bg = #21222C
+
+modal_bg = #282A36
+modal_header_bg = #21222C
+modal_border = #BD93F9
+input_bg = #191A21
+input_border = #BD93F9
+button_bg = #44475A
+button_hover_bg = #6272A4
+button_fg = #F8F8F2
+chip_bg = #44475A
+chip_fg = #BD93F9
+
+scrollbar_bg = #282A36
+scrollbar_border = #21222C
+scrollbar_thumb = #44475A
+scrollbar_thumb_hover = #6272A4
+scrollbar_thumb_active = #BD93F9
+
+[syntax]
+keyword = #FF79C6
+type = #8BE9FD
+string = #F1FA8C
+number = #BD93F9
+comment = #6272A4
+operator = #FF79C6
+punctuation = #F8F8F2
+plain = #F8F8F2
+function = #50FA7B
+method = #50FA7B
+struct = #8BE9FD
+trait = #50FA7B
+macro = #FF79C6
+parameter = #FFB86C
+constant = #BD93F9
+field = #F8F8F2
+
+[brackets]
+bracket_0 = #BD93F9
+bracket_1 = #FF79C6
+bracket_2 = #8BE9FD

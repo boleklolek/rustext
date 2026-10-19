@@ -17,7 +17,8 @@ Este manual proporciona una guía completa para desarrolladores y usuarios sobre
    - [2.3 Recarga en Caliente (Hot Reloading) con config.ini](#23-recarga-en-caliente-hot-reloading-con-configini)
    - [2.4 Anatomía del Motor de Color (ARGB 32-bit y ANSI 256)](#24-anatomía-del-motor-de-color-argb-32-bit-y-ansi-256)
    - [2.5 Diccionario de Propiedades de ThemeColors](#25-diccionario-de-propiedades-de-themecolors)
-   - [2.6 Paso a Paso: Crear un Tema Nuevo en el Código Fuente](#26-paso-a-paso-crear-un-tema-nuevo-en-el-código-fuente)
+   - [2.6 Creación de Temas de Usuario (.theme) ¡Sin Modificar el Código Fuente!](#26-creación-de-temas-de-usuario-theme-sin-modificar-el-código-fuente)
+   - [2.7 Compilación de Temas Nativos en el Núcleo (Opcional para Desarrolladores)](#27-compilación-de-temas-nativos-en-el-núcleo-opcional-para-desarrolladores)
 3. [Guía de Extensiones y Plugins](#3-guía-de-extensiones-y-plugins)
    - [3.1 Arquitectura de Subprocesos e IPC Políglota](#31-arquitectura-de-subprocesos-e-ipc-políglota)
    - [3.2 Ubicación de las Extensiones (Global y Workspace)](#32-ubicación-de-las-extensiones-global-y-workspace)
@@ -63,6 +64,20 @@ Rustext incluye de fábrica 8 temas visuales optimizados:
 | `monokai` | **Monokai Classic** | Alto contraste con amarillo canario, magenta y verde lima |
 | `solarized` | **Solarized Dark** | Clásico azul verdoso (#002b36) con contrastes matemáticos Ethan Schoonover |
 | `light` | **Claro (GitHub Light)** | Fondo blanco puro y nítido para entornos muy iluminados |
+| `dracula` | **Dracula Official** | Fondo gótico (#282A36) con acentos púrpura vampírico, verde y cian |
+
+#### Archivos Oficiales Modularizados (`assets/themes/`)
+
+Todos los temas oficiales de Rustext están modularizados y disponibles como archivos independientes en el directorio [`assets/themes/`](file:///home/bolek/Proyectos/rustext/assets/themes/) del repositorio:
+
+* [`assets/themes/tokyo-night.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/tokyo-night.theme)
+* [`assets/themes/catppuccin-mocha.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/catppuccin-mocha.theme)
+* [`assets/themes/one-dark.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/one-dark.theme)
+* [`assets/themes/modern-dark.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/modern-dark.theme)
+* [`assets/themes/monokai.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/monokai.theme)
+* [`assets/themes/solarized-dark.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/solarized-dark.theme)
+* [`assets/themes/light.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/light.theme)
+* [`assets/themes/dracula.theme`](file:///home/bolek/Proyectos/rustext/assets/themes/dracula.theme)
 
 ---
 
@@ -93,7 +108,7 @@ Para cambiar el tema permanentemente, edita la sección `[theme]`:
 ; Configuración de Tema Visual de Rustext
 ; ==============================================================================
 [theme]
-; Opciones disponibles: tokyo-night, catppuccin, onedark, dark, monokai, solarized, light
+; Opciones disponibles: tokyo-night, catppuccin, onedark, dark, monokai, solarized, light, dracula, o tu propio <nombre>.theme
 name = catppuccin
 ```
 
@@ -173,114 +188,147 @@ En [`src/gfx/renderer.rs`](file:///home/bolek/Proyectos/rustext/src/gfx/renderer
 
 ---
 
-### 2.6 Paso a Paso: Crear un Tema Nuevo en el Código Fuente
+---
 
-Para agregar una paleta propia (por ejemplo, **Dracula**):
+### 2.6 Creación de Temas de Usuario (`.theme`) ¡Sin Modificar el Código Fuente!
 
-#### Paso 1: Definir los colores en [`src/gfx/renderer.rs`](file:///home/bolek/Proyectos/rustext/src/gfx/renderer.rs)
-Dentro del bloque `impl ThemeColors`:
+> [!IMPORTANT]
+> **¡No necesitas editar el código fuente de Rustext ni recompilar el editor!**
+> Rustext incluye un cargador dinámico de temas que lee archivos de texto declarativos `.theme` e `.ini`. Puedes definir tantas paletas como quieras simplemente guardando un archivo en tu carpeta de usuario o en tu proyecto.
 
-```rust
-pub fn dracula() -> Self {
-    Self {
-        background: 0x00282A36,
-        gutter_bg: 0x0021222C,
-        gutter_fg: 0x006272A4,
-        gutter_border: 0x00191A21,
-        tab_bar_bg: 0x00191A21,
-        tab_active_bg: 0x00282A36,
-        tab_inactive_bg: 0x0021222C,
-        tab_active_fg: 0x00F8F8F2,
-        tab_inactive_fg: 0x006272A4,
-        status_bar_bg: 0x0021222C,
-        status_bar_fg: 0x00F8F8F2,
-        selection_bg: 0x0044475A,
-        cursor: 0x00F8F8F0,
-        accent: 0x00BD93F9,
-        modal_bg: 0x00282A36,
-        modal_header_bg: 0x0021222C,
-        modal_border: 0x00BD93F9,
-        input_bg: 0x00191A21,
-        input_border: 0x00BD93F9,
-        button_bg: 0x0044475A,
-        button_hover_bg: 0x006272A4,
-        button_fg: 0x00F8F8F2,
-        chip_bg: 0x0044475A,
-        chip_fg: 0x00BD93F9,
-        scrollbar_bg: 0x00282A36,
-        scrollbar_border: 0x0021222C,
-        scrollbar_thumb: 0x0044475A,
-        scrollbar_thumb_hover: 0x006272A4,
-        scrollbar_thumb_active: 0x00BD93F9,
-        syntax_keyword: 0x00FF79C6,
-        syntax_type: 0x008BE9FD,
-        syntax_string: 0x00F1FA8C,
-        syntax_number: 0x00BD93F9,
-        syntax_comment: 0x006272A4,
-        syntax_operator: 0x00FF79C6,
-        syntax_punctuation: 0x00F8F8F2,
-        syntax_plain: 0x00F8F8F2,
-        syntax_function: 0x0050FA7B,
-        syntax_method: 0x0050FA7B,
-        syntax_struct: 0x008BE9FD,
-        syntax_trait: 0x0050FA7B,
-        syntax_macro: 0x00FF79C6,
-        syntax_parameter: 0x00FFB86C,
-        syntax_constant: 0x00BD93F9,
-        syntax_field: 0x00F8F8F2,
-        bracket_0: 0x00BD93F9,
-        bracket_1: 0x00FF79C6,
-        bracket_2: 0x008BE9FD,
-        current_line_bg: 0x0044475A,
-        ruler_color: 0x0044475A,
-        sticky_header_bg: 0x0021222C,
-    }
-}
+#### Dónde guardar tus temas personalizados:
+1. **Global de usuario**:
+   * Linux / macOS: `~/.rustext/themes/<nombre>.theme` (o `~/.config/rustext/themes/<nombre>.theme`)
+   * Windows: `%USERPROFILE%\.rustext\themes\<nombre>.theme`
+2. **Local de tu proyecto (Workspace)**:
+   * `./.rustext/themes/<nombre>.theme` (ideal para incluir el tema oficial del proyecto en el repositorio Git).
+
+Al arrancar por primera vez, si el directorio `~/.rustext/themes/` está vacío o no existe, Rustext crea la carpeta y **auto-despliega las 8 plantillas oficiales completas**:
+* `tokyo-night.theme`
+* `catppuccin-mocha.theme`
+* `one-dark.theme`
+* `modern-dark.theme`
+* `monokai.theme`
+* `solarized-dark.theme`
+* `light.theme`
+* `dracula.theme`
+
+Esto te permite abrir cualquiera de estos archivos, ajustar un color específico y ver el resultado de inmediato.
+
+#### Orden de Búsqueda y Prioridad de Anulación (Override)
+Cuando Rustext solicita un tema (por ejemplo `tokyo-night`, `dracula` o uno nuevo como `nord`):
+1. **Espacio de trabajo local (`./.rustext/themes/<nombre>.theme`)**: Máxima prioridad. Sobrescribe cualquier otra definición.
+2. **Carpeta de usuario (`~/.rustext/themes/<nombre>.theme`)**: Segunda prioridad. Permite al usuario personalizar cualquier tema para todas sus sesiones.
+3. **Temas compilados en el binario**: Respaldo nativo infalible embebido en el ejecutable si no existe ningún archivo en disco.
+
+> [!TIP]
+> **Personalización sin tocar código**: Si deseas cambiar el color de fondo o el acento del tema oficial `tokyo-night`, basta con editar `~/.rustext/themes/tokyo-night.theme`. Rustext dará prioridad a tu archivo en disco sin alterar el código fuente de Rust.
+
+#### Formato de un archivo `.theme`
+Un archivo de tema utiliza sintaxis INI estándar con colores en formato hexadecimal flexible:
+* `#RRGGBB` o `0xRRGGBB` (ej. `#282A36` o `0x282A36`)
+* `#RGB` shorthand (ej. `#F80` expande a `#FF8800`)
+* Comentarios de línea o inline iniciados por `;` o un espacio seguido de `#` (ej. `background = #282A36 # Comentario`)
+* Los colores omitidos toman automáticamente los valores de respaldo del tema base (`type = dark` o `type = light`).
+
+Ejemplo de `~/.rustext/themes/dracula.theme`:
+
+```ini
+# ==============================================================================
+# Rustext Theme: Dracula
+# Ubicación: ~/.rustext/themes/dracula.theme
+# ==============================================================================
+[meta]
+id = dracula
+name = Dracula
+author = Dracula Theme Team
+type = dark   ; 'dark' o 'light' (define los colores de respaldo)
+
+[ui]
+background = #282A36
+gutter_bg = #21222C
+gutter_fg = #6272A4
+gutter_border = #191A21
+tab_bar_bg = #191A21
+tab_active_bg = #282A36
+tab_inactive_bg = #21222C
+tab_active_fg = #F8F8F2
+tab_inactive_fg = #6272A4
+status_bar_bg = #21222C
+status_bar_fg = #F8F8F2
+selection_bg = #44475A
+cursor = #F8F8F0
+accent = #BD93F9
+current_line_bg = #44475A
+ruler_color = #44475A
+sticky_header_bg = #21222C
+
+# Modales, diálogos y botones
+modal_bg = #282A36
+modal_header_bg = #21222C
+modal_border = #BD93F9
+input_bg = #191A21
+input_border = #BD93F9
+button_bg = #44475A
+button_hover_bg = #6272A4
+button_fg = #F8F8F2
+chip_bg = #44475A
+chip_fg = #BD93F9
+
+# Barra de desplazamiento
+scrollbar_bg = #282A36
+scrollbar_border = #21222C
+scrollbar_thumb = #44475A
+scrollbar_thumb_hover = #6272A4
+scrollbar_thumb_active = #BD93F9
+
+[syntax]
+keyword = #FF79C6
+type = #8BE9FD
+string = #F1FA8C
+number = #BD93F9
+comment = #6272A4
+operator = #FF79C6
+punctuation = #F8F8F2
+plain = #F8F8F2
+function = #50FA7B
+method = #50FA7B
+struct = #8BE9FD
+trait = #50FA7B
+macro = #FF79C6
+parameter = #FFB86C
+constant = #BD93F9
+field = #F8F8F2
+
+[brackets]
+bracket_0 = #BD93F9
+bracket_1 = #FF79C6
+bracket_2 = #8BE9FD
 ```
 
-#### Paso 2: Registrar el alias en `ThemeColors::by_name()`
-En el mismo archivo [`src/gfx/renderer.rs`](file:///home/bolek/Proyectos/rustext/src/gfx/renderer.rs):
+#### Cómo activar tu tema personalizado:
+1. **Desde `config.ini`**:
+   Establece el ID o nombre del archivo en `~/.config/rustext/config.ini`:
+   ```ini
+   [theme]
+   name = dracula
+   ```
+   En cuanto guardas el archivo, Rustext lo carga en caliente de forma instantánea.
+2. **Desde la Paleta de Comandos (`Ctrl + P`)**:
+   Rustext descubre automáticamente todos los temas de tu carpeta `~/.rustext/themes/`.
+   Presiona `Ctrl + P`, escribe `Tema:` y verás tus temas listados automáticamente (ej. `Tema: Dracula (Personalizado)`).
 
-```rust
-pub fn by_name(name: &str) -> Self {
-    match name.to_lowercase().trim() {
-        "dracula" => Self::dracula(),
-        "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => Self::tokyo_night(),
-        // ...
-```
+---
 
-#### Paso 3: Registrar el tema en la configuración ([`src/editor/config.rs`](file:///home/bolek/Proyectos/rustext/src/editor/config.rs))
-Añade `Dracula` al enum `EditorTheme`:
+### 2.7 Compilación de Temas Nativos en el Núcleo (Opcional para Desarrolladores)
 
-```rust
-pub enum EditorTheme {
-    Dark,
-    TokyoNight,
-    Catppuccin,
-    OneDark,
-    Monokai,
-    SolarizedDark,
-    Light,
-    Dracula, // <-- Añadir
-}
-```
+Si eres colaborador del proyecto y deseas que una paleta forme parte permanente de los temas oficiales integrados en el binario sin depender de archivos en disco:
 
-Y mapea en `as_str()` y `from_name()`:
-```rust
-EditorTheme::Dracula => "dracula",
-// ...
-"dracula" => EditorTheme::Dracula,
-```
+1. Agrega el método constructor en `src/gfx/renderer.rs` dentro de `ThemeColors` (ej. `pub fn mi_tema() -> Self`).
+2. Añade el alias en `ThemeColors::by_name()`.
+3. Registra la variante en el enum `EditorTheme` en `src/editor/config.rs`.
+4. Añade el elemento al menú en `src/editor/menu.rs` y a la lista de comandos base en `src/ui/prompt.rs`.
 
-#### Paso 4: (Opcional) Agregar al Menú y Paleta de Comandos
-* En [`src/editor/menu.rs`](file:///home/bolek/Proyectos/rustext/src/editor/menu.rs):
-  ```rust
-  MenuItem::action("Tema: Dracula", "", EditorAction::SetTheme(EditorTheme::Dracula)),
-  ```
-* En [`src/ui/prompt.rs`](file:///home/bolek/Proyectos/rustext/src/ui/prompt.rs):
-  ```rust
-  CommandItem { name: "Tema: Dracula", shortcut: "", action: EditorAction::SetTheme(EditorTheme::Dracula) },
-  ```
 
 ---
 

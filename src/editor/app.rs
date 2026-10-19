@@ -16,7 +16,7 @@ use crate::core::syntax::Language;
 use crate::plugin::{
     ExtensionManager, PluginContext, PluginRegistry, TrailingWhitespacePlugin, WordCountPlugin,
 };
-use crate::ui::prompt::{PromptKind, PromptModal};
+use crate::ui::prompt::{CommandItem, PromptKind, PromptModal};
 use crate::ui::screen::Screen;
 use crate::ui::terminal::{Key, TerminalGuard};
 
@@ -1116,11 +1116,13 @@ impl Editor {
                 let open_paths: Vec<PathBuf> = self.documents.iter().filter_map(|d| d.buffer.file_path().map(|p| p.to_path_buf())).collect();
                 let mut modal = PromptModal::new_file_finder(root, &open_paths, &self.recent_files);
                 modal.custom_commands = self.extension_manager.get_active_commands();
+                modal.custom_commands.extend(user_theme_command_items());
                 self.mode = EditorMode::ModalPrompt(modal);
             }
             EditorAction::OpenCommandPalette => {
                 let mut modal = PromptModal::new(PromptKind::CommandPalette);
                 modal.custom_commands = self.extension_manager.get_active_commands();
+                modal.custom_commands.extend(user_theme_command_items());
                 self.mode = EditorMode::ModalPrompt(modal);
             }
             EditorAction::OpenRecentFilesPrompt => {
@@ -1162,6 +1164,10 @@ impl Editor {
 
             EditorAction::SetTheme(theme) => {
                 self.set_theme(theme.as_str());
+            }
+
+            EditorAction::SetThemeByName(theme_name) => {
+                self.set_theme(&theme_name);
             }
 
             EditorAction::OpenFontSelector => {
@@ -7135,4 +7141,18 @@ impl Editor {
         let _ = self.save_session();
         Ok(())
     }
+}
+
+/// Generates command items for dynamically loaded user themes.
+fn user_theme_command_items() -> Vec<CommandItem> {
+    let mut cmds = Vec::new();
+    for theme in crate::gfx::list_user_themes() {
+        let full_label = format!("Tema: {} (Personalizado)", theme.name);
+        cmds.push(CommandItem {
+            name: full_label.into(),
+            shortcut: "",
+            action: EditorAction::SetThemeByName(theme.id),
+        });
+    }
+    cmds
 }

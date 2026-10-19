@@ -14,7 +14,7 @@
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust" alt="Rust 2024 Edition" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg" alt="0 Dependencies" /></a>
   <a href="https://github.com/boleklolek/rustext/actions"><img src="https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="tests/"><img src="https://img.shields.io/badge/Tests-160%20passed-success.svg" alt="Tests" /></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/Tests-166%20passed-success.svg" alt="Tests" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg" alt="Platforms" /></a>
   <a href="#"><img src="https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg" alt="LSP" /></a>
 </p>
@@ -100,7 +100,15 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Esquinas redondeadas (*anti-aliased*), sombras proyectadas suaves y píldoras informativas.
   - Barra de menús nativa con navegación por ratón y atajos `Alt + Letra`.
   - Barra de desplazamiento (scrollbar) con pulgar arrastrable y clics de página.
-  - 8 Paletas de color integradas: Tokyo Night, Catppuccin Mocha, One Dark, Modern Dark, Monokai, Solarized Dark, GitHub Light y High Contrast.
+  - 8 Paletas de color integradas: Tokyo Night, Catppuccin Mocha, One Dark, Modern Dark, Monokai, Solarized Dark, GitHub Light y Dracula.
+
+- **Sistema de Temas Dinámico y Declarativo (`.theme` / `.ini`) Sin Recompilación**:
+  - Carga en caliente y descubrimiento automático de temas visuales desde carpetas de usuario (`~/.rustext/themes/`) o de proyecto (`./.rustext/themes/`) sin tocar el código fuente (`src/gfx/renderer.rs`) ni recompilar el binario.
+  - 8 Temas oficiales modularizados en [`assets/themes/`](assets/themes/) (`tokyo-night.theme`, `catppuccin-mocha.theme`, `one-dark.theme`, `modern-dark.theme`, `monokai.theme`, `solarized-dark.theme`, `light.theme`, `dracula.theme`).
+  - Auto-despliegue de plantillas oficiales en `~/.rustext/themes/` al primer inicio si la carpeta está vacía para facilitar la personalización inmediata.
+  - Prioridad de anulación dinámica: cualquier archivo `.theme` en disco sobrescribe el tema correspondiente del binario, permitiendo ajustar colores sobre la marcha.
+  - Parser ultrarrápido sin dependencias para formatos hexadecimales `#RRGGBB`, `0xRRGGBB`, `#RGB` e inline comments con detección inteligente de temas base oscuros o claros (`type = dark` / `light`).
+  - Búsqueda y activación instantánea desde la Paleta de Comandos (`Ctrl + P` -> `Tema: <nombre>`) o guardando `name = <nombre>` en `config.ini`.
 
 - **Rasterizador de Fuentes Tipográficas y Corrección Gamma (sRGB IEC 61966-2-1)**:
   - Rasterizador tipográfico avanzado por software con anti-aliasing espacial y cálculo continuo de cobertura morfológica de contornos.
@@ -346,6 +354,9 @@ Rustext ha sido auditado estructuralmente siguiendo estándares internacionales 
 | **SEC-05** | **Baja** | Deserialización de borradores sin confinamiento | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | **Mitigado**: Confinamiento estricto a `drafts/`, validación `is_safe_draft_path()` y rechazo de `..`. |
 | **SEC-06** | **Info** | Consola en modo raw tras pánicos inesperados | [CWE-755](https://cwe.mitre.org/data/definitions/755.html) | **Mitigado**: `std::panic::set_hook` instalado para restaurar cursor y ejecutar `stty sane`. |
 | **SEC-07** | **Baja** | Creación insegura de archivos shm temporales | [CWE-377](https://cwe.mitre.org/data/definitions/377.html) / [CWE-59](https://cwe.mitre.org/data/definitions/59.html) | **Mitigado**: Apertura exclusiva `O_CREAT \| O_EXCL` con permisos UNIX `0600` en `/dev/shm`. |
+| **SEC-08** | **Media** | Travesía de directorios en temas externos | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | **Mitigado**: Validación `is_safe_theme_name()` (lista blanca y límite 64 bytes) y verificación canónica `starts_with(canonical_base)`. |
+| **SEC-09** | **Baja** | Agotamiento de recursos / DoS por lectura no acotada de temas | [CWE-400](https://cwe.mitre.org/data/definitions/400.html) / [CWE-776](https://cwe.mitre.org/data/definitions/776.html) | **Mitigado**: Límite de tamaño `MAX_THEME_FILE_SIZE = 512 KB` y cuota máxima de escaneo de 256 archivos por directorio. |
+| **SEC-10** | **Baja** | Fuga acumulativa de memoria en la Paleta de Comandos | [CWE-401](https://cwe.mitre.org/data/definitions/401.html) | **Mitigado**: Migración de `Box::leak` a `Cow<'static, str>` en `CommandItem`, autoliberando memoria al cerrar el modal. |
 
 ### 4. Ejecución Segura de Procesos y Resistencia a ReDoS
 - **Sin Shell Wrappers**: La ejecución de formateadores (`rustfmt`, `prettier`, etc.) y linters se efectúa mediante invocaciones vectoriales directas `Command::new()`, sin pasar por intérpretes tipo `sh -c` ni permitir inyección de comandos mediante metacaracteres.
@@ -435,7 +446,7 @@ hot_exit = false
 max_recent_files = 20
 
 [theme]
-name = tokyo-night   # tokyo-night, catppuccin-mocha, one-dark, monokai, solarized-dark, light
+name = tokyo-night   # tokyo-night, catppuccin-mocha, one-dark, modern-dark, monokai, solarized-dark, light, dracula, o tu propio <nombre>.theme
 
 [gui]
 window_width = 1100

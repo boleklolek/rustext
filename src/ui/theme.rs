@@ -136,9 +136,39 @@ impl Theme {
         }
     }
 
+    /// Converts a GUI `ThemeColors` structure into a truecolor ANSI TUI Theme.
+    pub fn from_theme_colors(c: &crate::gfx::ThemeColors) -> Self {
+        let line_num_fg = format!("\x1b[38;2;{};{};{}m", (c.gutter_fg >> 16) & 0xff, (c.gutter_fg >> 8) & 0xff, c.gutter_fg & 0xff);
+        let line_num_bg = format!("\x1b[48;2;{};{};{}m", (c.gutter_bg >> 16) & 0xff, (c.gutter_bg >> 8) & 0xff, c.gutter_bg & 0xff);
+        let status_bg = format!("\x1b[48;2;{};{};{}m", (c.status_bar_bg >> 16) & 0xff, (c.status_bar_bg >> 8) & 0xff, c.status_bar_bg & 0xff);
+        let status_fg = format!("\x1b[38;2;{};{};{}m", (c.status_bar_fg >> 16) & 0xff, (c.status_bar_fg >> 8) & 0xff, c.status_bar_fg & 0xff);
+        let sel_bg = format!("\x1b[48;2;{};{};{}m", (c.selection_bg >> 16) & 0xff, (c.selection_bg >> 8) & 0xff, c.selection_bg & 0xff);
+
+        Self {
+            bg_reset: "\x1b[49m",
+            fg_reset: "\x1b[39m",
+            line_number_fg: Box::leak(line_num_fg.into_boxed_str()),
+            line_number_bg: Box::leak(line_num_bg.into_boxed_str()),
+            status_bar_bg: Box::leak(status_bg.into_boxed_str()),
+            status_bar_fg: Box::leak(status_fg.into_boxed_str()),
+            selection_bg: Box::leak(sel_bg.into_boxed_str()),
+            cursor_style: "\x1b[7m",
+            mode_insert_fg: "\x1b[1;32m",
+            mode_normal_fg: "\x1b[1;36m",
+            mode_command_fg: "\x1b[1;33m",
+        }
+    }
+
     /// Resolves theme by name.
     pub fn by_name(name: &str) -> Self {
-        match name.to_lowercase().trim() {
+        let trimmed = name.to_lowercase().trim().to_string();
+        // 1. Prioritize external .theme files from user or workspace directories
+        if let Some(user_theme) = crate::gfx::theme_loader::load_user_theme(&trimmed) {
+            return Self::from_theme_colors(&user_theme);
+        }
+
+        // 2. Fall back to built-in compiled-in palettes
+        match trimmed.as_str() {
             "tokyo" | "tokyonight" | "tokyo_night" | "tokyo-night" => Self::tokyo_night(),
             "catppuccin" | "catppuccin_mocha" | "catppuccin-mocha" | "mocha" => Self::catppuccin(),
             "onedark" | "one_dark" | "one-dark" | "atom" => Self::one_dark(),

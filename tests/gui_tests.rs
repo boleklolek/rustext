@@ -4054,6 +4054,92 @@ fn test_security_global_search_symlink_defense() {
 }
 
 #[test]
+fn test_security_theme_path_traversal_defense() {
+    use rustext::gfx::theme_loader::{find_theme_file, is_safe_theme_name};
+
+    // 1. Directory traversal sequences must be rejected
+    assert!(!is_safe_theme_name("../../etc/passwd"));
+    assert!(!is_safe_theme_name("../secret"));
+    assert!(!is_safe_theme_name("..\\..\\windows\\system32"));
+    assert!(!is_safe_theme_name("/etc/shadow"));
+    assert!(!is_safe_theme_name("C:\\Windows\\win.ini"));
+    assert!(!is_safe_theme_name("theme\0null"));
+    assert!(!is_safe_theme_name(""));
+    assert!(!is_safe_theme_name(&"a".repeat(100))); // exceeds length cap
+
+    // 2. Safe names must be accepted
+    assert!(is_safe_theme_name("dracula"));
+    assert!(is_safe_theme_name("tokyo-night"));
+    assert!(is_safe_theme_name("catppuccin_mocha"));
+    assert!(is_safe_theme_name("custom-1.0"));
+
+    // 3. find_theme_file must return None for traversal attacks
+    assert!(find_theme_file("../../etc/passwd").is_none());
+    assert!(find_theme_file("/etc/shadow").is_none());
+    assert!(find_theme_file("../../../").is_none());
+}
+
+#[test]
+fn test_security_theme_file_size_and_dos_defense() {
+    use rustext::gfx::theme_loader::MAX_THEME_FILE_SIZE;
+    use std::fs;
+
+    let temp_dir = std::env::temp_dir().join(format!("rustext_theme_dos_test_{}", std::process::id()));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let oversized_file = temp_dir.join("oversized.theme");
+    // Create file slightly larger than MAX_THEME_FILE_SIZE
+    let oversized_content = vec![b'a'; (MAX_THEME_FILE_SIZE + 1024) as usize];
+    fs::write(&oversized_file, &oversized_content).unwrap();
+
+    let meta = fs::metadata(&oversized_file).unwrap();
+    assert!(meta.len() > MAX_THEME_FILE_SIZE);
+
+    // Clean up
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_optimized_theme_parser_and_hex_bit_math() {
+    use rustext::gfx::theme_loader::{parse_hex_color, parse_theme_str};
+
+    // 1. Bitwise Hex Parsing
+    assert_eq!(parse_hex_color("#282a36"), Some(0x00282A36));
+    assert_eq!(parse_hex_color("0xbd93f9"), Some(0x00BD93F9));
+    assert_eq!(parse_hex_color("F8F8F2"), Some(0x00F8F8F2));
+    // 3-digit shorthand #RGB -> #RRGGBB
+    assert_eq!(parse_hex_color("#f80"), Some(0x00FF8800));
+    assert_eq!(parse_hex_color("#abc"), Some(0x00AABBCC));
+    // Invalid hex formats
+    assert_eq!(parse_hex_color("#invalid"), None);
+    assert_eq!(parse_hex_color(""), None);
+
+    // 2. Single-pass theme parser with overrides and 'type = light' at bottom
+    let content = r#"
+    [ui]
+    background = #102030
+    cursor = #ff0055
+    accent = #00aaff
+
+    [syntax]
+    keyword = #ff7700
+    string = #00ff77
+
+    [meta]
+    type = light
+    "#;
+
+    let theme = parse_theme_str(content);
+    assert_eq!(theme.background, 0x00102030);
+    assert_eq!(theme.cursor, 0x00FF0055);
+    assert_eq!(theme.accent, 0x0000AAFF);
+    assert_eq!(theme.syntax_keyword, 0x00FF7700);
+    assert_eq!(theme.syntax_string, 0x0000FF77);
+    // Non-overridden slots gracefully fall back to light base theme
+    assert_eq!(theme.tab_bar_bg, rustext::gfx::ThemeColors::light().tab_bar_bg);
+}
+
+#[test]
 fn test_word_wrap_compute_sublines_and_word_boundaries() {
     use rustext::editor::wrap::WordWrap;
 
@@ -5746,8 +5832,12 @@ fn test_workspace_management_and_project_switching() {
     let index_js = proj_b.join("index.js");
     fs::write(&index_js, "console.log('Hello Project B');\n").unwrap();
 
+    let orig_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/home/bolek/Proyectos/rustext"));
+
     // 2. Initialize Editor
     let mut editor = Editor::new(rustext::core::TextBuffer::from_str(""));
+    editor.project_registry = rustext::editor::workspace::ProjectRegistry::with_dir(base_temp.join("reg"));
+    editor.recent_projects.clear();
 
     // Test OpenFolderPrompt action
     editor.execute_action(EditorAction::OpenFolderPrompt);
@@ -5860,6 +5950,7 @@ fn test_workspace_management_and_project_switching() {
     assert!(non_zero_pixels > 2000, "Recent projects modal must render cleanly on framebuffer");
 
     // Cleanup
+    let _ = std::env::set_current_dir(orig_dir);
     let _ = fs::remove_dir_all(&base_temp);
 }
 
@@ -6240,6 +6331,117 @@ fn test_lsp_multi_language_servers_and_config() {
     assert_eq!(loaded.lsp.go_server, "gopls");
     assert_eq!(loaded.lsp.zig_server, "zls");
     assert_eq!(loaded.lsp.julia_server, "julia-lsp");
+}
+
+#[test]
+fn test_dynamic_user_theme_hex_parsing() {
+    use rustext::gfx::theme_loader::parse_hex_color;
+
+    assert_eq!(parse_hex_color("#282A36"), Some(0x00282A36));
+    assert_eq!(parse_hex_color("0xBD93F9"), Some(0x00BD93F9));
+    assert_eq!(parse_hex_color("0X50FA7B"), Some(0x0050FA7B));
+    assert_eq!(parse_hex_color("AABBCC"), Some(0x00AABBCC));
+    assert_eq!(parse_hex_color("#fff"), Some(0x00FFFFFF));
+    assert_eq!(parse_hex_color("#123"), Some(0x00112233));
+    assert_eq!(parse_hex_color("invalid"), None);
+    assert_eq!(parse_hex_color(""), None);
+}
+
+#[test]
+fn test_dynamic_user_theme_string_parsing() {
+    use rustext::gfx::theme_loader::parse_theme_str;
+
+    let theme_content = r#"
+# Custom Cyberpunk Neon Theme
+[meta]
+name = Cyberpunk Neon
+author = Tester
+type = dark
+
+[ui]
+background = #0D0221
+gutter_bg = #0F084B
+status_bar_bg = #26408B
+cursor = #00F0FF
+accent = #FF007F
+
+[syntax]
+keyword = #FF007F
+string = #00F0FF
+number = #FFE600
+comment = #5465FF
+
+[brackets]
+bracket_0 = #FF007F
+bracket_1 = #00F0FF
+bracket_2 = #FFE600
+"#;
+
+    let colors = parse_theme_str(theme_content);
+    assert_eq!(colors.background, 0x000D0221);
+    assert_eq!(colors.gutter_bg, 0x000F084B);
+    assert_eq!(colors.status_bar_bg, 0x0026408B);
+    assert_eq!(colors.cursor, 0x0000F0FF);
+    assert_eq!(colors.accent, 0x00FF007F);
+    assert_eq!(colors.syntax_keyword, 0x00FF007F);
+    assert_eq!(colors.syntax_string, 0x0000F0FF);
+    assert_eq!(colors.syntax_number, 0x00FFE600);
+    assert_eq!(colors.syntax_comment, 0x005465FF);
+    assert_eq!(colors.bracket_0, 0x00FF007F);
+    assert_eq!(colors.bracket_1, 0x0000F0FF);
+    assert_eq!(colors.bracket_2, 0x00FFE600);
+}
+
+#[test]
+fn test_user_theme_file_loading_and_tui_ansi() {
+    use std::fs;
+    use rustext::gfx::ThemeColors;
+    use rustext::ui::Theme;
+    use rustext::editor::app::Editor;
+    use rustext::core::TextBuffer;
+    use rustext::editor::keymap::EditorAction;
+
+    // Create a temporary workspace-level theme in ./.rustext/themes/
+    let ws_theme_dir = std::path::PathBuf::from("./.rustext/themes");
+    let _ = fs::create_dir_all(&ws_theme_dir);
+    let theme_file = ws_theme_dir.join("test_neon.theme");
+
+    let content = r#"
+[meta]
+id = test_neon
+name = Test Neon
+type = dark
+
+[ui]
+background = #101018
+gutter_bg = #141420
+status_bar_bg = #334455
+cursor = #00FFCC
+
+[syntax]
+keyword = #FF3366
+"#;
+    let _ = fs::write(&theme_file, content);
+
+    // 1. GUI colors resolution by name
+    let gui_colors = ThemeColors::by_name("test_neon");
+    assert_eq!(gui_colors.background, 0x00101018);
+    assert_eq!(gui_colors.gutter_bg, 0x00141420);
+    assert_eq!(gui_colors.cursor, 0x0000FFCC);
+    assert_eq!(gui_colors.syntax_keyword, 0x00FF3366);
+
+    // 2. TUI ANSI truecolor conversion
+    let tui_theme = Theme::by_name("test_neon");
+    assert!(tui_theme.line_number_bg.contains("48;2;20;20;32")); // 0x14 = 20, 0x20 = 32
+
+    // 3. Editor action SetThemeByName
+    let mut editor = Editor::new(TextBuffer::from_str("code"));
+    editor.execute_action(EditorAction::SetThemeByName("test_neon".to_string()));
+    assert_eq!(editor.config.theme.name, "test_neon");
+    assert!(editor.status_message.as_ref().unwrap().0.contains("test_neon"));
+
+    // Cleanup
+    let _ = fs::remove_file(&theme_file);
 }
 
 
