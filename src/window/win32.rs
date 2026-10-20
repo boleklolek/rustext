@@ -145,7 +145,7 @@ unsafe extern "system" {
 }
 
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
 pub fn detect_scale_factor() -> f64 {
@@ -272,6 +272,7 @@ impl Win32Window {
                     WM_CHAR => {
                         let is_ctrl = (GetAsyncKeyState(0x11) as i32 & 0x8000) != 0; // VK_CONTROL
                         let is_shift = (GetAsyncKeyState(0x10) as i32 & 0x8000) != 0; // VK_SHIFT
+                        let raw_byte = (msg.wparam & 0xFF) as u8;
                         if is_ctrl {
                             let ch = if raw_byte >= 1 && raw_byte <= 26 {
                                 (b'a' + raw_byte - 1) as char
@@ -282,6 +283,10 @@ impl Win32Window {
                                 return WindowEvent::Key(Key::CtrlShift(ch));
                             } else {
                                 return WindowEvent::Key(Key::Ctrl(ch));
+                            }
+                        } else if let Some(ch) = char::from_u32(msg.wparam as u32) {
+                            if ch >= ' ' {
+                                return WindowEvent::Char(ch);
                             }
                         } else if raw_byte >= b' ' {
                             return WindowEvent::Char(raw_byte as char);
@@ -302,10 +307,20 @@ impl Win32Window {
                         let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
                         return WindowEvent::MouseDown { x, y, button: MouseButton::Right };
                     }
+                    WM_RBUTTONUP => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseUp { x, y, button: MouseButton::Right };
+                    }
                     WM_MBUTTONDOWN => {
                         let x = (msg.lparam & 0xFFFF) as usize;
                         let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
                         return WindowEvent::MouseDown { x, y, button: MouseButton::Middle };
+                    }
+                    WM_MBUTTONUP => {
+                        let x = (msg.lparam & 0xFFFF) as usize;
+                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        return WindowEvent::MouseUp { x, y, button: MouseButton::Middle };
                     }
                     WM_MOUSEMOVE => {
                         let x = (msg.lparam & 0xFFFF) as usize;
