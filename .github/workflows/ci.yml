@@ -48,8 +48,18 @@ jobs:
         run: cargo test --verbose
 
   test-macos:
-    name: macOS (Apple Silicon / Intel)
-    runs-on: macos-latest
+    name: macOS (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: Apple Silicon arm64
+          - os: macos-15-intel
+            label: Intel x86_64
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

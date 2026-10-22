@@ -109,21 +109,38 @@ jobs:
   build-macos:
     name: Build macOS (Universal / aarch64 + x86_64)
     runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Set up Rust toolchain
+      - name: Set up Rust toolchain (Apple Silicon + Intel targets)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Build Release
-        run: cargo build --release --locked --bin rustext
+      - name: Build Release (aarch64 + x86_64)
+        run: |
+          cargo build --release --locked --bin rustext --target aarch64-apple-darwin
+          cargo build --release --locked --bin rustext --target x86_64-apple-darwin
+
+      - name: Create Universal Binary (lipo)
+        run: |
+          mkdir -p target/universal
+          lipo -create \
+            target/aarch64-apple-darwin/release/rustext \
+            target/x86_64-apple-darwin/release/rustext \
+            -output target/universal/rustext
+          lipo -info target/universal/rustext
+          file target/universal/rustext
+          ./target/universal/rustext --version
 
       - name: Package Release Archive
         run: |
           RELEASE_NAME="rustext-${{ github.ref_name }}-apple-darwin"
           mkdir "$RELEASE_NAME"
-          cp target/release/rustext "$RELEASE_NAME/"
+          cp target/universal/rustext "$RELEASE_NAME/"
           cp README.md README_EN.md MANUAL.md MANUAL_TEMAS_Y_EXTENSIONES.md LICENSE "$RELEASE_NAME/"
           tar -czvf "${RELEASE_NAME}.tar.gz" "$RELEASE_NAME"
           shasum -a 256 "${RELEASE_NAME}.tar.gz" > "${RELEASE_NAME}.tar.gz.sha256"
