@@ -3581,6 +3581,35 @@ impl Editor {
         }
     }
 
+    /// Remaps a document index after the tab at `from` has been moved to position `to`.
+    pub fn remap_index_after_tab_move(idx: usize, from: usize, to: usize) -> usize {
+        if idx == from {
+            to
+        } else if from < to && idx > from && idx <= to {
+            idx - 1
+        } else if to < from && idx >= to && idx < from {
+            idx + 1
+        } else {
+            idx
+        }
+    }
+
+    /// Moves the tab at `from` to position `to` (drag & drop reordering).
+    /// The active tab and split pane indices keep following their documents.
+    /// Returns `true` if the order changed.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        let n = self.documents.len();
+        if from >= n || to >= n || from == to {
+            return false;
+        }
+        let doc = self.documents.remove(from);
+        self.documents.insert(to, doc);
+        self.active_doc_idx = Self::remap_index_after_tab_move(self.active_doc_idx, from, to);
+        self.split.primary_doc_idx = Self::remap_index_after_tab_move(self.split.primary_doc_idx, from, to);
+        self.split.secondary_doc_idx = Self::remap_index_after_tab_move(self.split.secondary_doc_idx, from, to);
+        true
+    }
+
     /// Switches to the next tab.
     pub fn next_tab(&mut self) {
         if self.documents.len() > 1 {
@@ -5257,6 +5286,8 @@ impl Editor {
         let mut is_dragging_minimap = false;
         let mut minimap_hovered = false;
         let mut is_dragging_splitter = false;
+        // Tab drag & drop: (índice de la pestaña arrastrada, x inicial, ya se movió)
+        let mut tab_drag: Option<(usize, usize, bool)> = None;
         let mut is_dragging_term_splitter = false;
         let mut adjust_viewport = true;
         let mut needs_redraw = true;
@@ -6297,6 +6328,7 @@ impl Editor {
                                                             self.sync_split_doc_indices();
                                                             self.sidebar.is_focused = false;
                                                             adjust_viewport = true;
+                                                            tab_drag = Some((idx, x, false));
                                                         }
                                                         clicked = true;
                                                         break;
@@ -6344,6 +6376,9 @@ impl Editor {
                         }
                     }
                     crate::window::WindowEvent::MouseUp { .. } => {
+                        if tab_drag.take().is_some() {
+                            needs_redraw = true;
+                        }
                         if is_dragging_term_splitter {
                             is_dragging_term_splitter = false;
                             needs_redraw = true;
@@ -6365,6 +6400,22 @@ impl Editor {
                         let old_my = mouse_y;
                         mouse_x = x;
                         mouse_y = y;
+                        if let Some((src, press_x, moved)) = tab_drag {
+                            let moved_now = moved || x.abs_diff(press_x) > renderer.scale_coord(5);
+                            let mut current = src;
+                            if moved_now {
+                                let drag_sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
+                                let titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
+                                let rects = renderer.tab_rects(&titles, drag_sidebar_w);
+                                let target = crate::gfx::GfxRenderer::tab_drop_index(&rects, src, x);
+                                if target != src && self.move_tab(src, target) {
+                                    current = target;
+                                    adjust_viewport = false;
+                                }
+                                needs_redraw = true;
+                            }
+                            tab_drag = Some((current, press_x, moved_now));
+                        }
                         if self.mode == EditorMode::Normal {
                             let sidebar_w = if self.sidebar.is_visible { self.sidebar.width.min(fb.width.saturating_sub(100)) } else { 0 };
 

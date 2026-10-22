@@ -6452,3 +6452,72 @@ keyword = #FF3366
 
 
 
+
+#[test]
+fn test_tab_drag_and_drop_reordering() {
+    use rustext::editor::Editor;
+
+    let mut editor = Editor::new(TextBuffer::from_str("A"));
+    editor.new_tab();
+    editor.doc_mut().buffer.insert(0, "B");
+    editor.new_tab();
+    editor.doc_mut().buffer.insert(0, "C");
+    editor.new_tab();
+    editor.doc_mut().buffer.insert(0, "D");
+    let content = |e: &Editor| -> String {
+        e.documents.iter().map(|d| d.buffer.to_string()).collect::<Vec<_>>().join("")
+    };
+    assert_eq!(content(&editor), "ABCD");
+    assert_eq!(editor.active_doc_idx, 3);
+
+    // Mover pestaña activa D (idx 3) al inicio: la activa sigue a su documento.
+    assert!(editor.move_tab(3, 0));
+    assert_eq!(content(&editor), "DABC");
+    assert_eq!(editor.active_doc_idx, 0);
+
+    // Mover A (idx 1) a la derecha hasta el final: la activa (D, idx 0) no cambia.
+    assert!(editor.move_tab(1, 3));
+    assert_eq!(content(&editor), "DBCA");
+    assert_eq!(editor.active_doc_idx, 0);
+
+    // Mover C (idx 2) a idx 0 desplaza a la activa D hacia la derecha.
+    assert!(editor.move_tab(2, 0));
+    assert_eq!(content(&editor), "CDBA");
+    assert_eq!(editor.active_doc_idx, 1);
+
+    // Movimientos inválidos o sin efecto.
+    assert!(!editor.move_tab(1, 1));
+    assert!(!editor.move_tab(9, 0));
+    assert!(!editor.move_tab(0, 9));
+    assert_eq!(content(&editor), "CDBA");
+
+    // Los índices de los paneles divididos también siguen a sus documentos.
+    editor.split.primary_doc_idx = 0;
+    editor.split.secondary_doc_idx = 3;
+    assert!(editor.move_tab(3, 0));
+    assert_eq!(editor.split.primary_doc_idx, 1);
+    assert_eq!(editor.split.secondary_doc_idx, 0);
+}
+
+#[test]
+fn test_tab_rects_and_drop_index_hysteresis() {
+    let renderer = GfxRenderer::new();
+    let titles: Vec<String> = vec!["a.rs".into(), "bb.rs".into(), "ccc.rs".into()];
+    let rects = renderer.tab_rects(&titles, 100);
+    assert_eq!(rects.len(), 3);
+    // Pestañas ordenadas, contiguas, sin solaparse y empezando tras el offset.
+    assert!(rects[0].0 >= 100);
+    for w in rects.windows(2) {
+        assert!(w[1].0 >= w[0].0 + w[0].1);
+    }
+
+    // Cursor sobre el inicio de la primera: no hay pestañas a la izquierda.
+    assert_eq!(GfxRenderer::tab_drop_index(&rects, 2, 0), 0);
+    // Cursor muy a la derecha: la pestaña arrastrada queda al final.
+    assert_eq!(GfxRenderer::tab_drop_index(&rects, 0, 100_000), 2);
+
+    // Histéresis: arrastrar la 0 a la derecha solo salta a la 1 al pasar su punto medio.
+    let mid1 = rects[1].0 + rects[1].1 / 2;
+    assert_eq!(GfxRenderer::tab_drop_index(&rects, 0, mid1), 0);
+    assert_eq!(GfxRenderer::tab_drop_index(&rects, 0, mid1 + 1), 1);
+}

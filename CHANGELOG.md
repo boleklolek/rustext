@@ -6,6 +6,18 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ---
 
+## [Sin publicar]
+
+### ✨ Añadido (Added)
+- **Pestañas reordenables arrastrando con el ratón** en la barra de pestañas (GUI): `Editor::move_tab`, `GfxRenderer::tab_rects` y `GfxRenderer::tab_drop_index`. La pestaña activa y los índices de los paneles divididos siguen a su documento.
+- **Portapapeles nativo** en Windows (`clip` / `Get-Clipboard`) y macOS (`pbcopy` / `pbpaste`), y `xsel` como respaldo en Linux.
+- **Backend Win32**: atajos `Alt+Letra/Dígito/[/\/Flechas`, DPI real del sistema (`GetDpiForSystem`) y coordenadas de cliente correctas en la rueda del ratón.
+
+### 🔧 Cambiado (Changed)
+- **macOS**: el release compila un binario universal real (`aarch64` + `x86_64` con `lipo`, `MACOSX_DEPLOYMENT_TARGET=11.0`) y el CI prueba en runners Apple Silicon e Intel.
+
+---
+
 ## [v0.2.0] - 2026-10-21
 
 ### ✨ Añadido (Added)

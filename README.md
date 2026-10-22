@@ -107,6 +107,7 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Esquinas redondeadas (*anti-aliased*), sombras proyectadas suaves y píldoras informativas.
   - Barra de menús nativa con navegación por ratón y atajos `Alt + Letra`.
   - Barra de desplazamiento (scrollbar) con pulgar arrastrable y clics de página.
+  - **Pestañas reordenables con el ratón**: arrastra una pestaña horizontalmente para cambiar su posición en vivo; la pestaña activa y los paneles divididos siguen a su documento y el cambio solo se produce al cruzar el punto medio de la pestaña vecina (sin parpadeos).
   - 8 Paletas de color integradas: Tokyo Night, Catppuccin Mocha, One Dark, Modern Dark, Monokai, Solarized Dark, GitHub Light y Dracula.
 
 - **Sistema de Temas Dinámico y Declarativo (`.theme` / `.ini`) Sin Recompilación**:

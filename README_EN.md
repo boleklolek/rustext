@@ -107,6 +107,7 @@ Refer to the [**📖 User Manual and Complete Technical Reference (MANUAL.md)**]
   - Anti-aliased rounded corners, smooth drop shadows, and status chips.
   - Native menu bar with mouse navigation and `Alt + Letter` mnemonic shortcuts.
   - Smooth scrollbar with draggable thumb and page click handling.
+  - **Mouse-reorderable tabs**: drag a tab horizontally to change its position live; the active tab and split panes follow their document, and a swap only happens once the cursor crosses the neighbour tab's midpoint (no flicker).
   - 8 Built-in color palettes: Tokyo Night, Catppuccin Mocha, One Dark, Modern Dark, Monokai, Solarized Dark, GitHub Light, and Dracula.
 
 - **Dynamic & Declarative Theme Engine (`.theme` / `.ini`) without Recompilation**:

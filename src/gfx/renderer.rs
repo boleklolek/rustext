@@ -3911,6 +3911,32 @@ impl GfxRenderer {
         }
     }
 
+    /// Computes the horizontal `(x, width)` rectangle of every tab in the tab bar.
+    /// Mirrors the layout used by `render_tab_bar` so hit-testing and drag & drop stay aligned.
+    pub fn tab_rects(&self, titles: &[String], offset_x: usize) -> Vec<(usize, usize)> {
+        let mut cur_x = offset_x + self.scale_coord(8);
+        let mut rects = Vec::with_capacity(titles.len());
+        for (idx, title) in titles.iter().enumerate() {
+            let tab_text = format!(" {} {} × ", idx + 1, title);
+            let tab_w = tab_text.chars().count() * self.char_width() + self.scale_coord(8);
+            rects.push((cur_x, tab_w));
+            cur_x += tab_w + self.scale_coord(3);
+        }
+        rects
+    }
+
+    /// Returns the final index a dragged tab `src` should take when the mouse is at `x`.
+    /// Counts the other tabs whose midpoint lies left of the cursor, which gives natural
+    /// hysteresis: a tab only swaps once the cursor crosses its neighbour's midpoint.
+    pub fn tab_drop_index(rects: &[(usize, usize)], src: usize, x: usize) -> usize {
+        rects
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != src)
+            .filter(|(_, (start, width))| start + width / 2 < x)
+            .count()
+    }
+
     fn render_tab_bar(
         &self,
         fb: &mut Framebuffer,
