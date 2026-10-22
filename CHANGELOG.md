@@ -13,6 +13,9 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - **Portapapeles nativo** en Windows (`clip` / `Get-Clipboard`) y macOS (`pbcopy` / `pbpaste`), y `xsel` como respaldo en Linux.
 - **Backend Win32**: atajos `Alt+Letra/Dígito/[/\/Flechas`, DPI real del sistema (`GetDpiForSystem`) y coordenadas de cliente correctas en la rueda del ratón.
 
+### 🐛 Corregido (Fixed)
+- **Wayland en GNOME/Mutter**: los IDs de objeto del cliente ahora se asignan de forma secuencial y solo se consumen para los globales realmente anunciados (`wl_seat`, `zxdg_decoration_manager_v1`). Antes un hueco en los IDs hacía que el compositor cerrara la conexión con `invalid arguments for wl_compositor#N.create_surface` y la GUI no abría. Además, un fallo de escritura ahora informa el error de protocolo real (`wl_display.error`) en vez de solo `Broken pipe`.
+
 ### 🔧 Cambiado (Changed)
 - **macOS**: el release compila un binario universal real (`aarch64` + `x86_64` con `lipo`, `MACOSX_DEPLOYMENT_TARGET=11.0`) y el CI prueba en runners Apple Silicon e Intel.
 

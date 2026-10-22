@@ -377,22 +377,33 @@ impl WaylandWindow {
         let decor_global = globals.iter().find(|(_, iface, _)| iface == "zxdg_decoration_manager_v1");
         let _cursor_shape_global = globals.iter().find(|(_, iface, _)| iface == "wp_cursor_shape_manager_v1");
 
-        let compositor_id = 4u32;
-        let shm_id = 5u32;
-        let xdg_wm_base_id = 6u32;
-        let seat_id = 7u32;
-        let decor_mgr_id = 8u32;
-        let surface_id = 9u32;
-        let xdg_surface_id = 10u32;
-        let xdg_toplevel_id = 11u32;
-        let toplevel_decor_id = 12u32;
-        let pointer_id = 13u32;
-        let keyboard_id = 14u32;
-        let shm_pool_id = 15u32;
-        let buffer_id_0 = 16u32;
-        let buffer_id_1 = 17u32;
-        let _cursor_shape_mgr_id = 18u32;
-        let _cursor_shape_dev_id = 19u32;
+        // Client-allocated object IDs MUST be sequential in creation order (no gaps);
+        // otherwise the compositor kills the client with
+        // "invalid arguments for wl_compositor#N.create_surface". Optional globals
+        // (wl_seat, zxdg_decoration_manager_v1 -- absent on GNOME/Mutter) only consume
+        // an ID when the compositor really advertises them. `0` means "not present".
+        let mut next_object_id = 4u32;
+        let mut alloc_id = || {
+            let id = next_object_id;
+            next_object_id += 1;
+            id
+        };
+        let compositor_id = alloc_id();
+        let shm_id = alloc_id();
+        let xdg_wm_base_id = alloc_id();
+        let seat_id = if seat_global.is_some() { alloc_id() } else { 0 };
+        let decor_mgr_id = if decor_global.is_some() { alloc_id() } else { 0 };
+        let surface_id = alloc_id();
+        let xdg_surface_id = alloc_id();
+        let xdg_toplevel_id = alloc_id();
+        let toplevel_decor_id = if decor_global.is_some() { alloc_id() } else { 0 };
+        let pointer_id = if seat_global.is_some() { alloc_id() } else { 0 };
+        let keyboard_id = if seat_global.is_some() { alloc_id() } else { 0 };
+        let shm_pool_id = alloc_id();
+        let buffer_id_0 = alloc_id();
+        let buffer_id_1 = alloc_id();
+        let _cursor_shape_mgr_id = 0u32;
+        let _cursor_shape_dev_id = 0u32;
 
         // 3. Bind Globals
         Self::send_bind(&mut stream, comp_global.0, "wl_compositor", comp_global.2.min(4), compositor_id)?;
@@ -1274,11 +1285,46 @@ impl WaylandWindow {
             let socket_fd = stream.as_raw_fd();
             let ret = sendmsg(socket_fd, &msg, 0);
             if ret < 0 {
-                return Err(format!("sendmsg failed to pass shm fd to Wayland compositor: {}", io::Error::last_os_error()));
+                let os_err = io::Error::last_os_error();
+                let reason = Self::read_display_error(stream)
+                    .map(|e| format!(" (compositor protocol error: {})", e))
+                    .unwrap_or_default();
+                return Err(format!("sendmsg failed to pass shm fd to Wayland compositor: {}{}", os_err, reason));
             }
         }
 
         Ok(())
+    }
+
+    /// Reads pending events after a failed write and extracts `wl_display.error`
+    /// (object 1, opcode 0: object_id, code, message) so the real cause of a
+    /// closed connection is reported instead of a bare `Broken pipe`.
+    fn read_display_error(stream: &mut UnixStream) -> Option<String> {
+        let _ = stream.set_nonblocking(true);
+        let mut buf = [0u8; 4096];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let _ = stream.set_nonblocking(false);
+        let data = &buf[..n];
+        let mut off = 0;
+        while off + 8 <= data.len() {
+            let obj_id = u32::from_ne_bytes(data[off..off + 4].try_into().ok()?);
+            let op_sz = u32::from_ne_bytes(data[off + 4..off + 8].try_into().ok()?);
+            let opcode = (op_sz & 0xFFFF) as u16;
+            let size = (op_sz >> 16) as usize;
+            if size < 8 || off + size > data.len() {
+                break;
+            }
+            if obj_id == 1 && opcode == 0 && size >= 20 {
+                let target = u32::from_ne_bytes(data[off + 8..off + 12].try_into().ok()?);
+                let code = u32::from_ne_bytes(data[off + 12..off + 16].try_into().ok()?);
+                let len = u32::from_ne_bytes(data[off + 16..off + 20].try_into().ok()?) as usize;
+                let end = (off + 20 + len.saturating_sub(1)).min(off + size);
+                let msg = String::from_utf8_lossy(&data[off + 20..end]).to_string();
+                return Some(format!("object {} code {}: {}", target, code, msg));
+            }
+            off += size;
+        }
+        None
     }
 }
 
