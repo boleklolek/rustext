@@ -80,61 +80,154 @@ impl Clipboard {
     }
 
     fn try_system_copy(text: &str) {
-        // Try wl-copy (Wayland) via stdin to prevent ARG_MAX buffer limits and CLI injection (SEC-03)
-        if let Ok(mut child) = Command::new("wl-copy")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+        #[cfg(target_os = "macos")]
         {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            if let Ok(status) = child.wait() {
-                if status.success() {
-                    return;
+            if let Ok(mut child) = Command::new("pbcopy")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
                 }
+                let _ = child.wait();
+                return;
             }
         }
 
-        // Try xclip (X11)
-        if let Ok(mut child) = Command::new("xclip")
-            .arg("-selection")
-            .arg("clipboard")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+        #[cfg(target_os = "windows")]
         {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
+            if let Ok(mut child) = Command::new("clip")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
+                return;
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Try wl-copy (Wayland) via stdin to prevent ARG_MAX buffer limits and CLI injection (SEC-03)
+            if let Ok(mut child) = Command::new("wl-copy")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                if let Ok(status) = child.wait() {
+                    if status.success() {
+                        return;
+                    }
+                }
+            }
+
+            // Try xclip (X11)
+            if let Ok(mut child) = Command::new("xclip")
+                .arg("-selection")
+                .arg("clipboard")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
+                return;
+            }
+
+            // Try xsel (X11 fallback)
+            if let Ok(mut child) = Command::new("xsel")
+                .arg("--clipboard")
+                .arg("--input")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
             }
         }
     }
 
     fn try_system_paste() -> Option<String> {
-        // Try wl-paste (Wayland)
-        if let Ok(output) = Command::new("wl-paste")
-            .arg("-n")
-            .output()
+        #[cfg(target_os = "macos")]
         {
-            if output.status.success() {
-                if let Ok(s) = String::from_utf8(output.stdout) {
-                    return Some(s);
+            if let Ok(output) = Command::new("pbpaste").output() {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s);
+                    }
                 }
             }
         }
 
-        // Try xclip (X11)
-        if let Ok(output) = Command::new("xclip")
-            .arg("-selection")
-            .arg("clipboard")
-            .arg("-o")
-            .output()
+        #[cfg(target_os = "windows")]
         {
-            if output.status.success() {
-                if let Ok(s) = String::from_utf8(output.stdout) {
-                    return Some(s);
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard -Raw"])
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s.replace("\r\n", "\n"));
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Try wl-paste (Wayland)
+            if let Ok(output) = Command::new("wl-paste")
+                .arg("-n")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s);
+                    }
+                }
+            }
+
+            // Try xclip (X11)
+            if let Ok(output) = Command::new("xclip")
+                .arg("-selection")
+                .arg("clipboard")
+                .arg("-o")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s);
+                    }
+                }
+            }
+
+            // Try xsel (X11 fallback)
+            if let Ok(output) = Command::new("xsel")
+                .arg("--clipboard")
+                .arg("--output")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s);
+                    }
                 }
             }
         }

@@ -83,6 +83,7 @@ const WM_SIZE: u32 = 0x0005;
 const WM_CLOSE: u32 = 0x0010;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_CHAR: u32 = 0x0102;
+const WM_SYSKEYDOWN: u32 = 0x0104;
 const WM_MOUSEMOVE: u32 = 0x0200;
 const WM_LBUTTONDOWN: u32 = 0x0201;
 const WM_LBUTTONUP: u32 = 0x0202;
@@ -127,6 +128,9 @@ unsafe extern "system" {
     fn DestroyWindow(hwnd: HWND) -> i32;
     fn SetWindowTextW(hwnd: HWND, lp_string: *const u16) -> i32;
     fn GetAsyncKeyState(v_key: i32) -> i16;
+    fn SetProcessDPIAware() -> i32;
+    fn GetDpiForSystem() -> u32;
+    fn ScreenToClient(hwnd: HWND, lp_point: *mut POINT) -> i32;
     fn StretchDIBits(
         hdc: HDC,
         x_dest: i32,
@@ -163,6 +167,14 @@ pub fn detect_scale_factor() -> f64 {
             }
         }
     }
+    // DPI real del sistema (96 DPI = 100%, 144 DPI = 150%, 192 DPI = 200%)
+    let dpi = unsafe { GetDpiForSystem() };
+    if dpi >= 48 && dpi <= 960 {
+        let scale = dpi as f64 / 96.0;
+        if scale >= 0.5 && scale <= 5.0 {
+            return scale;
+        }
+    }
     1.0
 }
 
@@ -177,6 +189,10 @@ pub struct Win32Window {
 
 impl Win32Window {
     pub fn new(title: &str, logical_width: usize, logical_height: usize) -> Result<Self, String> {
+        // Declarar el proceso como DPI-aware evita el escalado borroso por mapa de bits de Windows.
+        unsafe {
+            SetProcessDPIAware();
+        }
         let scale_factor = detect_scale_factor();
         let physical_w = ((logical_width as f64) * scale_factor).round() as usize;
         let physical_h = ((logical_height as f64) * scale_factor).round() as usize;
@@ -328,13 +344,43 @@ impl Win32Window {
                         return WindowEvent::MouseMove { x, y };
                     }
                     WM_MOUSEWHEEL => {
-                        let x = (msg.lparam & 0xFFFF) as usize;
-                        let y = ((msg.lparam >> 16) & 0xFFFF) as usize;
+                        // WM_MOUSEWHEEL reporta coordenadas de pantalla (con signo); convertir a cliente.
+                        let mut pt = POINT {
+                            x: (msg.lparam & 0xFFFF) as u16 as i16 as i32,
+                            y: ((msg.lparam >> 16) & 0xFFFF) as u16 as i16 as i32,
+                        };
+                        ScreenToClient(self.hwnd, &mut pt);
+                        let x = pt.x.max(0) as usize;
+                        let y = pt.y.max(0) as usize;
                         let delta = ((msg.wparam >> 16) & 0xFFFF) as i16;
                         if delta > 0 {
                             return WindowEvent::ScrollUp { x, y };
                         } else {
                             return WindowEvent::ScrollDown { x, y };
+                        }
+                    }
+                    WM_SYSKEYDOWN => {
+                        // Atajos con Alt (Alt+Letra, Alt+Dígito, Alt+[, Alt+\, Alt+Flechas)
+                        let is_shift = (GetAsyncKeyState(0x10) as i32 & 0x8000) != 0; // VK_SHIFT
+                        match msg.wparam {
+                            0x41..=0x5A => {
+                                let ch = (b'a' + (msg.wparam as u8 - 0x41)) as char;
+                                return WindowEvent::Key(Key::Alt(ch));
+                            }
+                            0x30..=0x39 => {
+                                return WindowEvent::Key(Key::Alt(msg.wparam as u8 as char));
+                            }
+                            0xDB => return WindowEvent::Key(Key::Alt('[')),
+                            0xDC => return WindowEvent::Key(Key::Alt('\\')),
+                            0x25 => return WindowEvent::Key(Key::AltLeft),
+                            0x27 => return WindowEvent::Key(Key::AltRight),
+                            0x26 => {
+                                return WindowEvent::Key(if is_shift { Key::ShiftAltUp } else { Key::AltUp });
+                            }
+                            0x28 => {
+                                return WindowEvent::Key(if is_shift { Key::ShiftAltDown } else { Key::AltDown });
+                            }
+                            _ => {}
                         }
                     }
                     WM_KEYDOWN => {
