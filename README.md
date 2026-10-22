@@ -506,7 +506,22 @@ inlay_hints = true
 
 ---
 
-## 🚀 Inicio Rápido
+## 📥 Descargas Directas e Instaladores Nativos ([`v0.2.0`](https://github.com/boleklolek/rustext/releases/tag/v0.2.0))
+
+Puedes descargar los instaladores y binarios precompilados directamente desde [**GitHub Releases**](https://github.com/boleklolek/rustext/releases/latest):
+
+| Plataforma / Sistema | Formato | Enlace de Descarga Directa | Instalación Rápida |
+| :--- | :---: | :--- | :--- |
+| **Linux (Debian / Ubuntu x86_64)** | `.deb` | [**`rustext_0.2.0_amd64.deb`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext_0.2.0_amd64.deb) | `sudo dpkg -i rustext_0.2.0_amd64.deb` |
+| **Linux (Genérico x86_64 GNU)** | `.tar.gz` | [**`rustext-v0.2.0-x86_64-unknown-linux-gnu.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-unknown-linux-gnu.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext -g` |
+| **Windows (Instalador MSI x64)** | `.msi` | [**`rustext-v0.2.0-x86_64-pc-windows-msvc.msi`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-pc-windows-msvc.msi) | Doble clic o `msiexec /i rustext-v0.2.0-x86_64-pc-windows-msvc.msi` |
+| **Windows (Portable x64)** | `.zip` | [**`rustext-v0.2.0-x86_64-pc-windows-msvc.zip`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-pc-windows-msvc.zip) | Extraer y ejecutar `rustext.exe` o `.\install.ps1` |
+| **macOS (Apple Silicon / Intel)** | `.tar.gz` | [**`rustext-v0.2.0-apple-darwin.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-apple-darwin.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext` |
+| **Sumas de Verificación SHA-256** | `.txt` | [**`SHA256SUMS.txt`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/SHA256SUMS.txt) | `sha256sum -c SHA256SUMS.txt --ignore-missing` |
+
+---
+
+## 🚀 Inicio Rápido desde Código Fuente
 
 ### Compilar y Ejecutar Pruebas:
 ```bash
@@ -533,11 +548,14 @@ cargo run --release --bin memory_profile
 
 ---
 
-## 📚 Documentación Adicional
+## 📚 Documentación y Comunidad
 
-Para más detalles sobre la arquitectura interna, diseño del Piece Table, protocolo de plugins externos y guía de desarrollo, revise los documentos:
+Para más detalles sobre la arquitectura interna, diseño del Piece Table, protocolo de plugins externos y estándares del proyecto, revise los documentos:
 - [**MANUAL.md - Manual de Usuario y Referencia Técnica**](MANUAL.md)
 - [**MANUAL_TEMAS_Y_EXTENSIONES.md - Manual de Creación de Temas y Extensiones**](MANUAL_TEMAS_Y_EXTENSIONES.md)
+- [**CHANGELOG.md - Historial de Versiones y Lanzamientos**](CHANGELOG.md)
+- [**CONTRIBUTING.md - Guía de Contribución y Regla Zero-Dependency**](CONTRIBUTING.md)
+- [**SECURITY.md - Política de Seguridad y Matriz OWASP/CWE**](SECURITY.md)
 
 ---
 
