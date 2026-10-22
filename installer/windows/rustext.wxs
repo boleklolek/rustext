@@ -6,7 +6,7 @@
         Id="*"
         UpgradeCode="{3DDF8D9B-05A6-4A87-AE42-E5C8E65FB67A}"
         Language="1033"
-        Version="0.1.0"
+        Version="0.2.0"
         Codepage="1252">
 
         <Package
@@ -20,7 +20,7 @@
         <MediaTemplate EmbedCab="yes" />
 
         <Directory Id="TARGETDIR" Name="SourceDir">
-            <Directory Id="ProgramFilesFolder">
+            <Directory Id="ProgramFiles64Folder">
                 <Directory Id="INSTALLDIR" Name="Rustext" />
             </Directory>
             <Directory Id="ProgramMenuFolder">

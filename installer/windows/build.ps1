@@ -7,7 +7,10 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $appName = "rustext"
-$exeSource = Join-Path $repoRoot "target\$Target\$Configuration\$appName.exe"
+$exeSource = Join-Path $repoRoot "target\$Configuration\$appName.exe"
+if (-not (Test-Path $exeSource)) {
+    $exeSource = Join-Path $repoRoot "target\$Target\$Configuration\$appName.exe"
+}
 $packageRoot = Join-Path $repoRoot "target\package\windows\rustext-windows-x64"
 $zipPath = Join-Path $repoRoot "target\package\windows\rustext-windows-x64.zip"
 
@@ -26,6 +29,15 @@ New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 Copy-Item $exeSource -Destination (Join-Path $packageRoot "$appName.exe") -Force
 Copy-Item (Join-Path $repoRoot "LICENSE") -Destination $packageRoot -Force
 Copy-Item (Join-Path $repoRoot "README.md") -Destination $packageRoot -Force
+Copy-Item (Join-Path $repoRoot "README_EN.md") -Destination $packageRoot -Force
+Copy-Item (Join-Path $repoRoot "MANUAL.md") -Destination $packageRoot -Force
+Copy-Item (Join-Path $repoRoot "MANUAL_TEMAS_Y_EXTENSIONES.md") -Destination $packageRoot -Force
+
+# Generar LICENSE.rtf requerido por WiX UI
+$licenseLines = Get-Content (Join-Path $repoRoot "LICENSE") -Raw
+$escapedRtf = $licenseLines.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}').Replace("`r`n", "\par`r`n").Replace("`n", "\par`r`n")
+$rtfContent = "{\rtf1\ansi\deff0{\fonttbl{\f0 Consolas;}}\f0\fs18 $escapedRtf}"
+Set-Content -Path (Join-Path $packageRoot "LICENSE.rtf") -Value $rtfContent -Encoding Ascii
 
 $installScript = @'
 param(

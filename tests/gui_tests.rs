@@ -5332,7 +5332,7 @@ fn test_cli_version_and_help_flags() {
     assert!(version_output.status.success());
     let stdout = String::from_utf8_lossy(&version_output.stdout);
     assert!(stdout.contains("rustext"));
-    assert!(stdout.contains("0.1.0"));
+    assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
     assert!(stdout.contains("AGPLv3"));
 
     let help_output = std::process::Command::new(bin_path)

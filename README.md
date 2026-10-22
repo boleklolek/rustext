@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-v0.1.0-blue.svg" alt="Version: 0.1.0" /></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-v0.2.0-blue.svg" alt="Version: 0.2.0" /></a>
   <a href="https://github.com/boleklolek/rustext/actions"><img src="https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg" alt="CI/CD" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0" /></a>
   <a href="src/"><img src="https://img.shields.io/badge/Lines_of_Code-~52k%20LoC-informational.svg" alt="Lines of Code" /></a>

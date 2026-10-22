@@ -30,14 +30,21 @@ jobs:
       - name: Build Release
         run: cargo build --release --locked --bin rustext
 
-      - name: Package Release Archive
+      - name: Package Release Archive & Debian (.deb) Installer
         run: |
           RELEASE_NAME="rustext-${{ github.ref_name }}-x86_64-unknown-linux-gnu"
           mkdir "$RELEASE_NAME"
           cp target/release/rustext "$RELEASE_NAME/"
-          cp README.md MANUAL.md LICENSE "$RELEASE_NAME/"
+          cp README.md README_EN.md MANUAL.md MANUAL_TEMAS_Y_EXTENSIONES.md LICENSE "$RELEASE_NAME/"
           tar -czvf "${RELEASE_NAME}.tar.gz" "$RELEASE_NAME"
           sha256sum "${RELEASE_NAME}.tar.gz" > "${RELEASE_NAME}.tar.gz.sha256"
+
+          chmod +x installer/linux/build_deb.sh
+          ./installer/linux/build_deb.sh "${{ github.ref_name }}"
+          cp target/package/linux/rustext_*_amd64.deb .
+          for deb in rustext_*_amd64.deb; do
+            sha256sum "$deb" > "${deb}.sha256"
+          done
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v7
@@ -46,6 +53,8 @@ jobs:
           path: |
             rustext-*-x86_64-unknown-linux-gnu.tar.gz
             rustext-*-x86_64-unknown-linux-gnu.tar.gz.sha256
+            rustext_*_amd64.deb
+            rustext_*_amd64.deb.sha256
 
   build-windows:
     name: Build Windows (x86_64)
@@ -60,15 +69,32 @@ jobs:
       - name: Build Release
         run: cargo build --release --locked --bin rustext
 
-      - name: Package Release Archive
+      - name: Package Portable Archive & MSI Installer
         shell: pwsh
         run: |
           $ReleaseName = "rustext-$($env:GITHUB_REF_NAME)-x86_64-pc-windows-msvc"
-          New-Item -ItemType Directory -Path $ReleaseName
-          Copy-Item target/release/rustext.exe $ReleaseName/
-          Copy-Item README.md, MANUAL.md, LICENSE $ReleaseName/
-          Compress-Archive -Path "$ReleaseName/*" -DestinationPath "${ReleaseName}.zip"
-          (Get-FileHash -Algorithm SHA256 "${ReleaseName}.zip").Hash | Out-File -Encoding ascii "${ReleaseName}.zip.sha256"
+          ./installer/windows/build.ps1 -Configuration release -Target x86_64-pc-windows-msvc
+          Copy-Item "target/package/windows/rustext-windows-x64.zip" -Destination "${ReleaseName}.zip" -Force
+          "$( (Get-FileHash -Algorithm SHA256 "${ReleaseName}.zip").Hash.ToLower() )  ${ReleaseName}.zip" | Out-File -Encoding ascii "${ReleaseName}.zip.sha256"
+
+          $wixCandles = @(Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue)
+          if ($wixCandles.Count -eq 0 -and $env:WIX) {
+              $wixCandles = @(Get-Item (Join-Path $env:WIX "bin\candle.exe") -ErrorAction SilentlyContinue)
+          }
+          if ($wixCandles.Count -eq 0) {
+              Write-Host "Instalando WiX Toolset v3 via Chocolatey..."
+              choco install wixtoolset -y --no-progress
+              $wixCandles = @(Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue)
+          }
+          if ($wixCandles.Count -gt 0) {
+              $wixBin = $wixCandles[0].DirectoryName
+              $pkgDir = (Resolve-Path "target/package/windows/rustext-windows-x64").Path
+              & "$wixBin\candle.exe" -arch x64 "-dBuildDir=$pkgDir" installer/windows/rustext.wxs -o rustext.wixobj
+              & "$wixBin\light.exe" -ext WixUIExtension -sval rustext.wixobj -o "${ReleaseName}.msi"
+              if (Test-Path "${ReleaseName}.msi") {
+                  "$( (Get-FileHash -Algorithm SHA256 "${ReleaseName}.msi").Hash.ToLower() )  ${ReleaseName}.msi" | Out-File -Encoding ascii "${ReleaseName}.msi.sha256"
+              }
+          }
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v7
@@ -77,6 +103,8 @@ jobs:
           path: |
             rustext-*-x86_64-pc-windows-msvc.zip
             rustext-*-x86_64-pc-windows-msvc.zip.sha256
+            rustext-*-x86_64-pc-windows-msvc.msi
+            rustext-*-x86_64-pc-windows-msvc.msi.sha256
 
   build-macos:
     name: Build macOS (Universal / aarch64 + x86_64)
@@ -96,7 +124,7 @@ jobs:
           RELEASE_NAME="rustext-${{ github.ref_name }}-apple-darwin"
           mkdir "$RELEASE_NAME"
           cp target/release/rustext "$RELEASE_NAME/"
-          cp README.md MANUAL.md LICENSE "$RELEASE_NAME/"
+          cp README.md README_EN.md MANUAL.md MANUAL_TEMAS_Y_EXTENSIONES.md LICENSE "$RELEASE_NAME/"
           tar -czvf "${RELEASE_NAME}.tar.gz" "$RELEASE_NAME"
           shasum -a 256 "${RELEASE_NAME}.tar.gz" > "${RELEASE_NAME}.tar.gz.sha256"
 
@@ -134,6 +162,8 @@ jobs:
           files: |
             release-artifacts/*.tar.gz
             release-artifacts/*.zip
+            release-artifacts/*.deb
+            release-artifacts/*.msi
             release-artifacts/*.sha256
             release-artifacts/SHA256SUMS.txt
           generate_release_notes: true

@@ -5491,7 +5491,7 @@ impl GfxRenderer {
 
         // Subtitle & Version
         let mut cur_y = logo_y + logo_size + self.scale_coord(8);
-        let title_str = "Rustext Editor v0.1.0";
+        let title_str = concat!("Rustext Editor v", env!("CARGO_PKG_VERSION"));
         let title_x = win_x + (win_w.saturating_sub(title_str.chars().count() * self.char_width())) / 2;
         fb.draw_text(title_str, title_x, cur_y, 0x00FFFFFF, None);
         cur_y += self.char_height() + self.scale_coord(4);

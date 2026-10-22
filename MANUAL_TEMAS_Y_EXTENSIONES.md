@@ -1,6 +1,6 @@
 # 🎨 Manual de Creación de Temas y Extensiones de Rustext
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)](Cargo.toml)
 [![CI/CD](https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg)](https://github.com/boleklolek/rustext/actions)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Lines of Code](https://img.shields.io/badge/Lines_of_Code-~52k%20LoC-informational.svg)](src/)

@@ -5103,7 +5103,7 @@ impl Editor {
                 self.screen.render_prompt_line(&prompt_text);
             }
             EditorMode::AboutDialog => {
-                self.screen.render_prompt_line("Rustext v0.1.0 │ 100% Rust stdlib │ Autor: boleklolek <bolek.lolek@gmail.com> │ [Esc para cerrar]");
+                self.screen.render_prompt_line(concat!("Rustext v", env!("CARGO_PKG_VERSION"), " │ 100% Rust stdlib │ Autor: boleklolek <bolek.lolek@gmail.com> │ [Esc para cerrar]"));
             }
             EditorMode::ExtensionsManager { selected_idx, .. } => {
                 let total = self.extension_manager.extensions.len();
