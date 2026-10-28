@@ -18,6 +18,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ### 🔧 Cambiado (Changed)
 - **macOS**: el release compila un binario universal real (`aarch64` + `x86_64` con `lipo`, `MACOSX_DEPLOYMENT_TARGET=11.0`) y el CI prueba en runners Apple Silicon e Intel.
+- **Documentación y Badges**: actualización de métricas del suite de pruebas en `README.md` y `README_EN.md` a 248 tests pasando. Traducción técnica completa de toda la documentación al inglés: `SECURITY_EN.md`, `CONTRIBUTING_EN.md`, `CHANGELOG_EN.md`, `MANUAL_EN.md` y `MANUAL_THEMES_AND_EXTENSIONS_EN.md`.
 
 ---
 

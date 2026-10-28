@@ -11,7 +11,10 @@
 
 <p align="center">
   <a href="README.md">🇪🇸 Leer en Español</a> • 
-  <a href="README_EN.md">🇬🇧 Read in English</a>
+  <a href="README_EN.md">🇬🇧 Read in English</a> • 
+  <a href="CONTRIBUTING.md">🤝 Contribuir</a> (<a href="CONTRIBUTING_EN.md">EN</a>) • 
+  <a href="SECURITY.md">🛡️ Seguridad</a> (<a href="SECURITY_EN.md">EN</a>) • 
+  <a href="CHANGELOG.md">📦 Changelog</a> (<a href="CHANGELOG_EN.md">EN</a>)
 </p>
 
 <p align="center">
@@ -21,7 +24,7 @@
   <a href="src/"><img src="https://img.shields.io/badge/Lines_of_Code-~52k%20LoC-informational.svg" alt="Lines of Code" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust" alt="Rust 2024 Edition" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg" alt="0 Dependencies" /></a>
-  <a href="tests/"><img src="https://img.shields.io/badge/Tests-166%20passed-success.svg" alt="Tests" /></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/Tests-248%20passed-success.svg" alt="Tests" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg" alt="Platforms" /></a>
   <a href="#"><img src="https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg" alt="LSP" /></a>
 </p>
@@ -32,7 +35,7 @@
 
 Inspirado en la velocidad e inmediatez de **Sublime Text** y la ergonomía moderna de **VS Code / Zed**, Rustext ofrece una experiencia de desarrollo nativa fluida en cualquier máquina, arrancando en **~2 milisegundos** y utilizando apenas una fracción de la memoria de los editores convencionales.
 
-Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)**](MANUAL.md) para explicaciones en profundidad de la arquitectura, configuración y herramientas.
+Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)**](MANUAL.md) ([English version](MANUAL_EN.md)) y el [**🎨 Manual de Temas y Extensiones**](MANUAL_TEMAS_Y_EXTENSIONES.md) ([English version](MANUAL_THEMES_AND_EXTENSIONS_EN.md)) para explicaciones en profundidad de la arquitectura, configuración y herramientas.
 
 ---
 

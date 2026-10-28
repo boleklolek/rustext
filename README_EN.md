@@ -11,7 +11,10 @@
 
 <p align="center">
   <a href="README.md">🇪🇸 Leer en Español</a> • 
-  <a href="README_EN.md">🇬🇧 Read in English</a>
+  <a href="README_EN.md">🇬🇧 Read in English</a> • 
+  <a href="CONTRIBUTING_EN.md">🤝 Contributing</a> (<a href="CONTRIBUTING.md">ES</a>) • 
+  <a href="SECURITY_EN.md">🛡️ Security</a> (<a href="SECURITY.md">ES</a>) • 
+  <a href="CHANGELOG_EN.md">📦 Changelog</a> (<a href="CHANGELOG.md">ES</a>)
 </p>
 
 <p align="center">
@@ -21,7 +24,7 @@
   <a href="src/"><img src="https://img.shields.io/badge/Lines_of_Code-~52k%20LoC-informational.svg" alt="Lines of Code" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Rust-2024%20Edition-red.svg?logo=rust" alt="Rust 2024 Edition" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/Dependencies-0%20(Pure%20std)-brightgreen.svg" alt="0 Dependencies" /></a>
-  <a href="tests/"><img src="https://img.shields.io/badge/Tests-166%20passed-success.svg" alt="Tests" /></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/Tests-248%20passed-success.svg" alt="Tests" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Platforms-Linux%20(Wayland%20%2F%20X11)%20%7C%20Windows%20%7C%20macOS-orange.svg" alt="Platforms" /></a>
   <a href="#"><img src="https://img.shields.io/badge/LSP-10%20Languages%20%7C%20Elite%20Suite-blueviolet.svg" alt="LSP" /></a>
 </p>
@@ -32,7 +35,7 @@
 
 Inspired by the speed and immediacy of **Sublime Text** and the modern developer ergonomics of **VS Code / Zed**, Rustext delivers a fluid native editing experience on any machine, starting up in **~2 milliseconds** and using only a fraction of the memory consumed by conventional editors.
 
-Refer to the [**📖 User Manual and Complete Technical Reference (MANUAL.md)**](MANUAL.md) for in-depth architectural explanations, configuration details, and development tooling.
+Refer to the [**📖 User Manual and Complete Technical Reference (MANUAL_EN.md)**](MANUAL_EN.md) ([Spanish version](MANUAL.md)) and the [**🎨 Themes & Extensions Manual**](MANUAL_THEMES_AND_EXTENSIONS_EN.md) ([Spanish version](MANUAL_TEMAS_Y_EXTENSIONES.md)) for in-depth architectural explanations, configuration details, and development tooling.
 
 ---
 
