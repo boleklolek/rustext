@@ -159,6 +159,7 @@ impl Screen {
             // 1. Sidebar column if active
             if sidebar_width > 0 {
                 self.draw_buffer.push_str("\x1b[48;5;235m");
+                let content_cols = sidebar_width.saturating_sub(1);
                 if screen_row < visible_items.len() {
                     let item = &visible_items[screen_row];
                     let is_sel = screen_row == selected_item_idx;
@@ -181,16 +182,15 @@ impl Screen {
                     };
                     let indent = " ".repeat(item.depth.min(4) * 2);
                     let full_name = format!("{}{}{}", indent, prefix, item.name);
-                    let max_name_len = sidebar_width.saturating_sub(2);
-                    let truncated: String = full_name.chars().take(max_name_len).collect();
-                    let pad = max_name_len.saturating_sub(truncated.chars().count());
+                    let truncated: String = full_name.chars().take(content_cols).collect();
+                    let pad = content_cols.saturating_sub(truncated.chars().count());
 
                     self.draw_buffer.push_str(&truncated);
                     self.draw_buffer.push_str(&" ".repeat(pad));
                 } else {
-                    self.draw_buffer.push_str(&" ".repeat(sidebar_width.saturating_sub(1)));
+                    self.draw_buffer.push_str(&" ".repeat(content_cols));
                 }
-                // Divider character
+                // Divider character (1 col)
                 self.draw_buffer.push_str("\x1b[48;5;234m\x1b[38;5;240m│\x1b[0m");
             }
 
