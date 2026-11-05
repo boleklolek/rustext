@@ -43,11 +43,14 @@ pub struct TerminalGuard {
 impl TerminalGuard {
     /// Enters raw mode, switches to alternate screen buffer, and hides default cursor.
     pub fn enter() -> io::Result<Self> {
-        // Use stty to switch to raw non-canonical mode without echo
+        // Use stty to switch to raw non-canonical mode without echo and disable XON/XOFF flow control (-ixon)
+        // so that Ctrl+S (save) and Ctrl+Q (quit) pass through directly even over SSH connections.
         let status = Command::new("stty")
             .arg("-echo")
             .arg("-icanon")
             .arg("-isig")
+            .arg("-ixon")
+            .arg("-iexten")
             .arg("min")
             .arg("1")
             .arg("time")
