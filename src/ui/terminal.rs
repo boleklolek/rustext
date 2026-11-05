@@ -71,17 +71,61 @@ impl TerminalGuard {
 
     /// Queries terminal dimensions (rows, cols).
     pub fn size() -> (usize, usize) {
+        #[cfg(unix)]
+        {
+            #[repr(C)]
+            struct Winsize {
+                ws_row: u16,
+                ws_col: u16,
+                ws_xpixel: u16,
+                ws_ypixel: u16,
+            }
+
+            unsafe extern "C" {
+                fn ioctl(fd: i32, request: u64, ...) -> i32;
+            }
+
+            let mut ws = Winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
+            // Try standard descriptors first (1 = stdout, 0 = stdin, 2 = stderr)
+            for fd in [1, 0, 2] {
+                if unsafe { ioctl(fd, 0x5413, &mut ws) } == 0 && ws.ws_row > 0 && ws.ws_col > 0 {
+                    return (ws.ws_row as usize, ws.ws_col as usize);
+                }
+            }
+
+            // If running in subshell or redirected, query controlling terminal /dev/tty directly
+            if let Ok(tty) = std::fs::File::open("/dev/tty") {
+                use std::os::fd::AsRawFd;
+                if unsafe { ioctl(tty.as_raw_fd(), 0x5413, &mut ws) } == 0 && ws.ws_row > 0 && ws.ws_col > 0 {
+                    return (ws.ws_row as usize, ws.ws_col as usize);
+                }
+            }
+        }
+
+        // Secondary fallback: query environmental variables LINES and COLUMNS
+        if let (Ok(lines_s), Ok(cols_s)) = (std::env::var("LINES"), std::env::var("COLUMNS")) {
+            if let (Ok(r), Ok(c)) = (lines_s.parse::<usize>(), cols_s.parse::<usize>()) {
+                if r > 0 && c > 0 {
+                    return (r, c);
+                }
+            }
+        }
+
+        // Tertiary fallback: stty size
         if let Ok(output) = Command::new("stty").arg("size").output() {
             if let Ok(s) = String::from_utf8(output.stdout) {
                 let parts: Vec<&str> = s.split_whitespace().collect();
                 if parts.len() == 2 {
                     if let (Ok(rows), Ok(cols)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                        return (rows, cols);
+                        if rows > 0 && cols > 0 {
+                            return (rows, cols);
+                        }
                     }
                 }
             }
         }
-        (24, 80) // Default fallback
+
+        (24, 80) // Default safe fallback
     }
 
     /// Reads a single key event from standard input.
