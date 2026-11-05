@@ -1,0 +1,43 @@
+# ==============================================================================
+# Rustext Keymap: Emacs Classic
+# Atajos tradicionales estilo GNU Emacs / readline.
+# ==============================================================================
+[meta]
+id = emacs
+name = Emacs Classic
+author = Rustext Team
+version = 1.0
+
+[bindings]
+# File & Session
+Ctrl+x Ctrl+s = save
+Ctrl+x Ctrl+f = file_finder
+Ctrl+x Ctrl+c = quit
+Ctrl+x k = close_tab
+Ctrl+x 2 = toggle_split_horizontal
+Ctrl+x 3 = toggle_split_vertical
+Ctrl+x o = switch_split_pane
+Ctrl+x 0 = close_split
+
+# Basic Cursor Motions
+Ctrl+f = move_right
+Ctrl+b = move_left
+Ctrl+p = move_up
+Ctrl+n = move_down
+Ctrl+a = move_line_start
+Ctrl+e = move_line_end
+
+# Editing & Clipboard
+Ctrl+d = delete
+Ctrl+k = cut
+Ctrl+y = paste
+Ctrl+w = cut
+Alt+w = copy
+Ctrl+/ = undo
+Ctrl+_ = undo
+
+# Search & Prompts
+Ctrl+s = search
+Alt+% = replace
+Alt+x = command_palette
+Ctrl+g = cancel

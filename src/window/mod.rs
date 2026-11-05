@@ -47,6 +47,11 @@ impl UnsupportedWindow {
     }
     pub fn cancel_close(&mut self) {}
     pub fn start_interactive_move(&mut self) {}
+    pub fn minimize(&mut self) {}
+    pub fn toggle_maximize(&mut self) {}
+    pub fn is_maximized(&self) -> bool {
+        false
+    }
     pub fn scale_factor(&self) -> f64 {
         1.0
     }

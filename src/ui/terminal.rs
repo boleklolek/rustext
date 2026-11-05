@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use std::process::Command;
 
 /// Represents a parsed keyboard key or event.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key {
     Char(char),
     Ctrl(char),

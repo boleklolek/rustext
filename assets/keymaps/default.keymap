@@ -1,0 +1,55 @@
+# ==============================================================================
+# Rustext Keymap: Default (Modern Standard)
+# Inspirado en Sublime Text, VS Code y editores modernos.
+# ==============================================================================
+[meta]
+id = default
+name = Modern Standard (Sublime / VS Code)
+author = Rustext Team
+version = 1.0
+
+[bindings]
+# File & Session
+Ctrl+s = save
+Ctrl+o = open_file
+Ctrl+Shift+o = open_folder
+Ctrl+r = open_recent_files
+Ctrl+w = close_tab
+Ctrl+t = new_tab
+Ctrl+q = quit
+
+# Navigation & Search
+Ctrl+p = file_finder
+Ctrl+Shift+p = command_palette
+Ctrl+f = search
+Ctrl+h = replace
+Ctrl+Shift+f = global_search
+Ctrl+m = toggle_minimap
+Ctrl+b = toggle_sidebar
+Ctrl+` = toggle_terminal
+Ctrl+~ = toggle_terminal
+
+# Multi-cursor & Editing
+Ctrl+d = select_next_occurrence
+Ctrl+k = add_cursor_above
+Ctrl+j = add_cursor_below
+Ctrl+z = undo
+Ctrl+y = redo
+Ctrl+c = copy
+Ctrl+x = cut
+Ctrl+v = paste
+Ctrl+/ = toggle_comment
+Alt+Up = move_line_up
+Alt+Down = move_line_down
+Ctrl+Shift+d = duplicate_line_down
+Alt+z = toggle_word_wrap
+
+# Split View
+Ctrl+\ = toggle_split_vertical
+Ctrl+Shift+\ = toggle_split_horizontal
+Alt+\ = switch_split_pane
+
+# Code Folding
+Alt+[ = toggle_fold
+Alt+0 = fold_all
+Alt+j = unfold_all

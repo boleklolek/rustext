@@ -186,6 +186,11 @@ const XDG_TOPLEVEL_MOVE: u16 = 5;
 #[allow(dead_code)]
 const XDG_TOPLEVEL_RESIZE: u16 = 6;
 const XDG_TOPLEVEL_SET_MIN_SIZE: u16 = 8;
+const XDG_TOPLEVEL_SET_MAXIMIZED: u16 = 9;
+const XDG_TOPLEVEL_UNSET_MAXIMIZED: u16 = 10;
+const XDG_TOPLEVEL_SET_MINIMIZED: u16 = 13;
+
+const XDG_TOPLEVEL_STATE_MAXIMIZED: u32 = 1;
 
 // zxdg_decoration_manager_v1
 const ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION: u16 = 1;
@@ -214,6 +219,7 @@ pub struct WaylandWindow {
     buffer_height: usize,
     scale_factor: f64,
     should_close: bool,
+    is_maximized: bool,
     title: String,
 
     // Dynamic Wayland IDs
@@ -585,6 +591,7 @@ impl WaylandWindow {
             buffer_height: physical_h,
             scale_factor,
             should_close: false,
+            is_maximized: false,
             title: title.to_string(),
             compositor_id,
             shm_id,
@@ -698,6 +705,27 @@ impl WaylandWindow {
             );
             let _ = self.stream.flush();
         }
+    }
+
+    /// Minimizes the window via the compositor.
+    pub fn minimize(&mut self) {
+        let _ = Self::send_request(&mut self.stream, self.xdg_toplevel_id, XDG_TOPLEVEL_SET_MINIMIZED, &[]);
+        let _ = self.stream.flush();
+    }
+
+    /// Toggles the window between maximized and normal restored geometry.
+    pub fn toggle_maximize(&mut self) {
+        if self.is_maximized {
+            let _ = Self::send_request(&mut self.stream, self.xdg_toplevel_id, XDG_TOPLEVEL_UNSET_MAXIMIZED, &[]);
+        } else {
+            let _ = Self::send_request(&mut self.stream, self.xdg_toplevel_id, XDG_TOPLEVEL_SET_MAXIMIZED, &[]);
+        }
+        let _ = self.stream.flush();
+    }
+
+    /// Returns whether the window is currently maximized.
+    pub fn is_maximized(&self) -> bool {
+        self.is_maximized
     }
 
     /// Presents a software framebuffer onto the Wayland surface via shared memory.
@@ -884,6 +912,19 @@ impl WaylandWindow {
         if obj_id == self.xdg_toplevel_id && opcode == 0 && payload.len() >= 8 {
             let new_w = i32::from_ne_bytes(payload[0..4].try_into().unwrap());
             let new_h = i32::from_ne_bytes(payload[4..8].try_into().unwrap());
+            if payload.len() >= 12 {
+                let array_len = u32::from_ne_bytes(payload[8..12].try_into().unwrap()) as usize;
+                let states_data = &payload[12..];
+                let mut max_state = false;
+                for chunk in states_data.chunks_exact(4).take(array_len / 4) {
+                    let st = u32::from_ne_bytes(chunk.try_into().unwrap());
+                    if st == XDG_TOPLEVEL_STATE_MAXIMIZED {
+                        max_state = true;
+                        break;
+                    }
+                }
+                self.is_maximized = max_state;
+            }
             if new_w > 0 && new_h > 0 {
                 let uw = ((new_w as f64) * self.scale_factor).round() as usize;
                 let uh = ((new_h as f64) * self.scale_factor).round() as usize;
@@ -1387,6 +1428,7 @@ mod tests {
             buffer_height: 600,
             scale_factor: 1.0,
             should_close: false,
+            is_maximized: false,
             title: "Test".to_string(),
             compositor_id: 1,
             shm_id: 2,

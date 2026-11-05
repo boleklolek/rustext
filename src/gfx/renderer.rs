@@ -727,6 +727,7 @@ pub struct GfxRenderer {
     pub sticky_scroll: bool,
     pub max_sticky_lines: usize,
     pub signature_help: Option<crate::editor::lsp::LspSignatureHelp>,
+    pub modal_label: Option<String>,
 }
 
 pub const LOGICAL_MENU_BAR_HEIGHT: usize = 24;
@@ -793,6 +794,7 @@ impl GfxRenderer {
             sticky_scroll: true,
             max_sticky_lines: 3,
             signature_help: None,
+            modal_label: None,
         }
     }
 
@@ -3838,6 +3840,41 @@ impl GfxRenderer {
 
         // Sleek subtle bottom divider under menu bar
         fb.fill_rect(0, self.menu_bar_height - 1, fb.width, 1, self.colors.scrollbar_border);
+
+        // Render client-side window control buttons (Minimize, Maximize, Close) in top-right corner
+        let btn_w = menu_bar.control_button_width();
+        let total_w = menu_bar.window_controls_total_width();
+        if fb.width > total_w + cur_x + 10 {
+            let start_x = fb.width - total_w;
+            let btn_h = self.menu_bar_height;
+            let icon_y = (btn_h.saturating_sub(self.char_height())) / 2;
+
+            // 1. Minimize button (index 0)
+            let is_min_hover = menu_bar.hovered_control == Some(crate::editor::menu::WindowControlButton::Minimize);
+            let min_bg = if is_min_hover { self.colors.modal_border } else { self.colors.modal_header_bg };
+            fb.fill_rect(start_x, 0, btn_w, btn_h, min_bg);
+            let min_tx = start_x + (btn_w.saturating_sub(self.char_width())) / 2;
+            let min_fg = if is_min_hover { 0x00FFFFFF } else { 0x00A0A0B0 };
+            fb.draw_text("—", min_tx, icon_y, min_fg, None);
+
+            // 2. Maximize / Restore button (index 1)
+            let is_max_hover = menu_bar.hovered_control == Some(crate::editor::menu::WindowControlButton::Maximize);
+            let max_bg = if is_max_hover { self.colors.modal_border } else { self.colors.modal_header_bg };
+            let max_x = start_x + btn_w;
+            fb.fill_rect(max_x, 0, btn_w, btn_h, max_bg);
+            let max_tx = max_x + (btn_w.saturating_sub(self.char_width())) / 2;
+            let max_fg = if is_max_hover { 0x00FFFFFF } else { 0x00A0A0B0 };
+            fb.draw_text("□", max_tx, icon_y, max_fg, None);
+
+            // 3. Close button (index 2)
+            let is_close_hover = menu_bar.hovered_control == Some(crate::editor::menu::WindowControlButton::Close);
+            let close_bg = if is_close_hover { 0x00E05252 } else { self.colors.modal_header_bg };
+            let close_x = start_x + btn_w * 2;
+            fb.fill_rect(close_x, 0, btn_w, btn_h, close_bg);
+            let close_tx = close_x + (btn_w.saturating_sub(self.char_width())) / 2;
+            let close_fg = if is_close_hover { 0x00FFFFFF } else { 0x00A0A0B0 };
+            fb.draw_text("✕", close_tx, icon_y, close_fg, None);
+        }
     }
 
     fn render_menu_dropdown(&self, fb: &mut Framebuffer, menu_bar: &crate::editor::menu::MenuBar) {
@@ -4003,8 +4040,14 @@ impl GfxRenderer {
 
         let mut left_x = self.scale_coord(6);
 
-        // 1. Mode Chip: [ EDIT ]
-        let mode_label = " EDIT ";
+        // 1. Mode Chip: [ EDIT ] or Modal Mode: [ NORMAL ], [ INSERT ], [ VISUAL ]
+        let custom_label;
+        let mode_label: &str = if let Some(m) = &self.modal_label {
+            custom_label = format!(" {} ", m);
+            &custom_label
+        } else {
+            " EDIT "
+        };
         let mode_w = mode_label.chars().count() * self.char_width() + self.scale_coord(6);
         if self.rounded_corners {
             fb.fill_rounded_rect(left_x, chip_y, mode_w, chip_h, 3, self.colors.chip_bg);

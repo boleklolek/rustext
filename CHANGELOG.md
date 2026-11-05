@@ -9,6 +9,12 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Sistema Modular de Mapas de Teclas (`.keymap`) y Perfiles Vim / Emacs**:
+  - Arquitectura declarativa de plantillas de atajos `.keymap` inspirada en el sistema de temas: plantillas oficiales modularizadas en `assets/keymaps/` (`default.keymap`, `vim.keymap`, `emacs.keymap`) y soporte para mapas personalizados de usuario en `~/.rustext/keymaps/` y `./.rustext/keymaps/`.
+  - Soporte completo para acordes compuestos de 2 pasos (`KeyChord::Sequence`) como `Ctrl+X Ctrl+S` en Emacs y `g g` en Vim.
+  - Soporte para edición modal (Normal, Insert, Visual) para Vim con transiciones directas (`i`, `a`, `v`, `Esc`) e indicador reactivo en la barra de estado (`[ NORMAL ]`, `[ INSERT ]`, `[ VISUAL ]`).
+  - Configuración persistente `keymap = default` en `config.ini`, menú interactivo en *Preferencias > Mapa de Teclas* y acciones en la Paleta de Comandos (`Ctrl+Shift+P`).
+- **Controles de ventana integrados (CSD) para Wayland**: botones nativos de Minimizar (`—`), Maximizar/Restaurar (`□`) y Cerrar (`✕`) en la barra de menús con efectos hover y soporte para `xdg_toplevel.set_minimized`, `set_maximized` y `unset_maximized`. Permite control total de la ventana en compositores sin decoraciones del servidor como GNOME/Mutter.
 - **Pestañas reordenables arrastrando con el ratón** en la barra de pestañas (GUI): `Editor::move_tab`, `GfxRenderer::tab_rects` y `GfxRenderer::tab_drop_index`. La pestaña activa y los índices de los paneles divididos siguen a su documento.
 - **Portapapeles nativo** en Windows (`clip` / `Get-Clipboard`) y macOS (`pbcopy` / `pbpaste`), y `xsel` como respaldo en Linux.
 - **Backend Win32**: atajos `Alt+Letra/Dígito/[/\/Flechas`, DPI real del sistema (`GetDpiForSystem`) y coordenadas de cliente correctas en la rueda del ratón.

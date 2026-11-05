@@ -1,0 +1,51 @@
+# ==============================================================================
+# Rustext Keymap: Vim Modal
+# Edición modal estilo Vi / Vim / Neovim.
+# Soporta modos Normal, Insert y Visual con movimientos h/j/k/l.
+# ==============================================================================
+[meta]
+id = vim
+name = Vim Modal
+author = Rustext Team
+version = 1.0
+modal = true
+
+[normal]
+# Navigation
+h = move_left
+l = move_right
+k = move_up
+j = move_down
+0 = move_line_start
+$ = move_line_end
+w = move_word_forward
+b = move_word_backward
+G = move_file_end
+g g = move_file_start
+
+# Mode Switches
+i = insert_mode
+a = insert_after
+o = insert_line_below
+O = insert_line_above
+v = visual_mode
+V = visual_line_mode
+Esc = normal_mode
+
+# Editing & History
+u = undo
+Ctrl+r = redo
+x = delete
+d d = delete_line
+y y = copy_line
+p = paste
+
+# Search & Commands
+/ = search
+: w = save
+: q = quit
+: w q = save_and_quit
+Ctrl+p = file_finder
+Ctrl+w v = toggle_split_vertical
+Ctrl+w s = toggle_split_horizontal
+Ctrl+w w = switch_split_pane

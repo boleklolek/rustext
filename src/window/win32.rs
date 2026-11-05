@@ -464,6 +464,14 @@ impl Win32Window {
     }
 
     pub fn start_interactive_move(&mut self) {}
+
+    pub fn minimize(&mut self) {}
+
+    pub fn toggle_maximize(&mut self) {}
+
+    pub fn is_maximized(&self) -> bool {
+        false
+    }
 }
 
 impl Drop for Win32Window {

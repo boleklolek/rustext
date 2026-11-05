@@ -224,6 +224,7 @@ impl FontRasterizer {
                 let chars = [
                     '│', '─', '█', 'á', 'é', 'í', 'ó', 'ú', 'Á', 'É', 'Í', 'Ó', 'Ú',
                     'ñ', 'Ñ', '¡', '¿', '×', 'ü', 'Ü', '•', '©', '▼', '▶', '↺',
+                    '—', '□', '✕',
                 ];
                 for &c in &chars {
                     let is_box = Self::is_box_drawing(c);
@@ -425,6 +426,7 @@ impl FontRasterizer {
                 let chars = [
                     '│', '─', '█', 'á', 'é', 'í', 'ó', 'ú', 'Á', 'É', 'Í', 'Ó', 'Ú',
                     'ñ', 'Ñ', '¡', '¿', '×', 'ü', 'Ü', '•', '©', '▼', '▶', '↺',
+                    '—', '□', '✕',
                 ];
                 for &c in &chars {
                     let is_box = Self::is_box_drawing(c);
@@ -699,6 +701,9 @@ pub fn get_glyph(ch: char) -> &'static [u8; 16] {
             '▼' => &GLYPH_DOWN_ARROW,
             '▶' => &GLYPH_RIGHT_ARROW,
             '↺' => &GLYPH_REFRESH,
+            '—' => &GLYPH_EM_DASH,
+            '□' => &GLYPH_SQUARE,
+            '✕' => &GLYPH_CROSS,
             _ => &GLYPH_UNKNOWN,
         }
     }
@@ -748,6 +753,16 @@ const GLYPH_RIGHT_ARROW: [u8; 16] = [
 const GLYPH_REFRESH: [u8; 16] = [
     0x00, 0x00, 0x00, 0x00, 0x3C, 0x66, 0xCF, 0xDF,
     0xDB, 0x66, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+const GLYPH_EM_DASH: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE,
+    0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+const GLYPH_SQUARE: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x00, 0x7E, 0x42, 0x42, 0x42,
+    0x42, 0x42, 0x42, 0x7E, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Spanish á, é, í, ó, ú, ñ

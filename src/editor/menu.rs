@@ -39,11 +39,19 @@ pub struct MenuCategory {
     pub items: Vec<MenuItem>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowControlButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuBar {
     pub categories: Vec<MenuCategory>,
     pub active_category: Option<usize>,
     pub hovered_item: Option<usize>,
+    pub hovered_control: Option<WindowControlButton>,
     pub height: usize,
     pub scale_factor: f64,
     pub window_width: usize,
@@ -158,6 +166,10 @@ impl MenuBar {
                     MenuItem::action("Tema: Solarized Dark", "", EditorAction::SetTheme(EditorTheme::SolarizedDark)),
                     MenuItem::action("Tema: Claro (GitHub Light)", "", EditorAction::SetTheme(EditorTheme::Light)),
                     MenuItem::action("Tema: Dracula", "", EditorAction::SetTheme(EditorTheme::Dracula)),
+                    MenuItem::separator(),
+                    MenuItem::action("Mapa de Teclas: Estándar (Moderno)", "", EditorAction::SetKeymap("default".to_string())),
+                    MenuItem::action("Mapa de Teclas: Vim (Modal)", "", EditorAction::SetKeymap("vim".to_string())),
+                    MenuItem::action("Mapa de Teclas: Emacs (Clásico)", "", EditorAction::SetKeymap("emacs".to_string())),
                 ],
             },
             MenuCategory {
@@ -209,6 +221,7 @@ impl MenuBar {
             categories,
             active_category: None,
             hovered_item: None,
+            hovered_control: None,
             height: 24,
             scale_factor: 1.0,
             window_width: 0,
@@ -343,6 +356,13 @@ impl MenuBar {
 
     /// Updates hover state when mouse moves over menu bar or open dropdown.
     pub fn handle_mouse_move(&mut self, x: usize, y: usize, font_width: usize) {
+        // Track hover over top-right window control buttons
+        if y < self.height && self.window_width > 0 {
+            self.hovered_control = self.hit_test_window_control(x, y, self.window_width);
+        } else {
+            self.hovered_control = None;
+        }
+
         if self.active_category.is_none() {
             return;
         }
@@ -382,6 +402,37 @@ impl MenuBar {
                 }
             }
             self.hovered_item = None;
+        }
+    }
+
+    /// Returns the width of a single window control button (e.g. 36px scaled).
+    pub fn control_button_width(&self) -> usize {
+        (36.0 * self.scale_factor).round().max(24.0) as usize
+    }
+
+    /// Returns the total width occupied by the 3 window controls (minimize, maximize, close).
+    pub fn window_controls_total_width(&self) -> usize {
+        self.control_button_width() * 3
+    }
+
+    /// Hit-tests a coordinate (x, y) against the 3 window control buttons in the top-right corner.
+    pub fn hit_test_window_control(&self, x: usize, y: usize, window_width: usize) -> Option<WindowControlButton> {
+        if y >= self.height || window_width == 0 {
+            return None;
+        }
+        let btn_w = self.control_button_width();
+        let total_w = btn_w * 3;
+        let start_x = window_width.saturating_sub(total_w);
+        if x < start_x || x >= window_width {
+            return None;
+        }
+        let rel_x = x - start_x;
+        let idx = rel_x / btn_w;
+        match idx {
+            0 => Some(WindowControlButton::Minimize),
+            1 => Some(WindowControlButton::Maximize),
+            2 => Some(WindowControlButton::Close),
+            _ => None,
         }
     }
 

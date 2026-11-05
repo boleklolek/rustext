@@ -121,6 +121,9 @@ pub enum EditorAction {
     LspFormatDocument,
     LspDocumentSymbols,
     LspToggleInlayHints,
+    MinimizeWindow,
+    ToggleMaximizeWindow,
+    SetKeymap(String),
     Quit,
     None,
 }

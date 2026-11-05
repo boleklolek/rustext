@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### ✨ Added
+- **Modular Keymap System (`.keymap`) and Vim / Emacs Profiles**:
+  - Declarative template-based keymap architecture modeled after the theme system: modular template files in `assets/keymaps/` (`default.keymap`, `vim.keymap`, `emacs.keymap`) with support for custom user keymaps in `~/.rustext/keymaps/` and `./.rustext/keymaps/`.
+  - Full support for multi-step prefix chord sequences (`KeyChord::Sequence`) such as `Ctrl+X Ctrl+S` in Emacs and `g g` in Vim.
+  - Native modal editing states (Normal, Insert, Visual) for Vim mode with seamless transitions (`i`, `a`, `v`, `Esc`) and reactive status bar indicators (`[ NORMAL ]`, `[ INSERT ]`, `[ VISUAL ]`).
+  - Persistent `keymap = default` configuration in `config.ini`, dynamic switcher under *Preferences > Keyboard Keymap*, and Command Palette (`Ctrl+Shift+P`) actions.
+- **Integrated client-side window controls (CSD) for Wayland**: Native Minimize (`—`), Maximize/Restore (`□`), and Close (`✕`) buttons in the top menu bar with interactive hover styling, dispatching `xdg_toplevel.set_minimized`, `set_maximized`, and `unset_maximized`. Provides complete window control on Wayland compositors that omit server-side decorations (such as GNOME/Mutter).
 - **Draggable tab reordering with mouse** in the GUI tab bar: `Editor::move_tab`, `GfxRenderer::tab_rects`, and `GfxRenderer::tab_drop_index`. Active tab and split pane document indexes follow smoothly.
 - **Native OS clipboard integration** on Windows (`clip` / `Get-Clipboard`) and macOS (`pbcopy` / `pbpaste`), with `xsel` as a Linux fallback.
 - **Win32 Backend**: Keyboard shortcuts `Alt+Letter/Digit/[/\/Arrows`, real system DPI detection via `GetDpiForSystem`, and correct client coordinate mapping for mouse wheel events.

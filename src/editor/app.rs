@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use super::document::Document;
-use super::keymap::{EditorAction, Keymap};
+use super::keymap::EditorAction;
 use crate::core::buffer::{Position, TextBuffer};
 use crate::core::clipboard::Clipboard;
 use crate::core::cursor::Cursor;
@@ -140,6 +140,7 @@ pub struct Editor {
     pub jump_list: crate::editor::jump_list::JumpList,
     pub signature_help: Option<crate::editor::lsp::LspSignatureHelp>,
     pub active_hunk_popup: Option<crate::editor::git::GitHunk>,
+    pub keymap_engine: crate::editor::keymap_loader::KeymapEngine,
 }
 
 impl Editor {
@@ -199,6 +200,8 @@ impl Editor {
             None
         };
 
+        let keymap_profile = crate::editor::keymap_loader::load_keymap_profile(&config.editor.keymap);
+
         let mut editor = Self {
             documents: vec![initial_doc],
             active_doc_idx: 0,
@@ -236,6 +239,7 @@ impl Editor {
             jump_list: crate::editor::jump_list::JumpList::default(),
             signature_help: None,
             active_hunk_popup: None,
+            keymap_engine: crate::editor::keymap_loader::KeymapEngine::new(keymap_profile),
         };
 
         if editor.config.lsp.enabled && editor.config.lsp.auto_start {
@@ -772,14 +776,16 @@ impl Editor {
                             self.autocomplete.close();
                         }
                         Key::Backspace => {
-                            let action = Keymap::resolve_key(key);
-                            self.execute_action(action);
+                            if let Some(action) = self.keymap_engine.resolve_key(key) {
+                                self.execute_action(action);
+                            }
                             self.trigger_autocomplete(false);
                             return;
                         }
                         Key::Char(c) => {
-                            let action = Keymap::resolve_key(key);
-                            self.execute_action(action);
+                            if let Some(action) = self.keymap_engine.resolve_key(key) {
+                                self.execute_action(action);
+                            }
                             if crate::editor::autocomplete::AutocompleteState::is_identifier_char(c) || c == '.' || c == ':' {
                                 self.trigger_autocomplete(false);
                             } else {
@@ -795,8 +801,9 @@ impl Editor {
                         _ => {}
                     }
                 } else if let Key::Char(c) = key {
-                    let action = Keymap::resolve_key(key);
-                    self.execute_action(action);
+                    if let Some(action) = self.keymap_engine.resolve_key(key) {
+                        self.execute_action(action);
+                    }
                     if crate::editor::autocomplete::AutocompleteState::is_identifier_char(c) || c == '.' || c == ':' {
                         self.trigger_autocomplete(false);
                     }
@@ -808,8 +815,9 @@ impl Editor {
                     return;
                 }
 
-                let action = Keymap::resolve_key(key);
-                self.execute_action(action);
+                if let Some(action) = self.keymap_engine.resolve_key(key) {
+                    self.execute_action(action);
+                }
             }
         }
     }
@@ -1466,6 +1474,16 @@ impl Editor {
                 self.refresh_semantic_tokens();
                 self.set_status("LSP: Tokens semánticos actualizados");
             }
+
+            EditorAction::SetKeymap(ref name) => {
+                let profile = crate::editor::keymap_loader::load_keymap_profile(name);
+                let label = profile.meta.name.clone();
+                self.config.editor.keymap = name.clone();
+                self.keymap_engine.set_profile(profile);
+                self.set_status(&format!("Mapa de teclado activado: {}", label));
+            }
+
+            EditorAction::MinimizeWindow | EditorAction::ToggleMaximizeWindow => {}
 
             EditorAction::None => {}
         }
@@ -5105,8 +5123,17 @@ impl Editor {
         self.screen.render_document(&doc.buffer, &doc.cursors, doc.language);
 
         // 3. Status bar
+        let modal_desc = if self.keymap_engine.profile.meta.is_modal {
+            match self.keymap_engine.modal_mode {
+                crate::editor::keymap_loader::ModalMode::Normal => "NORMAL",
+                crate::editor::keymap_loader::ModalMode::Insert => "INSERT",
+                crate::editor::keymap_loader::ModalMode::Visual => "VISUAL",
+            }
+        } else {
+            "EDIT"
+        };
         let mode_str = match &self.mode {
-            EditorMode::Normal => "EDIT",
+            EditorMode::Normal => modal_desc,
             EditorMode::ModalPrompt(_) => "PROMPT",
             EditorMode::AboutDialog => "ABOUT",
             EditorMode::ExtensionsManager { .. } => "EXTENSIONS",
@@ -6142,9 +6169,23 @@ impl Editor {
                                         let menu_offset = if self.config.gui.menu_bar { renderer.menu_bar_height } else { 0 };
                                         let content_y_end = fb.height.saturating_sub(renderer.status_bar_height);
 
-                                        // 1.5 Click on empty area of menu bar -> start interactive window move
+                                        // 1.5 Click on window controls or empty area of menu bar
                                         if self.config.gui.menu_bar && y < menu_offset {
-                                            window.start_interactive_move();
+                                            if let Some(ctrl) = self.menu_bar.hit_test_window_control(x, y, fb.width) {
+                                                match ctrl {
+                                                    crate::editor::menu::WindowControlButton::Minimize => {
+                                                        window.minimize();
+                                                    }
+                                                    crate::editor::menu::WindowControlButton::Maximize => {
+                                                        window.toggle_maximize();
+                                                    }
+                                                    crate::editor::menu::WindowControlButton::Close => {
+                                                        self.execute_action(EditorAction::Quit);
+                                                    }
+                                                }
+                                            } else {
+                                                window.start_interactive_move();
+                                            }
                                         } else if sidebar_w > 0 && x < sidebar_w && y >= menu_offset && y < content_y_end {
                                         let rel_x = x;
                                         let rel_y = y - menu_offset;
@@ -7032,6 +7073,16 @@ impl Editor {
 
             // Hunk Diff Popup
             renderer.active_hunk_popup = self.active_hunk_popup.clone();
+
+            renderer.modal_label = if self.keymap_engine.profile.meta.is_modal {
+                Some(match self.keymap_engine.modal_mode {
+                    crate::editor::keymap_loader::ModalMode::Normal => "NORMAL".to_string(),
+                    crate::editor::keymap_loader::ModalMode::Insert => "INSERT".to_string(),
+                    crate::editor::keymap_loader::ModalMode::Visual => "VISUAL".to_string(),
+                })
+            } else {
+                None
+            };
 
             renderer.render_full_frame_with_split(
                 &mut fb,

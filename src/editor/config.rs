@@ -69,6 +69,7 @@ pub struct EditorSettings {
     pub rulers: Vec<usize>,
     pub sticky_scroll: bool,
     pub max_sticky_lines: usize,
+    pub keymap: String,
 }
 
 impl Default for EditorSettings {
@@ -95,6 +96,7 @@ impl Default for EditorSettings {
             rulers: vec![80, 120],
             sticky_scroll: true,
             max_sticky_lines: 3,
+            keymap: "default".to_string(),
         }
     }
 }
@@ -327,6 +329,9 @@ sticky_scroll = true
 ; Número máximo de encabezados de ámbito simultáneos en Sticky Scroll (1 a 10)
 max_sticky_lines = 3
 
+; Perfil de mapa de teclado y atajos: default (Sublime/VS Code), vim (Modal), emacs, o nombre de archivo .keymap
+keymap = default
+
 [theme]
 ; Tema de interfaz gráfica y terminal:
 ; Opciones disponibles: dark (por defecto), tokyo_night, catppuccin, onedark, monokai, solarized, light
@@ -501,6 +506,7 @@ highlight_current_line = {}
 rulers = {}
 sticky_scroll = {}
 max_sticky_lines = {}
+keymap = {}
 
 [theme]
 name = {}
@@ -584,6 +590,7 @@ inlay_hints = {}
             self.editor.rulers.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
             self.editor.sticky_scroll,
             self.editor.max_sticky_lines,
+            self.editor.keymap,
             self.theme.name,
             self.gui.window_width,
             self.gui.window_height,
@@ -816,6 +823,11 @@ inlay_hints = {}
                         "max_sticky_lines" => {
                             if let Ok(n) = val_unquoted.parse::<usize>() {
                                 self.editor.max_sticky_lines = n.clamp(1, 10);
+                            }
+                        }
+                        "keymap" => {
+                            if !val_unquoted.is_empty() {
+                                self.editor.keymap = val_unquoted.to_string();
                             }
                         }
                         _ => {}

@@ -6521,3 +6521,138 @@ fn test_tab_rects_and_drop_index_hysteresis() {
     assert_eq!(GfxRenderer::tab_drop_index(&rects, 0, mid1), 0);
     assert_eq!(GfxRenderer::tab_drop_index(&rects, 0, mid1 + 1), 1);
 }
+
+#[test]
+fn test_window_controls_csd_hit_test_and_rendering() {
+    let mut menu = rustext::editor::MenuBar::new();
+    menu.set_window_width(1024);
+    menu.set_scale_factor(1.0);
+
+    let btn_w = menu.control_button_width();
+    let total_w = menu.window_controls_total_width();
+    assert_eq!(total_w, btn_w * 3);
+
+    let start_x = 1024 - total_w;
+    // Minimize button hit test
+    assert_eq!(
+        menu.hit_test_window_control(start_x + 5, 10, 1024),
+        Some(rustext::editor::menu::WindowControlButton::Minimize)
+    );
+    // Maximize button hit test
+    assert_eq!(
+        menu.hit_test_window_control(start_x + btn_w + 5, 10, 1024),
+        Some(rustext::editor::menu::WindowControlButton::Maximize)
+    );
+    // Close button hit test
+    assert_eq!(
+        menu.hit_test_window_control(start_x + btn_w * 2 + 5, 10, 1024),
+        Some(rustext::editor::menu::WindowControlButton::Close)
+    );
+    // Outside menu bar bounds
+    assert_eq!(menu.hit_test_window_control(start_x + 5, 50, 1024), None);
+    assert_eq!(menu.hit_test_window_control(start_x.saturating_sub(10), 10, 1024), None);
+
+    // Verify rendering to framebuffer
+    let mut fb = Framebuffer::new(1024, 600);
+    let doc = Document::new(TextBuffer::from_str("fn main() {}"));
+    let renderer = GfxRenderer::new();
+    let tabs = vec!["main.rs".to_string()];
+
+    // Verify non-hover rendering has non-empty glyph pixels for —, □, ✕
+    menu.hovered_control = None;
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, Some(&menu));
+    let glyph_unknown_pix = rustext::gfx::font::get_glyph('?');
+    assert_ne!(glyph_unknown_pix, &[0u8; 16]);
+
+    // Check that —, □, ✕ return distinct non-unknown glyphs
+    let g_dash = rustext::gfx::font::get_glyph('—');
+    let g_square = rustext::gfx::font::get_glyph('□');
+    let g_cross = rustext::gfx::font::get_glyph('✕');
+    let g_unknown = rustext::gfx::font::get_glyph('\u{FFFD}');
+    assert_ne!(g_dash, g_unknown);
+    assert_ne!(g_square, g_unknown);
+    assert_ne!(g_cross, g_unknown);
+    assert_ne!(g_dash, g_square);
+    assert_ne!(g_square, g_cross);
+
+    // Verify subpixel and AA caches return distinct non-unknown coverage
+    let cov_dash = rustext::gfx::font::FontRasterizer::get_glyph_subpixel('—');
+    let cov_unknown = rustext::gfx::font::FontRasterizer::get_glyph_subpixel('\u{FFFD}');
+    assert_ne!(cov_dash, cov_unknown);
+
+    let cov_square = rustext::gfx::font::FontRasterizer::get_glyph_subpixel('□');
+    assert_ne!(cov_square, cov_unknown);
+
+    let cov_cross = rustext::gfx::font::FontRasterizer::get_glyph_subpixel('✕');
+    assert_ne!(cov_cross, cov_unknown);
+
+    menu.hovered_control = Some(rustext::editor::menu::WindowControlButton::Close);
+    renderer.render(&mut fb, &doc, &tabs, 0, None, None, Some(&menu));
+
+    // The close button pixel should be rendered with hover color (reddish)
+    let close_pixel = fb.get_pixel(start_x + btn_w * 2 + btn_w / 2, 10);
+    assert_ne!(close_pixel, 0);
+}
+
+#[test]
+fn test_custom_keymap_switching_and_vim_emacs_execution() {
+    use rustext::editor::{Editor, EditorAction};
+    use rustext::ui::terminal::Key;
+
+    let buf = TextBuffer::from_str("Hello World\nLine two\nLine three");
+    let mut editor = Editor::new(buf);
+
+    // Initial state: Default keymap profile
+    assert_eq!(editor.keymap_engine.profile.meta.id, "default");
+    assert_eq!(editor.keymap_engine.profile.meta.is_modal, false);
+
+    // Switch to Vim Modal keymap
+    editor.execute_action(EditorAction::SetKeymap("vim".to_string()));
+    assert_eq!(editor.keymap_engine.profile.meta.id, "vim");
+    assert_eq!(editor.keymap_engine.profile.meta.is_modal, true);
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Normal);
+
+    // Test Vim motion 'l' in normal mode (moves right)
+    let initial_pos = editor.doc().cursors.primary().head;
+    editor.handle_key(Key::Char('l'));
+    let new_pos = editor.doc().cursors.primary().head;
+    assert_eq!(new_pos, initial_pos + 1);
+
+    // Test Vim motion 'j' in normal mode (moves down)
+    editor.handle_key(Key::Char('j'));
+    let p_line = editor.doc().buffer.char_to_position(editor.doc().cursors.primary().head).line;
+    assert_eq!(p_line, 1);
+
+    // Test Vim 'i' enters Insert mode
+    editor.handle_key(Key::Char('i'));
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Insert);
+
+    // Typing in Insert mode inserts character
+    editor.handle_key(Key::Char('X'));
+    assert!(editor.doc().buffer.to_string().contains('X'));
+
+    // Esc returns to Normal mode
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Normal);
+
+    // Switch to Emacs keymap
+    editor.execute_action(EditorAction::SetKeymap("emacs".to_string()));
+    assert_eq!(editor.keymap_engine.profile.meta.id, "emacs");
+    assert_eq!(editor.keymap_engine.profile.meta.is_modal, false);
+
+    // Emacs Ctrl+A goes to line start
+    editor.handle_key(Key::Ctrl('a'));
+    let head = editor.doc().cursors.primary().head;
+    let pos = editor.doc().buffer.char_to_position(head);
+    assert_eq!(pos.col, 0);
+
+    // Emacs sequence: Ctrl+X then Ctrl+S (Save)
+    editor.handle_key(Key::Ctrl('x'));
+    assert!(editor.keymap_engine.pending_chord.is_some());
+    editor.handle_key(Key::Ctrl('s'));
+    assert!(editor.keymap_engine.pending_chord.is_none());
+
+    // Switch back to Default
+    editor.execute_action(EditorAction::SetKeymap("default".to_string()));
+    assert_eq!(editor.keymap_engine.profile.meta.id, "default");
+}

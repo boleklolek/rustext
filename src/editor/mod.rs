@@ -1,4 +1,5 @@
 pub mod keymap;
+pub mod keymap_loader;
 pub mod document;
 pub mod app;
 pub mod menu;
@@ -20,6 +21,7 @@ pub mod jump_list;
 pub mod workspace;
 
 pub use keymap::{EditorAction, Keymap};
+pub use keymap_loader::{KeymapEngine, KeymapProfile, KeymapMeta, ModalMode, load_keymap_profile, available_keymaps};
 pub use document::Document;
 pub use app::{Editor, EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog};
 pub use menu::{MenuBar, MenuItem, MenuCategory};

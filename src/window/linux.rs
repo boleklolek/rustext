@@ -147,6 +147,28 @@ impl LinuxWindow {
         }
     }
 
+    /// Minimizes the window.
+    pub fn minimize(&mut self) {
+        if let LinuxBackend::Wayland(ref mut w) = self.backend {
+            w.minimize();
+        }
+    }
+
+    /// Toggles maximization state of the window.
+    pub fn toggle_maximize(&mut self) {
+        if let LinuxBackend::Wayland(ref mut w) = self.backend {
+            w.toggle_maximize();
+        }
+    }
+
+    /// Returns whether the window is currently maximized.
+    pub fn is_maximized(&self) -> bool {
+        match &self.backend {
+            LinuxBackend::Wayland(w) => w.is_maximized(),
+            LinuxBackend::X11(_) => false,
+        }
+    }
+
     /// Sets the cursor shape (e.g. 1 = arrow, 9 = text I-beam) on Wayland.
     pub fn set_cursor_shape(&mut self, shape: u32) {
         if let LinuxBackend::Wayland(ref mut w) = self.backend {
