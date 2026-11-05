@@ -5111,18 +5111,30 @@ impl Editor {
 
         let tab_titles: Vec<String> = self.documents.iter().map(|d| d.tab_title()).collect();
 
+        // Calculate sidebar columns for terminal TUI mode
+        let sidebar_cols = if self.sidebar.is_visible {
+            26.min(self.screen.cols.saturating_sub(40))
+        } else {
+            0
+        };
+
         // Adjust viewport to keep primary cursor in view
-        self.screen.adjust_viewport(primary_pos.line, primary_pos.col, gutter_width);
+        self.screen.adjust_viewport_with_sidebar(primary_pos.line, primary_pos.col, gutter_width, sidebar_cols);
         self.screen.begin_frame();
 
-        // 1. Tab Bar
+        // 1. Menu Bar (if active)
+        if self.screen.has_menu_bar {
+            self.screen.render_menu_bar(&self.menu_bar);
+        }
+
+        // 2. Tab Bar
         self.screen.render_tab_bar(&tab_titles, active_idx);
 
-        // 2. Document canvas
+        // 3. Document canvas (with optional sidebar)
         let doc = &self.documents[active_idx];
-        self.screen.render_document(&doc.buffer, &doc.cursors, doc.language);
+        self.screen.render_document_with_sidebar(&doc.buffer, &doc.cursors, doc.language, Some(&self.sidebar));
 
-        // 3. Status bar
+        // 4. Status bar
         let modal_desc = if self.keymap_engine.profile.meta.is_modal {
             match self.keymap_engine.modal_mode {
                 crate::editor::keymap_loader::ModalMode::Normal => "NORMAL",
@@ -5217,9 +5229,15 @@ impl Editor {
                 (self.screen.rows.saturating_sub(1), 0)
             }
             EditorMode::Normal => {
-                let tab_offset = if self.screen.has_tab_bar { 1 } else { 0 };
-                let row = tab_offset + primary_pos.line.saturating_sub(self.screen.scroll_row);
-                let col = gutter_width + primary_pos.col.saturating_sub(self.screen.scroll_col);
+                let mut header_offset = 0;
+                if self.screen.has_menu_bar {
+                    header_offset += 1;
+                }
+                if self.screen.has_tab_bar {
+                    header_offset += 1;
+                }
+                let row = header_offset + primary_pos.line.saturating_sub(self.screen.scroll_row);
+                let col = sidebar_cols + gutter_width + primary_pos.col.saturating_sub(self.screen.scroll_col);
                 (row, col)
             }
         };

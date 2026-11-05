@@ -16,6 +16,7 @@ pub struct Screen {
     pub scroll_row: usize,
     pub scroll_col: usize,
     pub has_tab_bar: bool,
+    pub has_menu_bar: bool,
     pub theme: Theme,
     draw_buffer: String,
 }
@@ -30,6 +31,7 @@ impl Screen {
             scroll_row: 0,
             scroll_col: 0,
             has_tab_bar: true,
+            has_menu_bar: true,
             theme: Theme::modern_dark(),
             draw_buffer: String::with_capacity(rows * cols * 4),
         }
@@ -42,19 +44,27 @@ impl Screen {
         self.cols = cols;
     }
 
-    /// Available height for document text (excluding tab bar, status, and prompt lines).
+    /// Available height for document text (excluding menu bar, tab bar, status, and prompt lines).
     pub fn text_area_height(&self) -> usize {
-        if self.has_tab_bar {
-            self.rows.saturating_sub(3)
-        } else {
-            self.rows.saturating_sub(2)
+        let mut overhead = 2; // status line + prompt line
+        if self.has_menu_bar {
+            overhead += 1;
         }
+        if self.has_tab_bar {
+            overhead += 1;
+        }
+        self.rows.saturating_sub(overhead)
     }
 
     /// Adjusts scroll offsets so that the cursor position is within the visible viewport.
     pub fn adjust_viewport(&mut self, cursor_line: usize, cursor_col: usize, gutter_width: usize) {
+        self.adjust_viewport_with_sidebar(cursor_line, cursor_col, gutter_width, 0);
+    }
+
+    /// Adjusts scroll offsets taking into account any visible sidebar width.
+    pub fn adjust_viewport_with_sidebar(&mut self, cursor_line: usize, cursor_col: usize, gutter_width: usize, sidebar_cols: usize) {
         let height = self.text_area_height();
-        let width = self.cols.saturating_sub(gutter_width + 1);
+        let width = self.cols.saturating_sub(gutter_width + sidebar_cols + 1);
 
         // Vertical scroll
         if cursor_line < self.scroll_row {
@@ -103,9 +113,27 @@ impl Screen {
         cursor_set: &CursorSet,
         lang: Language,
     ) {
+        self.render_document_with_sidebar(buffer, cursor_set, lang, None);
+    }
+
+    /// Renders the document view side-by-side with an optional file explorer sidebar.
+    pub fn render_document_with_sidebar(
+        &mut self,
+        buffer: &TextBuffer,
+        cursor_set: &CursorSet,
+        lang: Language,
+        sidebar: Option<&crate::editor::sidebar::FileExplorer>,
+    ) {
         let total_lines = buffer.len_lines();
         let gutter_width = Self::calculate_gutter_width(total_lines);
         let text_height = self.text_area_height();
+
+        let show_sidebar = sidebar.map(|s| s.is_visible).unwrap_or(false);
+        let sidebar_width = if show_sidebar {
+            26.min(self.cols.saturating_sub(40))
+        } else {
+            0
+        };
 
         // Collect cursor positions and selections for fast checks
         let cursors = cursor_set.cursors();
@@ -123,11 +151,53 @@ impl Screen {
             }
         }
 
+        let visible_items = sidebar.map(|s| s.visible_items.as_slice()).unwrap_or(&[]);
+        let selected_item_idx = sidebar.map(|s| s.selected_idx).unwrap_or(0);
+        let sidebar_focused = sidebar.map(|s| s.is_focused).unwrap_or(false);
+
         for screen_row in 0..text_height {
+            // 1. Sidebar column if active
+            if sidebar_width > 0 {
+                self.draw_buffer.push_str("\x1b[48;5;235m");
+                if screen_row < visible_items.len() {
+                    let item = &visible_items[screen_row];
+                    let is_sel = screen_row == selected_item_idx;
+                    if is_sel {
+                        if sidebar_focused {
+                            self.draw_buffer.push_str("\x1b[48;5;24m\x1b[1;37m");
+                        } else {
+                            self.draw_buffer.push_str("\x1b[48;5;239m\x1b[38;5;255m");
+                        }
+                    } else if item.is_dir {
+                        self.draw_buffer.push_str("\x1b[1;36m");
+                    } else {
+                        self.draw_buffer.push_str("\x1b[38;5;250m");
+                    }
+
+                    let prefix = if item.is_dir {
+                        if item.is_expanded { "v " } else { "> " }
+                    } else {
+                        "  "
+                    };
+                    let indent = " ".repeat(item.depth.min(4) * 2);
+                    let full_name = format!("{}{}{}", indent, prefix, item.name);
+                    let max_name_len = sidebar_width.saturating_sub(2);
+                    let truncated: String = full_name.chars().take(max_name_len).collect();
+                    let pad = max_name_len.saturating_sub(truncated.chars().count());
+
+                    self.draw_buffer.push_str(&truncated);
+                    self.draw_buffer.push_str(&" ".repeat(pad));
+                } else {
+                    self.draw_buffer.push_str(&" ".repeat(sidebar_width.saturating_sub(1)));
+                }
+                // Divider character
+                self.draw_buffer.push_str("\x1b[48;5;234m\x1b[38;5;240m│\x1b[0m");
+            }
+
             let doc_line = self.scroll_row + screen_row;
 
             if doc_line < total_lines {
-                // 1. Line numbers gutter
+                // 2. Line numbers gutter
                 let line_num_str = format!("{:>width$} │", doc_line + 1, width = gutter_width - 2);
                 self.draw_buffer.push_str(self.theme.line_number_bg);
                 self.draw_buffer.push_str(self.theme.line_number_fg);
@@ -135,9 +205,9 @@ impl Screen {
                 self.draw_buffer.push_str(self.theme.bg_reset);
                 self.draw_buffer.push_str(self.theme.fg_reset);
 
-                // 2. Line content & syntax highlighting
+                // 3. Line content & syntax highlighting
                 let line_str = buffer.line(doc_line).unwrap_or_default();
-                let available_cols = self.cols.saturating_sub(gutter_width);
+                let available_cols = self.cols.saturating_sub(gutter_width + sidebar_width);
 
                 // Tokenize line
                 let spans = SyntaxHighlighter::tokenize_line(&line_str, lang);
@@ -200,7 +270,8 @@ impl Screen {
                 }
             } else {
                 // Empty lines past end of document: display '~'
-                let tilde = format!("~{:width$}", "", width = self.cols.saturating_sub(1));
+                let avail = self.cols.saturating_sub(sidebar_width);
+                let tilde = format!("~{:width$}", "", width = avail.saturating_sub(1));
                 self.draw_buffer.push_str("\x1b[38;5;240m");
                 self.draw_buffer.push_str(&tilde);
                 self.draw_buffer.push_str("\x1b[0m");
@@ -208,6 +279,28 @@ impl Screen {
 
             self.draw_buffer.push_str("\r\n");
         }
+    }
+
+    /// Renders the top menu bar categories: Archivo, Editar, Selección, etc.
+    pub fn render_menu_bar(&mut self, menu_bar: &crate::editor::menu::MenuBar) {
+        // Menu bar styling: inverted / dark grey header
+        self.draw_buffer.push_str("\x1b[48;5;236m\x1b[38;5;253m");
+
+        let mut rendered_len = 0;
+        for (i, cat) in menu_bar.categories.iter().enumerate() {
+            let is_active = menu_bar.active_category == Some(i);
+            let item_str = if is_active {
+                format!("\x1b[48;5;24m\x1b[1;37m {} \x1b[48;5;236m\x1b[38;5;253m", cat.name)
+            } else {
+                format!(" {} ", cat.name)
+            };
+            self.draw_buffer.push_str(&item_str);
+            rendered_len += cat.name.chars().count() + 2;
+        }
+
+        let padding = self.cols.saturating_sub(rendered_len);
+        self.draw_buffer.push_str(&" ".repeat(padding));
+        self.draw_buffer.push_str("\x1b[0m\r\n");
     }
 
     /// Renders the top tab bar displaying open buffers.
