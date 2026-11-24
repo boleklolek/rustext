@@ -56,6 +56,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **SEC-10 (CWE-401)**: Replaced `Box::leak` with `Cow<'static, str>` in `CommandItem`, eliminating memory leaks across Command Palette modal invocations.
 
 ### ⚡ Performance & Fixes
+- **Real-Time CPU Rendering and Blending Optimizations (Phase 2)**:
+  - Vectorized contiguous row blending in `Framebuffer::fill_rect_alpha` with precalculated source channels hoisted out of the inner pixel loop, lowering overhead for selections, translucent overlays, and block cursors.
+  - Zero-allocation line number formatting (`format_line_number_into`) utilizing a fixed 16-byte stack buffer, eliminating repetitive heap `String` allocations for every visible line on every frame.
+  - Optimized Wayland shared memory transfer (`copy_from_slice`) replacing element-by-element iteration with hardware-accelerated memory block copy (`memcpy`).
 - **Theme Parser Optimizations**: Constant-time $\mathcal{O}(1)$ hex parsing using bitwise arithmetic (`hex_nibble`) and removal of intermediate string allocations in `parse_theme_ini`.
 - **Win32 Backend (`src/window/win32.rs`)**: Fixed `WM_CHAR` decoding (`raw_byte` and UTF-32 support), added `WM_RBUTTONUP` / `WM_MBUTTONUP` handlers, and enforced explicit `unsafe` blocks for Rust 2024 Edition.
 - **GitHub Actions**: Workflows updated to native Node.js 24 actions (`actions/checkout@v7`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `softprops/action-gh-release@v3`).

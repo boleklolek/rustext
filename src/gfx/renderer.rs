@@ -38,6 +38,28 @@ struct MinimapCacheKey {
 
 static MINIMAP_SURFACE_CACHE: OnceLock<RwLock<BTreeMap<MinimapCacheKey, Arc<Vec<u32>>>>> = OnceLock::new();
 
+/// Formats a line number into a caller-provided fixed stack buffer without heap allocation.
+#[inline(always)]
+fn format_line_number_into(num: usize, width: usize, buf: &mut [u8; 16]) -> &str {
+    let mut n = num;
+    let mut pos = 16;
+    if n == 0 {
+        pos -= 1;
+        buf[pos] = b'0';
+    } else {
+        while n > 0 && pos > 0 {
+            pos -= 1;
+            buf[pos] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+    }
+    let digits_len = 16 - pos;
+    let pad = if width > digits_len { width - digits_len } else { 0 };
+    let start = pos.saturating_sub(pad);
+    buf[start..pos].fill(b' ');
+    unsafe { std::str::from_utf8_unchecked(&buf[start..16]) }
+}
+
 pub struct GfxRenderer {
     pub colors: ThemeColors,
     pub scale_factor: f64,
@@ -1471,7 +1493,8 @@ impl GfxRenderer {
                 fb.fill_rect(pane_x + gutter_w.saturating_sub(1), py, 1, line_height, self.colors.gutter_border);
 
                 // Gutter line number with sticky accent highlight
-                let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                let mut num_buf = [0u8; 16];
+                        let num_str = format_line_number_into(line_idx + 1, gutter_cols, &mut num_buf);
                 fb.draw_text(&num_str, pane_x + char_w, text_y, self.colors.accent, None);
             }
 
@@ -1751,7 +1774,8 @@ impl GfxRenderer {
                         };
 
                         let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
-                        let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                        let mut num_buf = [0u8; 16];
+                        let num_str = format_line_number_into(line_idx + 1, gutter_cols, &mut num_buf);
                         let line_num_fg = if diag.is_some() {
                             fg_col
                         } else if is_cur_line && is_active {
@@ -1977,7 +2001,8 @@ impl GfxRenderer {
                             };
 
                             let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
-                            let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                            let mut num_buf = [0u8; 16];
+                        let num_str = format_line_number_into(line_idx + 1, gutter_cols, &mut num_buf);
                             let line_num_fg = if diag.is_some() {
                                 fg_col
                             } else if is_cur_line && is_active {
@@ -2462,7 +2487,8 @@ impl GfxRenderer {
                             };
 
                             let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
-                            let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                            let mut num_buf = [0u8; 16];
+                        let num_str = format_line_number_into(line_idx + 1, gutter_cols, &mut num_buf);
                             let line_num_fg = if diag.is_some() {
                                 fg_col
                             } else if is_cur_line {
@@ -2660,7 +2686,8 @@ impl GfxRenderer {
                                 };
 
                                 let is_cur_line = cursor_positions.iter().any(|p| p.line == line_idx);
-                                let num_str = format!("{:>width$}", line_idx + 1, width = gutter_cols);
+                                let mut num_buf = [0u8; 16];
+                        let num_str = format_line_number_into(line_idx + 1, gutter_cols, &mut num_buf);
                                 let line_num_fg = if diag.is_some() {
                                     fg_col
                                 } else if is_cur_line {

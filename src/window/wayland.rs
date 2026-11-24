@@ -788,9 +788,9 @@ impl WaylandWindow {
 
         let count = (fb.width * fb.height).min(self.slot_size / 4);
         unsafe {
-            for i in 0..count {
-                *dest_ptr.add(i) = *fb.pixels.get_unchecked(i) | 0xFF000000;
-            }
+            let src_slice = fb.pixels.as_slice();
+            let dest_slice = std::slice::from_raw_parts_mut(dest_ptr, count);
+            dest_slice.copy_from_slice(&src_slice[..count]);
         }
 
         // Attach new buffer, damage, and commit to Wayland compositor

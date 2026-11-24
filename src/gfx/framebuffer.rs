@@ -180,9 +180,26 @@ impl Framebuffer {
         let max_x = (x + w).min(self.width);
         let max_y = (y + h).min(self.height);
 
+        let a = alpha as u32;
+        let inv_a = 255 - a;
+        let sr = ((color >> 16) & 0xFF) * a;
+        let sg = ((color >> 8) & 0xFF) * a;
+        let sb = (color & 0xFF) * a;
+
         for cur_y in y..max_y {
-            for cur_x in x..max_x {
-                self.blend_pixel(cur_x, cur_y, color, alpha);
+            let row_offset = cur_y * self.width;
+            let slice = &mut self.pixels[row_offset + x..row_offset + max_x];
+            for p in slice.iter_mut() {
+                let dst = *p;
+                let dr = (dst >> 16) & 0xFF;
+                let dg = (dst >> 8) & 0xFF;
+                let db = dst & 0xFF;
+
+                let r = (sr + dr * inv_a) / 255;
+                let g = (sg + dg * inv_a) / 255;
+                let b = (sb + db * inv_a) / 255;
+
+                *p = 0xFF000000 | (r << 16) | (g << 8) | b;
             }
         }
     }

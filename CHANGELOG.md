@@ -56,6 +56,10 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - **SEC-10 (CWE-401)**: Migración de `Box::leak` a `Cow<'static, str>` en `CommandItem` de la Paleta de Comandos, eliminando fugas acumulativas de memoria al abrir y cerrar el modal repetidamente.
 
 ### ⚡ Rendimiento y Correcciones (Performance & Fixed)
+- **Optimización de Renderizado y Blending CPU en Tiempo Real (Fase 2)**:
+  - Vectorización de filas contiguas en `Framebuffer::fill_rect_alpha` con precomputación de canales fuente fuera del bucle interior de píxeles, reduciendo el costo de dibujo de selecciones, fondos translúcidos y cursores.
+  - Formateo de números de línea *zero-allocation* (`format_line_number_into`) mediante búfer de pila fijo de 16 bytes, eliminando la creación repetitiva de objetos `String` en el heap por cada línea visible en cada frame.
+  - Transferencia optimizada de búfer SHM en Wayland (`copy_from_slice`) sustituyendo la iteración manual píxel por píxel con copia de memoria acelerada por hardware (`memcpy`).
 - **Optimizaciones en Parser de Temas**: Conversión hexadecimal de tiempo constante $\mathcal{O}(1)$ mediante aritmética de bits (`hex_nibble`) y eliminación de asignaciones intermedias en `parse_theme_ini`.
 - **Win32 Backend (`src/window/win32.rs`)**: Corrección de decodificación de `WM_CHAR` (`raw_byte` y soporte Unicode UTF-32), manejo de `WM_RBUTTONUP` / `WM_MBUTTONUP` y bloques `unsafe` explícitos requeridos por Rust 2024 Edition.
 - **GitHub Actions**: Actualización de todos los workflows a acciones nativas sobre **Node.js 24** (`actions/checkout@v7`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, `softprops/action-gh-release@v3`).
