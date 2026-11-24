@@ -216,6 +216,11 @@ To avoid expensive floating-point power calculations per pixel during 60/120+ FP
 * High-DPI and scaled glyphs undergo 2x2 bilinear supersampling and morphological edge preservation.
 * Text retains crisp, dark-mode readability, optical balance, and uniform stem contrast across all display types.
 
+#### 5. CPU Rendering and Memory Transfer Hot-Path Optimizations
+* **Row-Contiguous Alpha Blending (`Framebuffer::fill_rect_alpha`)**: In [`src/gfx/framebuffer.rs`](src/gfx/framebuffer.rs), semi-transparent overlays, block cursors, and selections precompute color multipliers outside the pixel loop and process contiguous slices.
+* **Zero-Allocation Gutter Line Formatting (`format_line_number_into`)**: In [`src/gfx/renderer.rs`](src/gfx/renderer.rs), line numbers are written directly into a 16-byte fixed stack buffer without heap allocations per frame.
+* **Vectorized Wayland SHM Transfer (`WaylandWindow::present`)**: In [`src/window/wayland.rs`](src/window/wayland.rs), shared memory buffer updates use `copy_from_slice`, emitting hardware-accelerated block copies (`memcpy`).
+
 ---
 
 ### 3.5 Native HiDPI Support and Monitor Coordinate Scaling

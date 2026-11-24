@@ -128,6 +128,7 @@ Refer to the [**📖 User Manual and Complete Technical Reference (MANUAL_EN.md)
   - Continuous bilinear scaling (`font_scale >= 2`) for HiDPI displays without pixelation or staircase artifacts.
   - Static $\mathcal{O}(1)$ lookup tables of just 4.5 KB in L1 cache (`SRGB_TO_LINEAR_LUT` and `LINEAR_TO_SRGB_LUT`), achieving throughput exceeding 550 FPS with zero heap allocations.
   - 100% geometric sharpness preservation for box-drawing and boundary characters (`│`, `─`, `┌`, `█`, etc.).
+  - **CPU Hot-Path Optimizations**: Vectorized row-contiguous alpha blending (`fill_rect_alpha`), heap-free line number formatting (`[u8; 16]`), and hardware-accelerated shared memory buffer updates (`copy_from_slice`) to Wayland.
   - Fully configurable via `config.ini` (`font_antialiasing = true`, `gamma_correction = true`).
 
 - **Native HiDPI Support & Monitor Coordinate Scaling**:

@@ -128,6 +128,7 @@ Consulte el [**📖 Manual de Usuario y Referencia Técnica Completa (MANUAL.md)
   - Escalado bilineal continuo (`font_scale >= 2`) para pantallas HiDPI sin bordes pixelados ni efecto escalera (*staircase effect*).
   - Tablas de búsqueda estáticas $\mathcal{O}(1)$ de apenas 4.5 KB en caché L1 (`SRGB_TO_LINEAR_LUT` y `LINEAR_TO_SRGB_LUT`), logrando un throughput de renderizado superior a 550 FPS sin asignaciones dinámicas.
   - Preservación del 100% de nitidez geométrica en caracteres de dibujo de marcos y cajas (`│`, `─`, `┌`, `█`, etc.).
+  - **Optimizaciones de Hot-Path por CPU**: Mezcla translúcida contigua por filas (`fill_rect_alpha`), formateo de números de línea sin heap (`[u8; 16]`) y transferencias de memoria compartida vectorizadas (`copy_from_slice`) hacia Wayland.
   - Totalmente configurable desde `config.ini` (`font_antialiasing = true`, `gamma_correction = true`).
 
 - **Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor**:

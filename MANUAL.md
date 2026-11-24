@@ -281,6 +281,11 @@ El rasterizador tipográfico en [`src/gfx/font.rs`](src/gfx/font.rs) aporta:
 - **Escalador Bilineal Continuo**: Para factores de ampliación (`font_scale >= 2`), `rasterize_glyph_scaled` muestrea bilinealmente las matrices de cobertura a resolución continua, eliminando por completo los escalones dentados (*staircase effect*).
 - **Caché Estática Zero-Allocation**: Los glifos ASCII y caracteres especiales frecuentes se almacenan pre-rasterizados en `ASCII_AA_CACHE` mediante `OnceLock`, logrando más de **550 FPS** de rendimiento continuo en CPU pura.
 
+#### 5. Optimizaciones de Renderizado por CPU y Transferencia de Memoria
+- **Mezcla Alfa Contigua por Filas (`Framebuffer::fill_rect_alpha`)**: En [`src/gfx/framebuffer.rs`](src/gfx/framebuffer.rs), la mezcla translúcida procesa filas completas precomputando los canales de color fuente (`sr`, `sg`, `sb`) fuera del bucle de píxeles, reduciendo el costo de dibujo de selecciones, cursores y fondos modales.
+- **Formateo de Líneas Zero-Allocation (`format_line_number_into`)**: En [`src/gfx/renderer.rs`](src/gfx/renderer.rs), los números de línea del gutter se renderizan mediante un búfer de pila fijo de 16 bytes (`[u8; 16]`), eliminando por completo las asignaciones de heap de tipo `String` en cada fotograma.
+- **Transferencia Acelerada de Memoria Compartida en Wayland (`WaylandWindow::present`)**: En [`src/window/wayland.rs`](src/window/wayland.rs), la transferencia de píxeles hacia la memoria compartida del compositor (`shm_ptr`) se realiza mediante `copy_from_slice`, permitiendo que el compilador emita copias vectorizadas en bloque (`memcpy`).
+
 ---
 
 ### 3.5 Soporte HiDPI Nativo y Escalado de Coordenadas del Monitor
