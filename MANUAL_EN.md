@@ -81,7 +81,7 @@ Rustext is conceived from scratch to demonstrate that it is possible to build an
 1. **Zero External Dependencies (`Pure std`)**: Guaranteed binary portability, total build reproducibility, maximum security against supply-chain attacks, and sub-second full compilations.
 2. **Deterministic Latency and Instant Startup**: Cold startup in under 2 milliseconds. Text operations execute with $O(1)$ complexity regardless of document size.
 3. **Robust Piece Table Core**: Text modifications are stored as lightweight references over original immutable buffers and contiguous append-only buffers, avoiding massive memory reallocations.
-4. **Universal Native Rendering**: Built-in CPU software rasterizer capable of drawing UI widgets, text with subpixel antialiasing and gamma correction, split views, and minimaps directly into an operating-system framebuffer without GPU abstraction bloat.
+4. **Universal Native Rendering & Modular Architecture**: Built-in CPU software rasterizer capable of drawing UI widgets, text with subpixel antialiasing and gamma correction, split views, and minimaps directly into an operating-system framebuffer without GPU abstraction bloat. Modular separation of concerns into dedicated subsystems for JSON AST parsing ([`src/core/json.rs`](file:///home/bolek/Projectos/rustext/src/core/json.rs)), interactive UI bounding geometries ([`src/gfx/geometry.rs`](file:///home/bolek/Projectos/rustext/src/gfx/geometry.rs)), theme palettes ([`src/gfx/colors.rs`](file:///home/bolek/Projectos/rustext/src/gfx/colors.rs)), and modal dialog states ([`src/editor/dialogs.rs`](file:///home/bolek/Projectos/rustext/src/editor/dialogs.rs)).
 
 ---
 

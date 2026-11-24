@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### ✨ Added
+- **Core Modularization & Decoupling Architecture (Phase 1)**:
+  - Extracted standalone zero-dependency JSON AST & parser into [`src/core/json.rs`](src/core/json.rs), decoupling JSON data serialization and parsing from LSP protocol transport.
+  - Extracted modal confirm dialogs and editor states (`UnsavedConfirmDialog`, `EditorMode`) into [`src/editor/dialogs.rs`](src/editor/dialogs.rs).
+  - Decoupled interactive UI geometries and bounding boxes (`ScrollbarGeometry`, `MinimapGeometry`, `AutocompleteGeometry`, `PaneGeometry`) into [`src/gfx/geometry.rs`](src/gfx/geometry.rs).
+  - Extracted built-in theme color palettes and `ThemeColors` struct into [`src/gfx/colors.rs`](src/gfx/colors.rs), streamlining the primary software renderer in `src/gfx/renderer.rs`.
 - **Modular Keymap System (`.keymap`) and Vim / Emacs Profiles**:
   - Declarative template-based keymap architecture modeled after the theme system: modular template files in `assets/keymaps/` (`default.keymap`, `vim.keymap`, `emacs.keymap`) with support for custom user keymaps in `~/.rustext/keymaps/` and `./.rustext/keymaps/`.
   - Full support for multi-step prefix chord sequences (`KeyChord::Sequence`) such as `Ctrl+X Ctrl+S` in Emacs and `g g` in Vim.

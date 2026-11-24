@@ -9,6 +9,11 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Modularización y Desacoplamiento de Componentes Clave (Fase 1)**:
+  - Extracción del AST y analizador sintáctico JSON independiente en [`src/core/json.rs`](src/core/json.rs), desacoplándolo del protocolo LSP y facilitando su uso transversal con cero dependencias externas.
+  - Extracción de diálogos modales y confirmaciones de salida/guardado (`UnsavedConfirmDialog`, `EditorMode`) en [`src/editor/dialogs.rs`](src/editor/dialogs.rs).
+  - Desacoplamiento de primitivas de geometría interactiva (`ScrollbarGeometry`, `MinimapGeometry`, `AutocompleteGeometry`, `PaneGeometry`) en [`src/gfx/geometry.rs`](src/gfx/geometry.rs).
+  - Extracción de paletas de temas integradas y estructura `ThemeColors` en [`src/gfx/colors.rs`](src/gfx/colors.rs), descongestionando el renderizador principal `src/gfx/renderer.rs`.
 - **Sistema Modular de Mapas de Teclas (`.keymap`) y Perfiles Vim / Emacs**:
   - Arquitectura declarativa de plantillas de atajos `.keymap` inspirada en el sistema de temas: plantillas oficiales modularizadas en `assets/keymaps/` (`default.keymap`, `vim.keymap`, `emacs.keymap`) y soporte para mapas personalizados de usuario en `~/.rustext/keymaps/` y `./.rustext/keymaps/`.
   - Soporte completo para acordes compuestos de 2 pasos (`KeyChord::Sequence`) como `Ctrl+X Ctrl+S` en Emacs y `g g` en Vim.

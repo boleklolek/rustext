@@ -80,6 +80,7 @@ Rustext fue diseñado bajo tres principios inquebrantables:
    - **Windows**: Creación de ventana Win32 nativa (`user32.dll`, `gdi32.dll`) y dibujo mediante `StretchDIBits`.
    - **macOS**: Creación de ventana Cocoa / AppKit a través del runtime estándar de Objective-C (`objc_msgSend`).
    - **Renderizador de Software**: Framebuffer ARGB de 32 bits con primitivas 2D aceleradas, esquinas redondeadas anti-aliased, sombras proyectadas suaves, píldoras informativas, rasterizador de fuentes con anti-aliasing subpixel y composición gamma físicamente correcta (sRGB IEC 61966-2-1 en luz lineal).
+   - **Arquitectura Modular Desacoplada**: El sistema visual y el núcleo del editor separan responsabilidades mediante módulos independientes para el analizador sintáctico JSON ([`src/core/json.rs`](file:///home/bolek/Projectos/rustext/src/core/json.rs)), geometrías interactivas de viewport ([`src/gfx/geometry.rs`](file:///home/bolek/Projectos/rustext/src/gfx/geometry.rs)), paletas de colores ([`src/gfx/colors.rs`](file:///home/bolek/Projectos/rustext/src/gfx/colors.rs)) y diálogos modales ([`src/editor/dialogs.rs`](file:///home/bolek/Projectos/rustext/src/editor/dialogs.rs)).
 
 ---
 

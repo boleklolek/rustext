@@ -19,11 +19,13 @@ pub mod folding;
 pub mod lsp;
 pub mod jump_list;
 pub mod workspace;
+pub mod dialogs;
 
 pub use keymap::{EditorAction, Keymap};
 pub use keymap_loader::{KeymapEngine, KeymapProfile, KeymapMeta, ModalMode, load_keymap_profile, available_keymaps};
 pub use document::Document;
-pub use app::{Editor, EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog};
+pub use dialogs::{EditorMode, UnsavedConfirmAction, UnsavedConfirmDialog};
+pub use app::Editor;
 pub use menu::{MenuBar, MenuItem, MenuCategory};
 pub use config::{EditorConfig, EditorTheme, EditorSettings, ThemeSettings, GuiSettings, LspSettings};
 pub use snippet::{Snippet, SnippetSession, SnippetRegistry, SnippetTabstop, ExpandedSnippet};

@@ -1,2 +1,7 @@
 /target
 .rustext/
+*.svg
+*.data
+*.data.old
+perf.data*
+

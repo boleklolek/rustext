@@ -14,6 +14,8 @@ pub mod shaping;
 pub mod stem_darkening;
 pub mod theme_loader;
 pub mod ttf;
+pub mod colors;
+pub mod geometry;
 
 pub use animation::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
 pub use analytic_aa::AnalyticAA;
@@ -25,7 +27,9 @@ pub use gamma::{blend_channel_gamma, blend_pixel_gamma, blend_pixel_naive, GAMMA
 pub use hidpi::{DisplayFormFactor, DisplayMetrics, HiDpiDetector, IsoComplianceRating, IsoLegibilityReport};
 pub use hinting::{FontHinter, HintingLevel};
 pub use optical_spacing::{GlyphOpticalMetrics, OpticalPunctuationSpacing, PunctuationClass};
-pub use renderer::{GfxRenderer, ScrollbarGeometry, ThemeColors};
+pub use colors::ThemeColors;
+pub use geometry::{AutocompleteGeometry, MinimapGeometry, PaneGeometry, ScrollbarGeometry};
+pub use renderer::GfxRenderer;
 pub use sdf::{SdfFontRasterizer, SignedDistanceField};
 pub use shaping::{FontShaper, LigatureKind, ShapedGlyph};
 pub use stem_darkening::StemDarkener;
