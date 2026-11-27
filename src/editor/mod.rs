@@ -20,6 +20,10 @@ pub mod lsp;
 pub mod jump_list;
 pub mod workspace;
 pub mod dialogs;
+pub mod actions;
+pub mod line_ops;
+pub mod navigation;
+pub mod mouse;
 
 pub use keymap::{EditorAction, Keymap};
 pub use keymap_loader::{KeymapEngine, KeymapProfile, KeymapMeta, ModalMode, load_keymap_profile, available_keymaps};
