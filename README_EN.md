@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-v0.2.0-blue.svg" alt="Version: 0.2.0" /></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-v0.3.0-blue.svg" alt="Version: 0.3.0" /></a>
   <a href="https://github.com/boleklolek/rustext/actions"><img src="https://github.com/boleklolek/rustext/actions/workflows/ci.yml/badge.svg" alt="CI/CD" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0" /></a>
   <a href="src/"><img src="https://img.shields.io/badge/Lines_of_Code-~52k%20LoC-informational.svg" alt="Lines of Code" /></a>
@@ -511,18 +511,18 @@ inlay_hints = true
 
 ---
 
-## 📥 Direct Downloads & Native Installers ([`v0.2.0`](https://github.com/boleklolek/rustext/releases/tag/v0.2.0))
+## 📥 Direct Downloads & Native Installers ([`v0.3.0`](https://github.com/boleklolek/rustext/releases/tag/v0.3.0))
 
 You can download prebuilt binaries and native system installers directly from [**GitHub Releases**](https://github.com/boleklolek/rustext/releases/latest):
 
 | Platform / OS | Format | Direct Download Link | Quick Installation |
 | :--- | :---: | :--- | :--- |
-| **Linux (Debian / Ubuntu x86_64)** | `.deb` | [**`rustext_0.2.0_amd64.deb`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext_0.2.0_amd64.deb) | `sudo dpkg -i rustext_0.2.0_amd64.deb` |
-| **Linux (Generic x86_64 GNU)** | `.tar.gz` | [**`rustext-v0.2.0-x86_64-unknown-linux-gnu.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-unknown-linux-gnu.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext -g` |
-| **Windows (MSI Installer x64)** | `.msi` | [**`rustext-v0.2.0-x86_64-pc-windows-msvc.msi`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-pc-windows-msvc.msi) | Double-click or `msiexec /i rustext-v0.2.0-x86_64-pc-windows-msvc.msi` |
-| **Windows (Portable x64)** | `.zip` | [**`rustext-v0.2.0-x86_64-pc-windows-msvc.zip`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-x86_64-pc-windows-msvc.zip) | Extract and run `rustext.exe` or `.\install.ps1` |
-| **macOS (Apple Silicon / Intel)** | `.tar.gz` | [**`rustext-v0.2.0-apple-darwin.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/rustext-v0.2.0-apple-darwin.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext` |
-| **SHA-256 Checksums** | `.txt` | [**`SHA256SUMS.txt`**](https://github.com/boleklolek/rustext/releases/download/v0.2.0/SHA256SUMS.txt) | `sha256sum -c SHA256SUMS.txt --ignore-missing` |
+| **Linux (Debian / Ubuntu x86_64)** | `.deb` | [**`rustext_0.3.0_amd64.deb`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/rustext_0.3.0_amd64.deb) | `sudo dpkg -i rustext_0.3.0_amd64.deb` |
+| **Linux (Generic x86_64 GNU)** | `.tar.gz` | [**`rustext-v0.3.0-x86_64-unknown-linux-gnu.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/rustext-v0.3.0-x86_64-unknown-linux-gnu.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext -g` |
+| **Windows (MSI Installer x64)** | `.msi` | [**`rustext-v0.3.0-x86_64-pc-windows-msvc.msi`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/rustext-v0.3.0-x86_64-pc-windows-msvc.msi) | Double-click or `msiexec /i rustext-v0.3.0-x86_64-pc-windows-msvc.msi` |
+| **Windows (Portable x64)** | `.zip` | [**`rustext-v0.3.0-x86_64-pc-windows-msvc.zip`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/rustext-v0.3.0-x86_64-pc-windows-msvc.zip) | Extract and run `rustext.exe` or `.\install.ps1` |
+| **macOS (Apple Silicon / Intel)** | `.tar.gz` | [**`rustext-v0.3.0-apple-darwin.tar.gz`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/rustext-v0.3.0-apple-darwin.tar.gz) | `tar -xzf rustext-*.tar.gz && ./rustext-*/rustext` |
+| **SHA-256 Checksums** | `.txt` | [**`SHA256SUMS.txt`**](https://github.com/boleklolek/rustext/releases/download/v0.3.0/SHA256SUMS.txt) | `sha256sum -c SHA256SUMS.txt --ignore-missing` |
 
 ---
 

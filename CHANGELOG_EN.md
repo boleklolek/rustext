@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+---
+
+## [v0.3.0] - 2026-11-27
+
 ### ✨ Added
 - **Core Modularization & Decoupling Architecture (Phase 1)**:
   - Extracted standalone zero-dependency JSON AST & parser into [`src/core/json.rs`](src/core/json.rs), decoupling JSON data serialization and parsing from LSP protocol transport.
@@ -87,5 +91,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Initial Security Audit (`SEC-01` to `SEC-06`)**:
   - Atomic file saving, extension and draft path confinement, cyclic symlink recursion guards, and secure Wayland clipboard piping.
 
+[Unreleased]: https://github.com/boleklolek/rustext/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/boleklolek/rustext/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/boleklolek/rustext/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/boleklolek/rustext/releases/tag/v0.1.0

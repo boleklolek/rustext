@@ -8,6 +8,10 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Sin publicar]
 
+---
+
+## [v0.3.0] - 2026-11-27
+
 ### ✨ Añadido (Added)
 - **Modularización y Desacoplamiento de Componentes Clave (Fase 1)**:
   - Extracción del AST y analizador sintáctico JSON independiente en [`src/core/json.rs`](src/core/json.rs), desacoplándolo del protocolo LSP y facilitando su uso transversal con cero dependencias externas.
@@ -87,5 +91,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - **Auditoría de Seguridad Inicial (`SEC-01` a `SEC-06`)**:
   - Guardado atómico de archivos, confinamiento de extensiones y borradores, protección contra enlaces simbólicos cíclicos y canalización segura al portapapeles Wayland.
 
+[Sin publicar]: https://github.com/boleklolek/rustext/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/boleklolek/rustext/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/boleklolek/rustext/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/boleklolek/rustext/releases/tag/v0.1.0

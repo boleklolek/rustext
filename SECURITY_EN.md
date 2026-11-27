@@ -9,7 +9,7 @@ Security, user data integrity, and complete immunity against supply-chain attack
 | Version | Support Status | Third-Party Dependencies |
 | :---: | :--- | :---: |
 | **`0.2.x`** | ✅ **Actively supported** (Security patches and feature updates) | `0` (Pure `std::*`) |
-| `< 0.2.0` | ⚠️ Upgrade to `v0.2.0` or later | `0` (Pure `std::*`) |
+| `< 0.3.0` | ⚠️ Upgrade to `v0.3.0` or later | `0` (Pure `std::*`) |
 
 ---
 

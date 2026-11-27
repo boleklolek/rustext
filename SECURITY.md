@@ -9,7 +9,7 @@ La seguridad, la integridad de los datos del usuario y la inmunidad frente a ata
 | Versión | Estado de Soporte | Dependencias de Terceros |
 | :---: | :--- | :---: |
 | **`0.2.x`** | ✅ **Soportada activamente** (Parches de seguridad y actualizaciones) | `0` (`std::*` puro) |
-| `< 0.2.0` | ⚠️ Actualizar a `v0.2.0` o superior | `0` (`std::*` puro) |
+| `< 0.3.0` | ⚠️ Actualizar a `v0.3.0` o superior | `0` (`std::*` puro) |
 
 ---
 

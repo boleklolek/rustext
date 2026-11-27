@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-0.2.0}"
+VERSION="${1:-0.3.0}"
 VERSION="${VERSION#v}"
 ARCH="amd64"
 PKG_NAME="rustext_${VERSION}_${ARCH}"
