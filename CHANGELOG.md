@@ -9,6 +9,13 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Backend Gráfico Nativo para macOS (`CocoaWindow`)**:
+  - Implementación completa sin dependencias externas de `CocoaWindow` en [`src/window/macos.rs`](src/window/macos.rs) utilizando AppKit y CoreGraphics mediante el runtime de Objective-C (`objc_msgSend`).
+  - Creación y activación de ventana nativa `NSWindow` con estilo estándar (cerrar, minimizar, redimensionar, pantalla completa) y soporte Retina hidpi (`scale_factor`).
+  - Despacho de eventos de usuario en `poll_event`: pulsaciones de teclas (`Char` / `Key` con soporte para modificadores `Command`/`Ctrl`, `Shift`, `Option`/`Alt`), clics y arrastre del ratón (`MouseDown`, `MouseUp`, `MouseMove`), desplazamiento vertical (`ScrollWheel`) y redimensionamiento dinámico (`Resize`).
+  - Renderizado de framebuffer por software sobre `NSView` / `CALayer` mediante `CGBitmapContext` y `CGImage`.
+  - Soporte para acciones de ventana: minimizar (`miniaturize:`), alternar zoom/maximizar (`zoom:`) y arrastre interactivo (`performWindowDragWithEvent:`).
+  - *Nota*: Desarrollado y validado a nivel de tipos; no probado visualmente en hardware Mac en esta sesión.
 - **Expansión de Sintaxis y Lenguajes (Go, Zig, Lua)**:
   - Soporte de primer nivel con cero dependencias en el lexer y tokenizador nativo para:
     - **Go (`.go`)**: palabras clave (`func`, `defer`, `chan`, `go`, `package`, etc.), tipos integrados (`bool`, `int`, `rune`, `string`, etc.), literales de cadena multilínea en comillas invertidas (`` `raw string` ``) y comentarios de línea (`//`) y bloque (`/* ... */`).
