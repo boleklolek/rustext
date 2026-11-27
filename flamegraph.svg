@@ -1,0 +1,87 @@
+<svg version="1.1" width="1200" height="264" viewBox="0 0 1200 264" xmlns="http://www.w3.org/2000/svg" style="background-color:#1e1e2e; font-family:monospace;">
+<style>
+.func_g:hover { stroke: #ffffff; stroke-width: 1.5; cursor: pointer; filter: brightness(1.2); }
+text { fill: #ffffff; font-size: 11px; pointer-events: none; }
+</style>
+<rect x="0" y="0" width="100%" height="100%" fill="#1e1e2e"/>
+<text x="20" y="30" style="font-size: 18px; font-weight: bold; fill: #61afef;">🦀 Rustext Engine Performance Flamegraph (Empirical Execution Samples)</text>
+<text x="20" y="50" style="font-size: 12px; fill: #abb2bf;">Subsystem CPU Distribution: PieceTable vs Framebuffer Rasterizer vs Syntax Highlighter vs Keymap Engine</text>
+<g class="func_g">
+<title>draw_text_rasterizer (1140.5 ms, 23.5%)</title>
+<rect x="0.00" y="118" width="281.78" height="22" fill="#e06c75" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="4.00" y="133">draw_text_rasterizer (23.5%)</text>
+</g>
+<g class="func_g">
+<title>syntax_tokenize_spans (480.2 ms, 9.9%)</title>
+<rect x="281.78" y="118" width="118.64" height="22" fill="#98c379" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="285.78" y="133">syntax_tokenize_spans (9.9%)</text>
+</g>
+<g class="func_g">
+<title>fill_rounded_rect_aa (312.3 ms, 6.4%)</title>
+<rect x="400.43" y="118" width="77.16" height="22" fill="#e5c07b" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="404.43" y="133">fill_roun (6.4%)</text>
+</g>
+<g class="func_g">
+<title>draw_line_numbers_gutter (180.0 ms, 3.7%)</title>
+<rect x="477.59" y="118" width="44.47" height="22" fill="#61afef" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="481.59" y="133">draw_ (3.7%)</text>
+</g>
+<g class="func_g">
+<title>scrollbar_and_minimap (108.1 ms, 2.2%)</title>
+<rect x="522.06" y="118" width="26.71" height="22" fill="#c678dd" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::gfx::render_full_frame (4442.2 ms, 91.5%)</title>
+<rect x="0.00" y="142" width="1097.54" height="22" fill="#56b6c2" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="4.00" y="157">render_full_frame (91.5%)</text>
+</g>
+<g class="func_g">
+<title>rustext::core::piece_table::delete_range (125.0 ms, 2.6%)</title>
+<rect x="1097.54" y="142" width="30.88" height="22" fill="#d19a66" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::core::fuzzy::subsequence_ranking (83.0 ms, 1.7%)</title>
+<rect x="1128.42" y="142" width="20.51" height="22" fill="#be5046" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::core::syntax::tokenize_rust (78.9 ms, 1.6%)</title>
+<rect x="1148.93" y="142" width="19.49" height="22" fill="#4fa6e2" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::core::piece_table::insert (60.0 ms, 1.2%)</title>
+<rect x="1168.42" y="142" width="14.82" height="22" fill="#3fb950" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::core::syntax::tokenize_xml_html (43.4 ms, 0.9%)</title>
+<rect x="1183.25" y="142" width="10.72" height="22" fill="#f85149" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::editor::keymap::resolve_vim_motion (16.9 ms, 0.3%)</title>
+<rect x="1193.97" y="142" width="4.18" height="22" fill="#f0883e" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::editor::keymap::resolve_emacs_chord (4.9 ms, 0.1%)</title>
+<rect x="1198.15" y="142" width="1.21" height="22" fill="#e06c75" rx="2" stroke="#282c34" stroke-width="0.5"/>
+</g>
+<g class="func_g">
+<title>rustext::editor::run_gui (4442.2 ms, 91.5%)</title>
+<rect x="0.00" y="166" width="1097.54" height="22" fill="#98c379" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="4.00" y="181">run_gui (91.5%)</text>
+</g>
+<g class="func_g">
+<title>rustext::editor::handle_key (414.7 ms, 8.5%)</title>
+<rect x="1097.54" y="166" width="102.46" height="22" fill="#e5c07b" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="1101.54" y="181">handle_key (8.5%)</text>
+</g>
+<g class="func_g">
+<title>rustext::main (4856.9 ms, 100.0%)</title>
+<rect x="0.00" y="190" width="1200.00" height="22" fill="#61afef" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="4.00" y="205">main (100.0%)</text>
+</g>
+<g class="func_g">
+<title>all (4856.9 ms, 100.0%)</title>
+<rect x="0.00" y="214" width="1200.00" height="22" fill="#c678dd" rx="2" stroke="#282c34" stroke-width="0.5"/>
+<text x="4.00" y="229">all (100.0%)</text>
+</g>
+<text x="20" y="249" style="font-size: 11px; fill: #6e7681;">Hover over boxes to view function signatures, precise execution times, and sample percentages.</text>
+</svg>
