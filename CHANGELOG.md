@@ -8,6 +8,31 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Sin publicar]
 
+### ✨ Añadido (Added)
+- **Línea de Comandos Vim (`:`) y Operadores Avanzados**:
+  - Modal interactivo de línea de comandos estilo Vim (`:`) que soporta comandos esenciales:
+    - `:w` / `:write` y `:w <ruta>` para guardar el búfer activo o guardar en una ruta específica.
+    - `:q` / `:quit` para cerrar la pestaña o salir del editor (respetando comprobación de cambios no guardados).
+    - `:q!` / `:quit!` para forzar el cierre descartando modificaciones.
+    - `:wq` / `:x` para guardar y cerrar la pestaña o el editor.
+    - `:qa` / `:qall` y `:qa!` para cerrar todas las pestañas.
+    - `:e <ruta>` / `:edit <ruta>` para abrir archivos directamente.
+    - `:<número>` para salto instantáneo a la línea indicada con centrado de viewport.
+    - `:s/patrón/reemplazo/` y `:%s/patrón/reemplazo/` para sustitución global en todo el búfer.
+  - Movimientos avanzados de texto en Vim:
+    - `w`: avance al inicio de la siguiente palabra.
+    - `b`: retroceso al inicio de la palabra anterior.
+    - `G`: salto al final del archivo.
+    - `g g`: salto al inicio del archivo mediante acorde compuesto.
+  - Operadores de línea e inserción:
+    - `d d`: borrado de la línea completa con corte al portapapeles.
+    - `y y`: copia de la línea completa al portapapeles.
+    - `o`: apertura de una nueva línea abajo con auto-indentación e ingreso automático a modo *Insert*.
+    - `O`: apertura de una nueva línea arriba con auto-indentación e ingreso automático a modo *Insert*.
+  - **Cursor dinámico según el modo modal**:
+    - En GUI nativa: cursor de bloque sólido (`block`) en modo *Normal* y *Visual*, y cursor de barra delgada (`bar`) en modo *Insert*.
+    - En TUI terminal: emisión reactiva de secuencias de escape ANSI DECSCUSR (`\x1b[2 q` para bloque y `\x1b[6 q` para barra/línea).
+
 ---
 
 ## [v0.3.0] - 2026-11-27

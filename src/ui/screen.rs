@@ -90,6 +90,19 @@ impl Screen {
 
     /// Flushes the complete frame to stdout and restores cursor.
     pub fn end_frame(&mut self, cursor_screen_row: usize, cursor_screen_col: usize) -> io::Result<()> {
+        self.end_frame_with_cursor_style(cursor_screen_row, cursor_screen_col, None)
+    }
+
+    /// Flushes the complete frame to stdout, applies optional cursor style escape (e.g. DECSCUSR), and restores cursor.
+    pub fn end_frame_with_cursor_style(
+        &mut self,
+        cursor_screen_row: usize,
+        cursor_screen_col: usize,
+        cursor_style_escape: Option<&str>,
+    ) -> io::Result<()> {
+        if let Some(esc) = cursor_style_escape {
+            self.draw_buffer.push_str(esc);
+        }
         // Move cursor to active position and show it
         let move_cursor = format!("\x1b[{};{}H\x1b[?25h", cursor_screen_row + 1, cursor_screen_col + 1);
         self.draw_buffer.push_str(&move_cursor);

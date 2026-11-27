@@ -42,9 +42,7 @@ p = paste
 
 # Search & Commands
 / = search
-: w = save
-: q = quit
-: w q = save_and_quit
+: = vim_command_line
 Ctrl+p = file_finder
 Ctrl+w v = toggle_split_vertical
 Ctrl+w s = toggle_split_horizontal

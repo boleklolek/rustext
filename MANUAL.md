@@ -1046,6 +1046,31 @@ Rustext ofrece un sistema dual de navegación y productividad instantánea:
 | :--- | :--- | :--- |
 | `Ctrl + P` | **Ir a Archivo (Fuzzy File Finder)** | Ver > Ir a Archivo... |
 | `Ctrl + Shift + P`| **Abrir Paleta de Comandos** | Ver > Paleta de Comandos... |
+
+### 12.1 Modo Modal Vim y Línea de Comandos (`:`)
+
+Al activar el mapa de teclas `vim` (vía `config.ini` o menú *Preferencias > Mapa de Teclas*), Rustext opera en modo modal:
+
+- **Modos**:
+  - **Normal**: Modo por defecto. Movimiento con `h`/`j`/`k`/`l`, `0`/`$`, palabras `w`/`b`, extremos `g g`/`G`.
+  - **Insert**: Inserción de texto con `i` (en posición actual), `a` (después del cursor), `o` (nueva línea abajo), `O` (nueva línea arriba). Presione `Esc` para retornar a Normal.
+  - **Visual**: Selección de texto con `v`. Todos los movimientos de cursor expanden la selección visual activa.
+- **Operadores de Línea**:
+  - `d d`: Corta la línea actual al portapapeles.
+  - `y y`: Copia la línea actual al portapapeles.
+  - `p`: Pega el contenido del portapapeles.
+  - `u` / `Ctrl + R`: Deshacer y rehacer.
+- **Línea de Comandos Vim (`:`)**:
+  - Presione `:` en modo Normal para abrir el prompt de comandos inferior:
+    - `:w` o `:write`: Guarda el archivo actual.
+    - `:w <ruta>`: Guarda en la ruta indicada.
+    - `:q` o `:quit`: Cierra la pestaña activa o sale de la aplicación.
+    - `:q!`: Fuerza el cierre descartando cambios no guardados.
+    - `:wq` o `:x`: Guarda y cierra la pestaña o sale.
+    - `:e <ruta>` o `:edit <ruta>`: Abre el archivo especificado.
+    - `:<número>`: Salta directamente a la línea indicada.
+    - `:%s/buscar/reemplazar/`: Reemplazo global en todo el documento.
+- **Cursor Dinámico**: El cursor se adapta automáticamente: bloque sólido (`█`) en Normal y Visual, y barra vertical (`|`) en Insert tanto en GUI como en TUI.
 | `Ctrl + S` | Guardar archivo actual | Archivo > Guardar |
 | `Ctrl + O` | Abrir diálogo de archivo | Archivo > Abrir Archivo... |
 | `Ctrl + Shift + O` | **Abrir Carpeta de Proyecto / Workspace** | Archivo > Abrir Carpeta de Proyecto... |

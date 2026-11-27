@@ -166,6 +166,17 @@ impl KeymapEngine {
                         self.set_modal_mode(ModalMode::Visual);
                         return Some(EditorAction::None);
                     }
+                    if let Key::Char(':') = key {
+                        return Some(EditorAction::OpenVimCommandLine);
+                    }
+                    if let Key::Char('o') = key {
+                        self.set_modal_mode(ModalMode::Insert);
+                        return Some(EditorAction::InsertLineBelow);
+                    }
+                    if let Key::Char('O') = key {
+                        self.set_modal_mode(ModalMode::Insert);
+                        return Some(EditorAction::InsertLineAbove);
+                    }
                     if let Key::Esc = key {
                         return Some(EditorAction::CollapseCursors);
                     }
@@ -189,6 +200,10 @@ impl KeymapEngine {
                             EditorAction::MoveDown { .. } => EditorAction::MoveDown { select: true },
                             EditorAction::MoveLineStart { .. } => EditorAction::MoveLineStart { select: true },
                             EditorAction::MoveLineEnd { .. } => EditorAction::MoveLineEnd { select: true },
+                            EditorAction::MoveWordForward { .. } => EditorAction::MoveWordForward { select: true },
+                            EditorAction::MoveWordBackward { .. } => EditorAction::MoveWordBackward { select: true },
+                            EditorAction::MoveFileStart { .. } => EditorAction::MoveFileStart { select: true },
+                            EditorAction::MoveFileEnd { .. } => EditorAction::MoveFileEnd { select: true },
                             other => other.clone(),
                         };
                         return Some(visual_act);
@@ -366,6 +381,15 @@ pub fn parse_action_name(name: &str) -> Option<EditorAction> {
         "move_down" => Some(EditorAction::MoveDown { select: false }),
         "move_line_start" => Some(EditorAction::MoveLineStart { select: false }),
         "move_line_end" => Some(EditorAction::MoveLineEnd { select: false }),
+        "move_word_forward" => Some(EditorAction::MoveWordForward { select: false }),
+        "move_word_backward" => Some(EditorAction::MoveWordBackward { select: false }),
+        "move_file_start" => Some(EditorAction::MoveFileStart { select: false }),
+        "move_file_end" => Some(EditorAction::MoveFileEnd { select: false }),
+        "delete_line" => Some(EditorAction::DeleteLine),
+        "copy_line" => Some(EditorAction::CopyLine),
+        "insert_line_below" => Some(EditorAction::InsertLineBelow),
+        "insert_line_above" => Some(EditorAction::InsertLineAbove),
+        "vim_command_line" => Some(EditorAction::OpenVimCommandLine),
         "move_line_up" => Some(EditorAction::MoveLineUp),
         "move_line_down" => Some(EditorAction::MoveLineDown),
         "duplicate_line_down" => Some(EditorAction::DuplicateLineDown),

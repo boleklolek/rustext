@@ -20,6 +20,7 @@ pub enum PromptKind {
     RenameSymbol,
     CodeActions,
     DocumentSymbols,
+    VimCommandLine,
 }
 
 impl PromptKind {
@@ -39,6 +40,7 @@ impl PromptKind {
             PromptKind::RenameSymbol => "Nuevo nombre: ",
             PromptKind::CodeActions => "Acción: ",
             PromptKind::DocumentSymbols => "Símbolo: ",
+            PromptKind::VimCommandLine => ":",
         }
     }
 
@@ -58,6 +60,7 @@ impl PromptKind {
             PromptKind::RenameSymbol => "Renombrar Símbolo en el Proyecto (F2)",
             PromptKind::CodeActions => "Acciones de Código y Quick Fixes (Ctrl+.)",
             PromptKind::DocumentSymbols => "Símbolos del Documento / Esquema (Ctrl+Shift+R)",
+            PromptKind::VimCommandLine => "Línea de Comandos Vim (:)",
         }
     }
 }

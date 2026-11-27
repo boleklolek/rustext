@@ -6656,3 +6656,97 @@ fn test_custom_keymap_switching_and_vim_emacs_execution() {
     editor.execute_action(EditorAction::SetKeymap("default".to_string()));
     assert_eq!(editor.keymap_engine.profile.meta.id, "default");
 }
+
+#[test]
+fn test_vim_command_line_and_advanced_motions() {
+    use rustext::editor::{Editor, EditorAction};
+    use rustext::ui::terminal::Key;
+
+    let text = "hello world rustext\nsecond line here\nthird line final";
+    let buf = TextBuffer::from_str(text);
+    let mut editor = Editor::new(buf);
+    editor.doc_mut().cursors.set_single(0);
+
+    // Switch to Vim keymap
+    editor.execute_action(EditorAction::SetKeymap("vim".to_string()));
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Normal);
+
+    // Test word motions: 'w' moves to next word
+    editor.handle_key(Key::Char('w'));
+    assert_eq!(editor.doc().cursors.primary().head, 6); // start of "world"
+
+    editor.handle_key(Key::Char('w'));
+    assert_eq!(editor.doc().cursors.primary().head, 12); // start of "rustext"
+
+    // 'b' moves backward
+    editor.handle_key(Key::Char('b'));
+    assert_eq!(editor.doc().cursors.primary().head, 6); // back to "world"
+
+    // 'G' moves to file end
+    editor.handle_key(Key::Char('G'));
+    let total_len = editor.doc().buffer.len_chars();
+    assert_eq!(editor.doc().cursors.primary().head, total_len);
+
+    // 'g g' moves to file start
+    editor.handle_key(Key::Char('g'));
+    assert!(editor.keymap_engine.pending_chord.is_some());
+    editor.handle_key(Key::Char('g'));
+    assert_eq!(editor.doc().cursors.primary().head, 0);
+
+    // 'o' opens line below and switches to insert mode
+    editor.handle_key(Key::Char('o'));
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Insert);
+    editor.handle_key(Key::Char('n'));
+    editor.handle_key(Key::Char('e'));
+    editor.handle_key(Key::Char('w'));
+
+    // Esc back to normal mode
+    editor.handle_key(Key::Esc);
+    assert_eq!(editor.keymap_engine.modal_mode, rustext::editor::ModalMode::Normal);
+
+    // 'd d' deletes line
+    let prev_lines = editor.doc().buffer.len_lines();
+    editor.handle_key(Key::Char('d'));
+    assert!(editor.keymap_engine.pending_chord.is_some());
+    editor.handle_key(Key::Char('d'));
+    assert_eq!(editor.doc().buffer.len_lines(), prev_lines.saturating_sub(1));
+
+    // 'y y' copies line
+    editor.handle_key(Key::Char('y'));
+    assert!(editor.keymap_engine.pending_chord.is_some());
+    editor.handle_key(Key::Char('y'));
+    assert!(!editor.clipboard.get_text().is_empty());
+
+    // ':' opens Vim command line modal
+    editor.handle_key(Key::Char(':'));
+    match &editor.mode {
+        rustext::editor::EditorMode::ModalPrompt(modal) => {
+            assert_eq!(modal.kind, rustext::ui::prompt::PromptKind::VimCommandLine);
+        }
+        _ => panic!("Expected ModalPrompt with VimCommandLine"),
+    }
+
+    // Execute line jump command: :2
+    editor.handle_key(Key::Char('2'));
+    editor.handle_key(Key::Enter);
+    let head = editor.doc().cursors.primary().head;
+    let pos = editor.doc().buffer.char_to_position(head);
+    assert_eq!(pos.line, 1); // 2nd line (0-indexed = 1)
+
+    // Execute substitution: :s/world/universe/
+    editor.execute_vim_command("s/world/universe/");
+    let content = editor.doc().buffer.to_string();
+    assert!(content.contains("universe"));
+
+    // Execute save to temporary file: :w /tmp/test_vim_save.txt
+    let temp_file = std::env::temp_dir().join("rustext_vim_test.txt");
+    let cmd_save = format!("w {}", temp_file.display());
+    editor.execute_vim_command(&cmd_save);
+    assert!(temp_file.exists());
+    let _ = std::fs::remove_file(&temp_file);
+
+    // Execute :q on clean buffer sets should_quit or closes tab
+    editor.doc_mut().buffer.set_dirty(false);
+    editor.execute_vim_command("q");
+    assert!(editor.should_quit);
+}

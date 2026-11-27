@@ -748,6 +748,9 @@ impl Editor {
                 | EditorAction::InsertSnippet(_)
                 | EditorAction::Backspace
                 | EditorAction::Delete
+                | EditorAction::DeleteLine
+                | EditorAction::InsertLineBelow
+                | EditorAction::InsertLineAbove
                 | EditorAction::Cut
                 | EditorAction::Paste
                 | EditorAction::Undo
@@ -915,6 +918,50 @@ impl Editor {
                     doc.cursors.move_to_line_end(&doc.buffer, select);
                 }
             }
+            EditorAction::MoveWordForward { select } => {
+                let doc = self.doc_mut();
+                doc.cursors.move_word_forward(&doc.buffer, select);
+            }
+            EditorAction::MoveWordBackward { select } => {
+                let doc = self.doc_mut();
+                doc.cursors.move_word_backward(&doc.buffer, select);
+            }
+            EditorAction::MoveFileStart { select } => {
+                let doc = self.doc_mut();
+                for c in doc.cursors.cursors_mut() {
+                    c.head = 0;
+                    if !select {
+                        c.anchor = 0;
+                    }
+                }
+                doc.cursors.normalize();
+            }
+            EditorAction::MoveFileEnd { select } => {
+                let doc = self.doc_mut();
+                let len = doc.buffer.len_chars();
+                for c in doc.cursors.cursors_mut() {
+                    c.head = len;
+                    if !select {
+                        c.anchor = len;
+                    }
+                }
+                doc.cursors.normalize();
+            }
+            EditorAction::DeleteLine => {
+                self.delete_lines();
+                was_edit = true;
+            }
+            EditorAction::CopyLine => {
+                self.copy_lines();
+            }
+            EditorAction::InsertLineBelow => {
+                self.insert_line_below();
+                was_edit = true;
+            }
+            EditorAction::InsertLineAbove => {
+                self.insert_line_above();
+                was_edit = true;
+            }
 
             // Multi-cursors
             EditorAction::AddCursorAbove => {
@@ -1033,6 +1080,9 @@ impl Editor {
             }
             EditorAction::OpenAboutDialog => {
                 self.mode = EditorMode::AboutDialog;
+            }
+            EditorAction::OpenVimCommandLine => {
+                self.mode = EditorMode::ModalPrompt(PromptModal::new(PromptKind::VimCommandLine));
             }
             EditorAction::OpenFileFinderPrompt => {
                 let root = self.sidebar.root_dir.clone();
@@ -1708,6 +1758,185 @@ impl Editor {
         doc.cursors.set_cursors(new_cursors);
         tx.cursors_after = doc.cursors.cursors().to_vec();
         doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Deletes the entire line(s) spanned by each cursor (Vim `dd`).
+    pub fn delete_lines(&mut self) {
+        let ranges = {
+            let doc = self.doc();
+            let mut line_ranges = Vec::new();
+            for c in doc.cursors.cursors() {
+                let (start_off, end_off) = if c.has_selection() {
+                    let r = c.selection_range();
+                    (r.start, r.end)
+                } else {
+                    (c.head, c.head)
+                };
+                let p1 = doc.buffer.char_to_position(start_off);
+                let p2 = doc.buffer.char_to_position(end_off);
+                let start_line = p1.line;
+                let end_line = if p2.line > p1.line && p2.col == 0 {
+                    p2.line.saturating_sub(1)
+                } else {
+                    p2.line
+                };
+                line_ranges.push((start_line, end_line));
+            }
+            line_ranges
+        };
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        let mut sorted = ranges;
+        sorted.sort_by_key(|&(s, _)| s);
+        for (s, e) in sorted {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+        let total_lines = doc.buffer.len_lines();
+
+        let mut cut_lines = Vec::new();
+        for &(start_line, end_line) in merged.iter().rev() {
+            let safe_start = start_line.min(total_lines.saturating_sub(1));
+            let safe_end = end_line.min(total_lines.saturating_sub(1));
+            let start_char = doc.buffer.position_to_char(Position::new(safe_start, 0));
+            let end_char = if safe_end + 1 < total_lines {
+                doc.buffer.position_to_char(Position::new(safe_end + 1, 0))
+            } else {
+                doc.buffer.len_chars()
+            };
+
+            if start_char < end_char {
+                let deleted = doc.buffer.get_text_range(start_char, end_char);
+                cut_lines.push(deleted.clone());
+                doc.buffer.delete_range(start_char, end_char);
+                tx.ops.push(EditOp::Delete { offset: start_char, text: deleted });
+            }
+        }
+
+        if !cut_lines.is_empty() {
+            cut_lines.reverse();
+            let clipboard_text = cut_lines.join("");
+            self.clipboard.set_text(&clipboard_text);
+        }
+
+        let doc = self.doc_mut();
+        let remaining_lines = doc.buffer.len_lines();
+        let mut new_cursors = Vec::new();
+        for &(start_line, _) in &merged {
+            let target_line = start_line.min(remaining_lines.saturating_sub(1));
+            let target_char = doc.buffer.position_to_char(Position::new(target_line, 0));
+            new_cursors.push(Cursor::new(target_char));
+        }
+        if new_cursors.is_empty() {
+            new_cursors.push(Cursor::new(0));
+        }
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.lsp_notify_change_active_doc();
+    }
+
+    /// Copies the entire line(s) spanned by each cursor to the clipboard (Vim `yy`).
+    pub fn copy_lines(&mut self) {
+        let doc = self.doc();
+        let mut line_ranges = Vec::new();
+        for c in doc.cursors.cursors() {
+            let (start_off, end_off) = if c.has_selection() {
+                let r = c.selection_range();
+                (r.start, r.end)
+            } else {
+                (c.head, c.head)
+            };
+            let p1 = doc.buffer.char_to_position(start_off);
+            let p2 = doc.buffer.char_to_position(end_off);
+            let start_line = p1.line;
+            let end_line = if p2.line > p1.line && p2.col == 0 {
+                p2.line.saturating_sub(1)
+            } else {
+                p2.line
+            };
+            line_ranges.push((start_line, end_line));
+        }
+
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        line_ranges.sort_by_key(|&(s, _)| s);
+        for (s, e) in line_ranges {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+
+        let mut copied_parts = Vec::new();
+        for (s, e) in merged {
+            for l in s..=e {
+                if let Some(line) = doc.buffer.line(l) {
+                    copied_parts.push(line);
+                }
+            }
+        }
+
+        let full_text = copied_parts.join("\n") + "\n";
+        self.clipboard.set_text(&full_text);
+        self.set_status(format!("Copiadas {} líneas", copied_parts.len()));
+    }
+
+    /// Opens a newline below the current line and switches to Insert mode (Vim `o`).
+    pub fn insert_line_below(&mut self) {
+        {
+            let doc = self.doc_mut();
+            doc.cursors.move_to_line_end(&doc.buffer, false);
+        }
+        self.insert_newline_multicursor();
+        self.keymap_engine.set_modal_mode(crate::editor::keymap_loader::ModalMode::Insert);
+    }
+
+    /// Opens a newline above the current line and switches to Insert mode (Vim `O`).
+    pub fn insert_line_above(&mut self) {
+        {
+            let doc = self.doc_mut();
+            doc.cursors.move_to_line_start(&doc.buffer, false);
+        }
+        let doc = self.doc_mut();
+        let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+        let cursors = doc.cursors.cursors().to_vec();
+        let mut new_cursors = Vec::new();
+        let mut shift = 0;
+
+        for c in cursors {
+            let adj_pos = c.head + shift;
+            let p = doc.buffer.char_to_position(adj_pos);
+            let indent: String = doc.buffer.line(p.line)
+                .unwrap_or_default()
+                .chars()
+                .take_while(|ch| *ch == ' ' || *ch == '\t')
+                .collect();
+            let text_to_insert = format!("{}\n", indent);
+            let insert_len = text_to_insert.chars().count();
+            doc.buffer.insert(adj_pos, &text_to_insert);
+            tx.ops.push(EditOp::Insert { offset: adj_pos, text: text_to_insert });
+
+            let cursor_target = adj_pos + indent.chars().count();
+            new_cursors.push(Cursor::new(cursor_target));
+            shift += insert_len;
+        }
+
+        doc.cursors.set_cursors(new_cursors);
+        tx.cursors_after = doc.cursors.cursors().to_vec();
+        doc.history.record(tx);
+        self.keymap_engine.set_modal_mode(crate::editor::keymap_loader::ModalMode::Insert);
         self.lsp_notify_change_active_doc();
     }
 
@@ -4056,6 +4285,122 @@ impl Editor {
                     self.set_status(format!("LSP: {} '{}' (línea {})", sym.kind.badge_str(), sym.name, safe_line + 1));
                 }
             }
+            PromptKind::VimCommandLine => {
+                let cmd = modal.input.trim();
+                self.execute_vim_command(cmd);
+            }
+        }
+    }
+
+    /// Executes a command entered in the Vim command-line mode (`:`).
+    pub fn execute_vim_command(&mut self, cmd: &str) {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        // Line jump: :<number>
+        if let Ok(line_num) = trimmed.parse::<usize>() {
+            let view_h = self.screen.rows.saturating_sub(2);
+            let doc = self.doc_mut();
+            let total_lines = doc.buffer.len_lines();
+            let target_line = line_num.saturating_sub(1).min(total_lines.saturating_sub(1));
+            let target_char = doc.buffer.position_to_char(Position::new(target_line, 0));
+            doc.cursors.set_single(target_char);
+            doc.scroll_row = target_line.saturating_sub(view_h / 2);
+            self.set_status(format!("Línea {}", target_line + 1));
+            return;
+        }
+
+        // Substitution: :s/pattern/replacement/ or :%s/pattern/replacement/
+        if trimmed.starts_with("s/") || trimmed.starts_with("%s/") {
+            let s_body = if let Some(stripped) = trimmed.strip_prefix("%s/") {
+                stripped
+            } else {
+                trimmed.strip_prefix("s/").unwrap_or("")
+            };
+            let parts: Vec<&str> = s_body.split('/').collect();
+            if parts.len() >= 2 {
+                let pattern = parts[0];
+                let replacement = parts[1];
+                self.replace_all_matches(pattern, replacement);
+                return;
+            } else {
+                self.set_status("Uso de sustitución: :s/patrón/reemplazo/ o :%s/patrón/reemplazo/");
+                return;
+            }
+        }
+
+        // Exact commands
+        match trimmed {
+            "w" | "write" => {
+                self.save_document();
+            }
+            "q" | "quit" => {
+                let any_dirty = self.doc().buffer.is_dirty();
+                if any_dirty && !self.config.editor.hot_exit {
+                    self.close_tab();
+                } else if self.documents.len() > 1 {
+                    self.close_tab();
+                } else {
+                    let _ = self.save_session();
+                    self.should_quit = true;
+                }
+            }
+            "q!" | "quit!" => {
+                if self.documents.len() > 1 {
+                    self.force_close_tab();
+                } else {
+                    self.session_manager.clear_all_drafts();
+                    self.should_quit = true;
+                }
+            }
+            "wq" | "x" => {
+                self.save_document();
+                if self.documents.len() > 1 {
+                    self.force_close_tab();
+                } else {
+                    let _ = self.save_session();
+                    self.should_quit = true;
+                }
+            }
+            "qa" | "qall" => {
+                let any_dirty = self.documents.iter().any(|d| d.buffer.is_dirty());
+                if any_dirty && !self.config.editor.hot_exit {
+                    self.prompt_unsaved_quit();
+                } else {
+                    let _ = self.save_session();
+                    self.should_quit = true;
+                }
+            }
+            "qa!" | "qall!" => {
+                self.session_manager.clear_all_drafts();
+                self.should_quit = true;
+            }
+            "wqa" | "xa" => {
+                for i in 0..self.documents.len() {
+                    self.save_document_at(i);
+                }
+                let _ = self.save_session();
+                self.should_quit = true;
+            }
+            other => {
+                if let Some(rest) = other.strip_prefix("e ").or_else(|| other.strip_prefix("edit ")) {
+                    let file_path = PathBuf::from(rest.trim());
+                    self.open_file(&file_path);
+                } else if let Some(rest) = other.strip_prefix("w ").or_else(|| other.strip_prefix("write ")) {
+                    let target_path = PathBuf::from(rest.trim());
+                    let doc = self.doc_mut();
+                    if let Err(e) = doc.buffer.save_as(&target_path) {
+                        self.set_status(format!("Error guardando {}: {}", target_path.display(), e));
+                    } else {
+                        doc.language = Language::from_path(&target_path);
+                        self.set_status(format!("\"{}\" escrito", target_path.display()));
+                    }
+                } else {
+                    self.set_status(format!("E492: Not an editor command: :{}", other));
+                }
+            }
         }
     }
 
@@ -5157,7 +5502,20 @@ impl Editor {
             }
         };
 
-        self.screen.end_frame(cursor_screen_row, cursor_screen_col)?;
+        // Dynamic cursor style escape for TUI modal modes:
+        // \x1b[2 q = Steady block cursor (Normal / Visual mode)
+        // \x1b[6 q = Steady bar/line cursor (Insert mode or non-modal)
+        let cursor_esc = if self.keymap_engine.profile.meta.is_modal {
+            match self.keymap_engine.modal_mode {
+                crate::editor::keymap_loader::ModalMode::Normal
+                | crate::editor::keymap_loader::ModalMode::Visual => Some("\x1b[2 q"),
+                crate::editor::keymap_loader::ModalMode::Insert => Some("\x1b[6 q"),
+            }
+        } else {
+            None
+        };
+
+        self.screen.end_frame_with_cursor_style(cursor_screen_row, cursor_screen_col, cursor_esc)?;
         Ok(())
     }
 
@@ -7016,6 +7374,21 @@ impl Editor {
             } else {
                 None
             };
+
+            // Dynamic modal cursor style: Block cursor in Normal / Visual, Bar in Insert
+            if self.keymap_engine.profile.meta.is_modal {
+                match self.keymap_engine.modal_mode {
+                    crate::editor::keymap_loader::ModalMode::Normal
+                    | crate::editor::keymap_loader::ModalMode::Visual => {
+                        renderer.cursor_style = "block".to_string();
+                    }
+                    crate::editor::keymap_loader::ModalMode::Insert => {
+                        renderer.cursor_style = "bar".to_string();
+                    }
+                }
+            } else {
+                renderer.cursor_style = self.config.gui.cursor_style.clone();
+            }
 
             renderer.render_full_frame_with_split(
                 &mut fb,

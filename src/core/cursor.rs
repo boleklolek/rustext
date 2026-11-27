@@ -260,6 +260,119 @@ impl CursorSet {
         self.normalize();
     }
 
+    /// Moves all cursors forward to the start of the next word.
+    pub fn move_word_forward(&mut self, buffer: &TextBuffer, select: bool) {
+        let total = buffer.len_chars();
+        for c in &mut self.cursors {
+            if c.head >= total {
+                continue;
+            }
+            let mut idx = c.head;
+
+            let char_type = |ch: char| -> u8 {
+                if ch.is_alphanumeric() || ch == '_' {
+                    1 // Word
+                } else if ch.is_whitespace() {
+                    0 // Whitespace
+                } else {
+                    2 // Punctuation
+                }
+            };
+
+            let cur_ch = buffer.char_at(idx).unwrap_or(' ');
+            let start_type = char_type(cur_ch);
+
+            if start_type != 0 {
+                // Consume characters of the same type
+                while idx < total {
+                    if let Some(ch) = buffer.char_at(idx) {
+                        if char_type(ch) == start_type {
+                            idx += 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            // Consume subsequent whitespace
+            while idx < total {
+                if let Some(ch) = buffer.char_at(idx) {
+                    if ch.is_whitespace() {
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            c.head = idx.min(total);
+            if !select {
+                c.anchor = c.head;
+            }
+        }
+        self.normalize();
+    }
+
+    /// Moves all cursors backward to the start of the current or previous word.
+    pub fn move_word_backward(&mut self, buffer: &TextBuffer, select: bool) {
+        for c in &mut self.cursors {
+            if c.head == 0 {
+                continue;
+            }
+            let mut idx = c.head;
+
+            let char_type = |ch: char| -> u8 {
+                if ch.is_alphanumeric() || ch == '_' {
+                    1
+                } else if ch.is_whitespace() {
+                    0
+                } else {
+                    2
+                }
+            };
+
+            // Skip leading whitespace if we're directly on or after it
+            while idx > 0 {
+                if let Some(ch) = buffer.char_at(idx - 1) {
+                    if ch.is_whitespace() {
+                        idx -= 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if idx > 0 {
+                let prev_ch = buffer.char_at(idx - 1).unwrap_or(' ');
+                let target_type = char_type(prev_ch);
+                while idx > 0 {
+                    if let Some(ch) = buffer.char_at(idx - 1) {
+                        if char_type(ch) == target_type {
+                            idx -= 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            c.head = idx;
+            if !select {
+                c.anchor = c.head;
+            }
+        }
+        self.normalize();
+    }
+
     /// Adds a cursor on the line directly below each existing cursor.
     pub fn add_cursor_below(&mut self, buffer: &TextBuffer) {
         let mut new_cursors = Vec::new();
