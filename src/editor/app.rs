@@ -3098,7 +3098,18 @@ impl Editor {
     /// Requests document symbols / outline for the active document.
     pub fn lsp_document_symbols(&mut self) {
         if !self.lsp.is_running() {
-            self.set_status("LSP: Servidor no activo (iniciando o no disponible)");
+            // Instant pure-Rust native outline fallback when LSP is not active
+            let symbols = crate::editor::folding::FoldingManager::extract_document_outline(
+                &self.doc().buffer,
+                self.doc().language,
+            );
+            if symbols.is_empty() {
+                self.set_status("Esquema: No se detectaron símbolos o definiciones en el archivo");
+            } else {
+                let count = symbols.len();
+                self.mode = EditorMode::ModalPrompt(PromptModal::new_document_symbols(symbols));
+                self.set_status(format!("Esquema de Código (Nativo): {} símbolo(s) cargado(s)", count));
+            }
             self.lsp_ensure_server_for_doc();
             return;
         }
@@ -3107,7 +3118,17 @@ impl Editor {
             match doc.buffer.file_path() {
                 Some(p) => p.to_path_buf(),
                 None => {
-                    self.set_status("LSP: Guarde el archivo para ver esquema de símbolos");
+                    let symbols = crate::editor::folding::FoldingManager::extract_document_outline(
+                        &self.doc().buffer,
+                        self.doc().language,
+                    );
+                    if symbols.is_empty() {
+                        self.set_status("LSP: Guarde el archivo para ver esquema de símbolos");
+                    } else {
+                        let count = symbols.len();
+                        self.mode = EditorMode::ModalPrompt(PromptModal::new_document_symbols(symbols));
+                        self.set_status(format!("Esquema de Código (Nativo): {} símbolo(s) cargado(s)", count));
+                    }
                     return;
                 }
             }

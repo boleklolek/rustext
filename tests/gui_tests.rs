@@ -5006,6 +5006,95 @@ mod engine {
     // When line 6 is folded, line 8 is hidden in folded block, line 6 is omitted
     let sticky = folding.sticky_lines(8, 3);
     assert!(!sticky.contains(&6));
+
+    // Multilanguage support: Go, Zig, and Lua brace matching in folding
+    let go_code = "package main\n\nfunc calculate(x int) int {\n\tif x > 0 {\n\t\treturn x * 2\n\t}\n\treturn 0\n}\n";
+    let go_buf = TextBuffer::from_str(go_code);
+    let mut go_folding = FoldingManager::new();
+    go_folding.recompute_regions(&go_buf, Language::Go);
+    assert_eq!(go_folding.sticky_lines(4, 3), vec![2, 3]);
+}
+
+#[test]
+fn test_native_code_outline_extraction() {
+    use rustext::core::buffer::TextBuffer;
+    use rustext::core::syntax::Language;
+    use rustext::editor::folding::FoldingManager;
+    use rustext::editor::lsp::SymbolKind;
+
+    // 1. Rust symbols extraction
+    let rust_code = r#"
+pub mod network;
+
+pub struct ServerConfig {
+    pub port: u16,
+}
+
+pub enum Protocol {
+    Tcp,
+    Udp,
+}
+
+pub trait Service {
+    fn serve(&self);
+}
+
+impl Service for ServerConfig {
+    fn serve(&self) {
+        println!("Serving");
+    }
+}
+
+pub fn start_server(cfg: &ServerConfig) -> bool {
+    true
+}
+
+pub const MAX_RETRIES: usize = 5;
+"#;
+    let rust_buf = TextBuffer::from_str(rust_code);
+    let rust_symbols = FoldingManager::extract_document_outline(&rust_buf, Language::Rust);
+    assert!(!rust_symbols.is_empty());
+    assert!(rust_symbols.iter().any(|s| s.name == "network" && s.kind == SymbolKind::Module));
+    assert!(rust_symbols.iter().any(|s| s.name == "ServerConfig" && s.kind == SymbolKind::Struct));
+    assert!(rust_symbols.iter().any(|s| s.name == "Protocol" && s.kind == SymbolKind::Enum));
+    assert!(rust_symbols.iter().any(|s| s.name == "Service" && s.kind == SymbolKind::Interface));
+    assert!(rust_symbols.iter().any(|s| s.name == "start_server" && s.kind == SymbolKind::Function));
+    assert!(rust_symbols.iter().any(|s| s.name == "MAX_RETRIES" && s.kind == SymbolKind::Constant));
+
+    // 2. Python symbols extraction
+    let py_code = r#"
+class DataProcessor:
+    def __init__(self, name):
+        self.name = name
+
+    async def run_async(self):
+        pass
+
+def global_helper():
+    return 42
+"#;
+    let py_buf = TextBuffer::from_str(py_code);
+    let py_symbols = FoldingManager::extract_document_outline(&py_buf, Language::Python);
+    assert!(!py_symbols.is_empty());
+    assert!(py_symbols.iter().any(|s| s.name == "DataProcessor" && s.kind == SymbolKind::Class));
+    assert!(py_symbols.iter().any(|s| s.name == "__init__" && s.kind == SymbolKind::Method));
+    assert!(py_symbols.iter().any(|s| s.name == "run_async" && s.kind == SymbolKind::Method));
+    assert!(py_symbols.iter().any(|s| s.name == "global_helper" && s.kind == SymbolKind::Function));
+
+    // 3. Markdown headers outline
+    let md_code = r#"
+# Rustext Architecture
+## Core Subsystems
+### Piece Table Buffer
+## GUI Rendering
+"#;
+    let md_buf = TextBuffer::from_str(md_code);
+    let md_symbols = FoldingManager::extract_document_outline(&md_buf, Language::Markdown);
+    assert_eq!(md_symbols.len(), 4);
+    assert_eq!(md_symbols[0].name, "Rustext Architecture");
+    assert_eq!(md_symbols[0].detail, "H1");
+    assert_eq!(md_symbols[1].name, "Core Subsystems");
+    assert_eq!(md_symbols[1].detail, "H2");
 }
 
 #[test]

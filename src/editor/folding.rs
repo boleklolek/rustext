@@ -65,7 +65,7 @@ impl FoldingManager {
 
         let mut candidate_regions: Vec<FoldRegion> = Vec::new();
 
-        // 1. Syntax Brace Matching (for Rust, C, JavaScript, JSON, CSS, etc.)
+        // 1. Syntax Brace Matching (for Rust, C, JavaScript, Go, Zig, Lua, JSON, CSS, etc.)
         let brace_langs = matches!(
             language,
             Language::Rust
@@ -74,6 +74,9 @@ impl FoldingManager {
                 | Language::Json
                 | Language::Css
                 | Language::Html
+                | Language::Go
+                | Language::Zig
+                | Language::Lua
         );
 
         if brace_langs {
@@ -470,5 +473,232 @@ impl FoldingManager {
             }
         }
         result
+    }
+
+    /// Extracts structural code symbols (functions, structs, classes, modules, headers)
+    /// directly from the buffer with zero third-party dependencies, serving as a high-speed
+    /// native Code Outline when LSP is not available or while an LSP server is starting up.
+    pub fn extract_document_outline(
+        buffer: &TextBuffer,
+        language: Language,
+    ) -> Vec<crate::editor::lsp::LspDocumentSymbol> {
+        use crate::editor::lsp::{LspDocumentSymbol, LspPosition, LspRange, SymbolKind};
+
+        let total_lines = buffer.len_lines();
+        let mut symbols = Vec::new();
+
+        for line_idx in 0..total_lines {
+            let line_cow = match buffer.line_cow(line_idx) {
+                Some(c) => c,
+                None => continue,
+            };
+            let line_trimmed = line_cow.trim_start();
+            if line_trimmed.is_empty() {
+                continue;
+            }
+
+            // Skip comment lines
+            if line_trimmed.starts_with("//")
+                || line_trimmed.starts_with('#')
+                || line_trimmed.starts_with("--")
+                || line_trimmed.starts_with("/*")
+                || line_trimmed.starts_with('*')
+            {
+                // Except Markdown headers which start with '#'
+                if language != Language::Markdown || !line_trimmed.starts_with('#') {
+                    continue;
+                }
+            }
+
+            let col_offset = line_cow.len().saturating_sub(line_trimmed.len());
+
+            match language {
+                Language::Markdown => {
+                    if line_trimmed.starts_with('#') {
+                        let header_level = line_trimmed.chars().take_while(|&c| c == '#').count();
+                        let header_text = line_trimmed.trim_start_matches('#').trim();
+                        if !header_text.is_empty() {
+                            let depth = header_level.saturating_sub(1);
+                            let kind = if header_level <= 2 {
+                                SymbolKind::Module
+                            } else {
+                                SymbolKind::Field
+                            };
+                            symbols.push(LspDocumentSymbol {
+                                name: header_text.to_string(),
+                                detail: format!("H{}", header_level),
+                                kind,
+                                range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: line_cow.len() },
+                                },
+                                selection_range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: line_cow.len() },
+                                },
+                                depth,
+                            });
+                        }
+                    }
+                }
+                Language::Python => {
+                    if line_trimmed.starts_with("def ") || line_trimmed.starts_with("async def ") {
+                        let is_async = line_trimmed.starts_with("async ");
+                        let def_part = if is_async { &line_trimmed[10..] } else { &line_trimmed[4..] };
+                        let name = def_part.split('(').next().unwrap_or("").trim();
+                        if !name.is_empty() {
+                            let depth = col_offset / 4;
+                            let kind = if depth > 0 { SymbolKind::Method } else { SymbolKind::Function };
+                            symbols.push(LspDocumentSymbol {
+                                name: name.to_string(),
+                                detail: if is_async { "async def".to_string() } else { "def".to_string() },
+                                kind,
+                                range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: line_cow.len() },
+                                },
+                                selection_range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: col_offset + name.len() },
+                                },
+                                depth,
+                            });
+                        }
+                    } else if line_trimmed.starts_with("class ") {
+                        let name_part = &line_trimmed[6..];
+                        let name = name_part.split(|c| c == '(' || c == ':').next().unwrap_or("").trim();
+                        if !name.is_empty() {
+                            symbols.push(LspDocumentSymbol {
+                                name: name.to_string(),
+                                detail: "class".to_string(),
+                                kind: SymbolKind::Class,
+                                range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: line_cow.len() },
+                                },
+                                selection_range: LspRange {
+                                    start: LspPosition { line: line_idx, character: col_offset },
+                                    end: LspPosition { line: line_idx, character: col_offset + name.len() },
+                                },
+                                depth: col_offset / 4,
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    // Rust, C, Go, Zig, Lua, JavaScript, etc.
+                    let words: Vec<&str> = line_trimmed.split_whitespace().collect();
+                    if words.is_empty() {
+                        continue;
+                    }
+
+                    let mut found_kind = None;
+                    let mut symbol_name = String::new();
+                    let mut detail = String::new();
+
+                    for (i, &w) in words.iter().enumerate() {
+                        match w {
+                            "fn" | "func" | "function" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.split(|c| c == '(' || c == '<' || c == ':').next().unwrap_or("").trim();
+                                    if !clean_name.is_empty() {
+                                        found_kind = Some(SymbolKind::Function);
+                                        symbol_name = clean_name.to_string();
+                                        detail = w.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            "struct" | "class" | "type" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.split(|c| c == '{' || c == '<' || c == ':' || c == '=').next().unwrap_or("").trim();
+                                    if !clean_name.is_empty() && clean_name != "struct" {
+                                        found_kind = Some(SymbolKind::Struct);
+                                        symbol_name = clean_name.to_string();
+                                        detail = w.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            "enum" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.split(|c| c == '{' || c == '<' || c == ':').next().unwrap_or("").trim();
+                                    if !clean_name.is_empty() {
+                                        found_kind = Some(SymbolKind::Enum);
+                                        symbol_name = clean_name.to_string();
+                                        detail = "enum".to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            "trait" | "interface" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.split(|c| c == '{' || c == '<' || c == ':').next().unwrap_or("").trim();
+                                    if !clean_name.is_empty() {
+                                        found_kind = Some(SymbolKind::Interface);
+                                        symbol_name = clean_name.to_string();
+                                        detail = w.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            "impl" => {
+                                let rest = words[i + 1..].join(" ");
+                                let clean_name = rest.split('{').next().unwrap_or("").trim();
+                                if !clean_name.is_empty() {
+                                    found_kind = Some(SymbolKind::Class);
+                                    symbol_name = format!("impl {}", clean_name);
+                                    detail = "impl".to_string();
+                                    break;
+                                }
+                            }
+                            "mod" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.trim_end_matches(';').trim_end_matches('{').trim();
+                                    if !clean_name.is_empty() {
+                                        found_kind = Some(SymbolKind::Module);
+                                        symbol_name = clean_name.to_string();
+                                        detail = "mod".to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            "const" => {
+                                if let Some(&next) = words.get(i + 1) {
+                                    let clean_name = next.split(':').next().unwrap_or("").trim();
+                                    if !clean_name.is_empty() && clean_name != "fn" {
+                                        found_kind = Some(SymbolKind::Constant);
+                                        symbol_name = clean_name.to_string();
+                                        detail = "const".to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(kind) = found_kind {
+                        let depth = col_offset / 4;
+                        symbols.push(LspDocumentSymbol {
+                            name: symbol_name.clone(),
+                            detail,
+                            kind,
+                            range: LspRange {
+                                start: LspPosition { line: line_idx, character: col_offset },
+                                end: LspPosition { line: line_idx, character: line_cow.len() },
+                            },
+                            selection_range: LspRange {
+                                start: LspPosition { line: line_idx, character: col_offset },
+                                end: LspPosition { line: line_idx, character: col_offset + symbol_name.len() },
+                            },
+                            depth,
+                        });
+                    }
+                }
+            }
+        }
+
+        symbols
     }
 }

@@ -9,6 +9,13 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Vista de Esquema de Código Nativa (Code Outline) y Sticky Scroll Multinivel**:
+  - Motor extractor de símbolos del documento sin dependencias en [`src/editor/folding.rs`](src/editor/folding.rs) (`extract_document_outline`):
+    - Detección precisa de funciones (`fn`, `def`, `func`), structs, clases (`class`), traits/interfaces, enums, bloques `impl`, módulos y constantes.
+    - Soporte específico para lenguajes populares: Rust, Python, Go, Zig, Lua, C, JavaScript y encabezados jerárquicos Markdown (`#`, `##`, `###`).
+    - Integración nativa como respaldo instantáneo en la paleta de símbolos (`Ctrl+Shift+R`), garantizando disponibilidad inmediata incluso si el servidor LSP está ausente o iniciándose.
+  - Expansión de soporte multilingüe en el motor de plegado de código (`FoldingManager`): coincidencia sintáctica de llaves `{}` y cálculo de ámbitos jerárquicos para Go, Zig y Lua.
+  - Plegado y encabezados fijos de ámbito (*Sticky Scroll*) multinivel que fijan con precisión módulos, estructuras y funciones en cascada mientras se navega el código.
 - **Protocolo IPC Estructurado y JSON-RPC 2.0 para Plugins y Extensiones**:
   - Implementación completa de [`src/plugin/ipc.rs`](src/plugin/ipc.rs) con cero dependencias externas, utilizando el analizador JSON AST nativo (`JsonValue`).
   - Solicitudes estructuradas con contexto ampliado del editor: `ExtensionIpcRequest` transmite ID de solicitud, método, comando invocado, ruta del archivo, contenido del búfer, texto seleccionado, posición del cursor (`line`, `col`), total de líneas, lenguaje activo y parámetros personalizados.
