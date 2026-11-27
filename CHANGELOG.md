@@ -9,6 +9,13 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Visor Git Diff Lado a Lado (*Side-by-Side Diff*) y Operaciones de Staging**:
+  - Comando `OpenGitDiffSplit` (`Alt+D` / Paleta de Comandos) para comparar interactivamente el archivo activo en vista dividida contra la versión comprometida en `git HEAD`.
+  - Creación de pestaña de solo lectura `[Git HEAD] <archivo>` ubicada a la izquierda, posicionando la copia de trabajo a la derecha para edición directa y revisión simultánea de cambios.
+  - Comandos para gestión del índice Git directamente desde el editor:
+    - `GitStageFile`: prepara el archivo actual en el área de preparación (`git add <file>`).
+    - `GitUnstageFile`: retira el archivo del área de preparación (`git restore --staged <file>` / `git reset HEAD <file>`).
+  - Integración en la barra de menú superior (**Herramientas > Git**), en la Paleta de Comandos (`Ctrl+P` / `Ctrl+Shift+P`) y en el mapa de teclas estándar.
 - **Vista de Esquema de Código Nativa (Code Outline) y Sticky Scroll Multinivel**:
   - Motor extractor de símbolos del documento sin dependencias en [`src/editor/folding.rs`](src/editor/folding.rs) (`extract_document_outline`):
     - Detección precisa de funciones (`fn`, `def`, `func`), structs, clases (`class`), traits/interfaces, enums, bloques `impl`, módulos y constantes.

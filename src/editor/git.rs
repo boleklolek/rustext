@@ -827,6 +827,54 @@ impl GitManager {
         }
         None
     }
+
+    /// Stages a file into the Git staging area (`git add <file>`).
+    pub fn stage_file(&mut self, file_path: &Path) -> Result<(), String> {
+        let root = self.git_root.as_ref().ok_or("No se encontró repositorio Git")?;
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["add", "--"])
+            .arg(file_path)
+            .output()
+            .map_err(|e| format!("Error ejecutando git add: {}", e))?;
+
+        if output.status.success() {
+            self.refresh_statuses();
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
+        }
+    }
+
+    /// Unstages a file from the Git index (`git restore --staged <file>` / `git reset HEAD <file>`).
+    pub fn unstage_file(&mut self, file_path: &Path) -> Result<(), String> {
+        let root = self.git_root.as_ref().ok_or("No se encontró repositorio Git")?;
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["restore", "--staged", "--"])
+            .arg(file_path)
+            .output()
+            .or_else(|_| {
+                Command::new("git")
+                    .arg("-C")
+                    .arg(root)
+                    .args(["reset", "HEAD", "--"])
+                    .arg(file_path)
+                    .output()
+            })
+            .map_err(|e| format!("Error des-marcando archivo Git: {}", e))?;
+
+        if output.status.success() {
+            self.refresh_statuses();
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(err.trim().to_string())
+        }
+    }
 }
 
 #[cfg(test)]

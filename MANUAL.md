@@ -730,7 +730,19 @@ Rustext cuenta con un subsistema nativo de control de versiones Git que opera de
      - Se notifica inmediatamente al servidor LSP del cambio y se actualizan los indicadores del gutter.
    - Presionar `Esc` o `Alt + H` cierra el modal instantáneamente.
 
-6. **Actualización Reactiva**:
+6. **Visor de Diferencias Lado a Lado (*Side-by-Side Diff*, `Alt + D`)**:
+   - Al pulsar `Alt + D` (o **Herramientas > Abrir Git Diff en Split (Lado a Lado)**):
+     - El editor abre automáticamente una vista vertical dividida (*split editor*).
+     - El panel izquierdo carga una pestaña de solo lectura con el contenido original comprometido en `Git HEAD` (`[Git HEAD] <archivo>`).
+     - El panel derecho mantiene la copia de trabajo activa con el foco del cursor para continuar editando.
+   - Permite una auditoría visual completa y comparativa de los cambios antes de hacer commit.
+
+7. **Preparación y Despreparación de Archivos (*Git Stage / Unstage*)**:
+   - Comandos directos accesibles desde la barra de menú o la Paleta de Comandos (`Ctrl + P`):
+     - **Git: Preparar Archivo Actual (Stage / `git add`)**: agrega el archivo al índice de Git.
+     - **Git: Despreparar Archivo Actual (Unstage)**: retira el archivo del área de preparación sin perder las modificaciones locales.
+
+8. **Actualización Reactiva**:
    - Se refresca automáticamente al guardar cualquier archivo (`Ctrl + S`).
    - Actualización manual instantánea mediante el atajo `Ctrl + Shift + G` o el menú **Herramientas > Actualizar Estado Git**.
 
@@ -1134,6 +1146,7 @@ Al activar el mapa de teclas `vim` (vía `config.ini` o menú *Preferencias > Ma
 | `Ctrl + Shift + G`| **Actualizar Estado Git (Git Gutter)** | Herramientas > Actualizar Estado Git |
 | `Alt + H` | **Git: Inspeccionar Git Hunk Diff** | Herramientas > Inspeccionar Git Hunk Diff |
 | `Alt + R` | **Git: Revertir Git Hunk Diff** | Herramientas > Revertir Git Hunk Diff |
+| `Alt + D` | **Git: Abrir Diff Lado a Lado (Split contra HEAD)** | Herramientas > Abrir Git Diff en Split |
 | `Ctrl + Shift + U`| **LSP: Buscar Referencias en el Workspace** | Herramientas > Buscar Referencias |
 | `F2` | **LSP: Renombrar Símbolo en Todo el Workspace** | Herramientas > Renombrar Símbolo |
 | `Ctrl + .` | **LSP: Acciones Rápidas y Quick-Fixes** | Herramientas > Acciones Rápidas (Code Actions) |

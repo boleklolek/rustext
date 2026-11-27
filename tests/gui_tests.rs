@@ -1898,6 +1898,16 @@ fn test_git_integration_editor_and_config() {
     // Refresh git action
     editor.execute_action(EditorAction::RefreshGit);
     assert!(editor.status_message.is_some());
+
+    // Test Git actions in keymap & action execution
+    editor.execute_action(EditorAction::GitStageFile);
+    assert!(editor.status_message.as_ref().unwrap().0.contains("Git"));
+
+    editor.execute_action(EditorAction::GitUnstageFile);
+    assert!(editor.status_message.as_ref().unwrap().0.contains("Git"));
+
+    editor.execute_action(EditorAction::OpenGitDiffSplit);
+    assert!(editor.status_message.as_ref().unwrap().0.contains("Git Diff"));
 }
 
 #[test]

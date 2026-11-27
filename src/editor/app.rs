@@ -1435,6 +1435,15 @@ impl Editor {
             EditorAction::RevertGitHunk => {
                 self.revert_active_hunk();
             }
+            EditorAction::OpenGitDiffSplit => {
+                self.open_git_diff_split();
+            }
+            EditorAction::GitStageFile => {
+                self.git_stage_active_file();
+            }
+            EditorAction::GitUnstageFile => {
+                self.git_unstage_active_file();
+            }
             EditorAction::RefreshSemanticTokens => {
                 self.refresh_semantic_tokens();
                 self.set_status("LSP: Tokens semánticos actualizados");
@@ -2297,6 +2306,100 @@ impl Editor {
         self.git.refresh_statuses();
         self.lsp_notify_change_active_doc();
         self.set_status("Hunk revertido a la versión de Git HEAD");
+    }
+
+    /// Opens a side-by-side split diff comparing the current file against Git HEAD.
+    pub fn open_git_diff_split(&mut self) {
+        let (path, current_title) = {
+            let doc = self.doc();
+            match doc.buffer.file_path() {
+                Some(p) => (p.to_path_buf(), p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "archivo".to_string())),
+                None => {
+                    self.set_status("Git Diff: Guarde el archivo primero para comparar con Git HEAD");
+                    return;
+                }
+            }
+        };
+
+        let head_content = match self.git.get_head_file_content(&path) {
+            Some(c) => c,
+            None => {
+                self.set_status(format!("Git Diff: '{}' es un archivo nuevo sin versión en HEAD", current_title));
+                return;
+            }
+        };
+
+        // Check if a HEAD comparison tab already exists
+        let diff_tab_name = format!("[Git HEAD] {}", current_title);
+        let existing_diff_idx = self.documents.iter().position(|d| {
+            d.buffer.file_path().map(|p| p.to_string_lossy().contains(&diff_tab_name)).unwrap_or(false)
+        });
+
+        let head_doc_idx = if let Some(idx) = existing_diff_idx {
+            // Update content in case HEAD or file changed
+            self.documents[idx].buffer = TextBuffer::from_str(&head_content);
+            idx
+        } else {
+            let mut head_buf = TextBuffer::from_str(&head_content);
+            head_buf.set_file_path(PathBuf::from(&diff_tab_name));
+            let mut head_doc = Document::new(head_buf);
+            head_doc.language = self.doc().language;
+            self.documents.push(head_doc);
+            self.documents.len() - 1
+        };
+
+        let current_doc_idx = self.active_doc_idx;
+
+        // Set up vertical split: left pane = HEAD (original), right pane = current working copy
+        self.split.direction = crate::editor::split::SplitDirection::Vertical;
+        self.split.primary_doc_idx = head_doc_idx;
+        self.split.secondary_doc_idx = current_doc_idx;
+        self.split.active_pane = 1; // Focus on working copy
+        self.active_doc_idx = current_doc_idx;
+
+        self.set_status(format!("Visor Git Diff activo: [Izquierda: HEAD] vs [Derecha: {}]", current_title));
+    }
+
+    /// Stages the active document's file in Git (`git add <file>`).
+    pub fn git_stage_active_file(&mut self) {
+        let path = match self.doc().buffer.file_path() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                self.set_status("Git Stage: El archivo actual no tiene ruta en disco");
+                return;
+            }
+        };
+
+        match self.git.stage_file(&path) {
+            Ok(()) => {
+                let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                self.set_status(format!("Git: '{}' agregado al área de preparación (staged)", name));
+            }
+            Err(e) => {
+                self.set_status(format!("Error en Git Stage: {}", e));
+            }
+        }
+    }
+
+    /// Unstages the active document's file from Git (`git restore --staged <file>`).
+    pub fn git_unstage_active_file(&mut self) {
+        let path = match self.doc().buffer.file_path() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                self.set_status("Git Unstage: El archivo actual no tiene ruta en disco");
+                return;
+            }
+        };
+
+        match self.git.unstage_file(&path) {
+            Ok(()) => {
+                let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                self.set_status(format!("Git: '{}' retirado del área de preparación (unstaged)", name));
+            }
+            Err(e) => {
+                self.set_status(format!("Error en Git Unstage: {}", e));
+            }
+        }
     }
 
     /// Returns the active column width available for text wrapping.

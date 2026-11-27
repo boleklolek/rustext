@@ -95,6 +95,9 @@ pub enum EditorAction {
     ToggleGitGutter,
     ToggleGitHunkDiff,
     RevertGitHunk,
+    OpenGitDiffSplit,
+    GitStageFile,
+    GitUnstageFile,
     // Integrated Terminal
     ToggleTerminal,
     FocusTerminal,
@@ -180,10 +183,11 @@ impl Keymap {
             Key::CtrlShift('\\') | Key::CtrlShift('|') => EditorAction::ToggleSplitHorizontal,
             Key::Alt('\\') => EditorAction::SwitchSplitPane,
 
-            // Git Integration (Ctrl+Shift+G, Alt+H for hunk diff, Alt+R for revert)
+            // Git Integration (Ctrl+Shift+G, Alt+H for hunk diff, Alt+R for revert, Alt+D for side-by-side diff)
             Key::CtrlShift('g') | Key::CtrlShift('G') => EditorAction::RefreshGit,
             Key::Alt('h') | Key::Alt('H') => EditorAction::ToggleGitHunkDiff,
             Key::Alt('r') | Key::Alt('R') => EditorAction::RevertGitHunk,
+            Key::Alt('d') | Key::Alt('D') => EditorAction::OpenGitDiffSplit,
 
             // LSP Semantic Tokens refresh (F5)
             Key::F(5) => EditorAction::RefreshSemanticTokens,
