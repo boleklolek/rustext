@@ -16,6 +16,7 @@ pub mod theme_loader;
 pub mod ttf;
 pub mod colors;
 pub mod geometry;
+pub mod dialog_renderer;
 
 pub use animation::{AnimatedFloat, CubicBezier, Easing, SpringAnimation};
 pub use analytic_aa::AnalyticAA;
