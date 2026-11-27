@@ -8,6 +8,8 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Sin publicar]
 
+## [v0.4.0] - 2026-11-27
+
 ### ✨ Añadido (Added)
 - **Visor Git Diff Lado a Lado (*Side-by-Side Diff*) y Operaciones de Staging**:
   - Comando `OpenGitDiffSplit` (`Alt+D` / Paleta de Comandos) para comparar interactivamente el archivo activo en vista dividida contra la versión comprometida en `git HEAD`.
@@ -157,7 +159,8 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - **Auditoría de Seguridad Inicial (`SEC-01` a `SEC-06`)**:
   - Guardado atómico de archivos, confinamiento de extensiones y borradores, protección contra enlaces simbólicos cíclicos y canalización segura al portapapeles Wayland.
 
-[Sin publicar]: https://github.com/boleklolek/rustext/compare/v0.3.0...HEAD
+[Sin publicar]: https://github.com/boleklolek/rustext/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/boleklolek/rustext/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/boleklolek/rustext/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/boleklolek/rustext/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/boleklolek/rustext/releases/tag/v0.1.0
