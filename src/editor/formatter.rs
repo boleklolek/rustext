@@ -23,10 +23,33 @@ pub fn format_code(
         }
         Language::Shell => format_shell(code),
         Language::Julia => format_julia(code),
+        Language::Go => format_go(code),
+        Language::Zig => format_zig(code),
+        Language::Lua => format_lua(code),
         Language::Sql | Language::Toml | Language::PlainText => {
             Err(format!("No hay formateador por defecto para {}", language.name()))
         }
     }
+}
+
+/// Formats Go code using `gofmt`.
+fn format_go(code: &str) -> Result<String, String> {
+    let cmd = Command::new("gofmt");
+    execute_formatter(cmd, code)
+}
+
+/// Formats Zig code using `zig fmt --stdin`.
+fn format_zig(code: &str) -> Result<String, String> {
+    let mut cmd = Command::new("zig");
+    cmd.args(["fmt", "--stdin"]);
+    execute_formatter(cmd, code)
+}
+
+/// Formats Lua code using `stylua -`.
+fn format_lua(code: &str) -> Result<String, String> {
+    let mut cmd = Command::new("stylua");
+    cmd.arg("-");
+    execute_formatter(cmd, code)
 }
 
 /// Formats Rust code using `rustfmt --emit stdout`.

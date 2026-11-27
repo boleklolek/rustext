@@ -19,6 +19,9 @@ pub enum Language {
     Sql,
     Markdown,
     Julia,
+    Go,
+    Zig,
+    Lua,
     PlainText,
 }
 
@@ -39,6 +42,9 @@ impl Language {
             Some("sql") => Language::Sql,
             Some("md") | Some("markdown") => Language::Markdown,
             Some("jl") => Language::Julia,
+            Some("go") => Language::Go,
+            Some("zig") => Language::Zig,
+            Some("lua") => Language::Lua,
             _ => {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name == ".env" || name.starts_with(".env.") {
@@ -72,6 +78,9 @@ impl Language {
             Language::Sql => "SQL",
             Language::Markdown => "Markdown",
             Language::Julia => "Julia",
+            Language::Go => "Go",
+            Language::Zig => "Zig",
+            Language::Lua => "Lua",
             Language::PlainText => "Plain Text",
         }
     }
@@ -303,8 +312,8 @@ impl SyntaxHighlighter {
             let b = bytes[idx];
 
             // 1. Comments
-            // C, C++, Rust, JS line comments '//'
-            if (matches!(lang, Language::Rust | Language::C | Language::JavaScript))
+            // C, C++, Rust, JS, Go, Zig line comments '//'
+            if (matches!(lang, Language::Rust | Language::C | Language::JavaScript | Language::Go | Language::Zig))
                 && b == b'/'
                 && idx + 1 < len
                 && bytes[idx + 1] == b'/'
@@ -316,8 +325,36 @@ impl SyntaxHighlighter {
                 break;
             }
 
-            // Block comments '/* ... */' for C, Rust, JS, CSS, SQL
-            if (matches!(lang, Language::Rust | Language::C | Language::JavaScript | Language::Css | Language::Sql))
+            // Lua multiline block comments '--[[ ... ]]'
+            if lang == Language::Lua && b == b'-' && idx + 3 < len && &bytes[idx..idx + 4] == b"--[[" {
+                let start = idx;
+                idx += 4;
+                while idx + 1 < len && !(bytes[idx] == b']' && bytes[idx + 1] == b']') {
+                    idx += 1;
+                }
+                if idx + 1 < len {
+                    idx += 2;
+                } else {
+                    idx = len;
+                }
+                spans.push(TokenSpan {
+                    text: &line[start..idx],
+                    token_type: TokenType::Comment,
+                });
+                continue;
+            }
+
+            // Lua line comments '--'
+            if lang == Language::Lua && b == b'-' && idx + 1 < len && bytes[idx + 1] == b'-' {
+                spans.push(TokenSpan {
+                    text: &line[idx..],
+                    token_type: TokenType::Comment,
+                });
+                break;
+            }
+
+            // Block comments '/* ... */' for C, Rust, JS, CSS, SQL, Go
+            if (matches!(lang, Language::Rust | Language::C | Language::JavaScript | Language::Css | Language::Sql | Language::Go))
                 && b == b'/'
                 && idx + 1 < len
                 && bytes[idx + 1] == b'*'
@@ -419,7 +456,7 @@ impl SyntaxHighlighter {
             }
 
             // 3. String literals (quotes)
-            if b == b'"' || b == b'\'' || (b == b'`' && matches!(lang, Language::JavaScript | Language::Shell | Language::Markdown | Language::Sql | Language::Julia)) {
+            if b == b'"' || b == b'\'' || (b == b'`' && matches!(lang, Language::JavaScript | Language::Shell | Language::Markdown | Language::Sql | Language::Julia | Language::Go)) {
                 let quote = b;
                 let start = idx;
                 idx += 1;
@@ -470,8 +507,8 @@ impl SyntaxHighlighter {
                 continue;
             }
 
-            // 5. Julia Macros: @macro_name
-            if lang == Language::Julia && b == b'@' {
+            // 5. Julia & Zig Macros / Builtins: @macro_name, @import, @as, etc.
+            if (lang == Language::Julia || lang == Language::Zig) && b == b'@' {
                 let start = idx;
                 idx += 1;
                 while idx < len && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_' || bytes[idx] == b'!') {
@@ -642,6 +679,26 @@ impl SyntaxHighlighter {
                 "macro", "module", "mutable", "primitive", "quote", "return", "struct",
                 "true", "try", "type", "using", "where", "while",
             ],
+            Language::Go => &[
+                "break", "case", "chan", "const", "continue", "default", "defer", "else",
+                "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+                "map", "package", "range", "return", "select", "struct", "switch", "type",
+                "var", "true", "false", "nil", "iota",
+            ],
+            Language::Zig => &[
+                "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm",
+                "async", "await", "break", "callconv", "catch", "comptime", "const",
+                "continue", "defer", "else", "enum", "errdefer", "error", "export",
+                "extern", "fn", "for", "if", "inline", "noalias", "noinline", "nosuspend",
+                "opaque", "or", "orelse", "packed", "pub", "resume", "return", "struct",
+                "suspend", "switch", "test", "threadlocal", "try", "union", "unreachable",
+                "usingnamespace", "var", "volatile", "while", "true", "false", "null", "undefined",
+            ],
+            Language::Lua => &[
+                "and", "break", "do", "else", "elseif", "end", "false", "for",
+                "function", "goto", "if", "in", "local", "nil", "not", "or",
+                "repeat", "return", "then", "true", "until", "while",
+            ],
             Language::Json | Language::Markdown | Language::PlainText => &[],
         }
     }
@@ -694,6 +751,19 @@ impl SyntaxHighlighter {
                 "Rational", "Real", "Ref", "Regex", "Set", "Signed", "String", "Symbol",
                 "Task", "Tuple", "Type", "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
                 "UInt128", "Union", "Unsigned", "Vector",
+            ],
+            Language::Go => &[
+                "bool", "byte", "complex64", "complex128", "error", "float32", "float64",
+                "int", "int8", "int16", "int32", "int64", "rune", "string",
+                "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+            ],
+            Language::Zig => &[
+                "bool", "f16", "f32", "f64", "f80", "f128", "i8", "i16", "i32", "i64", "i128",
+                "isize", "u8", "u16", "u32", "u64", "u128", "usize", "void", "noreturn",
+                "type", "anyerror", "comptime_int", "comptime_float",
+            ],
+            Language::Lua => &[
+                "boolean", "number", "string", "table", "function", "thread", "userdata",
             ],
             Language::Json | Language::Markdown | Language::Toml | Language::PlainText => &[],
         }

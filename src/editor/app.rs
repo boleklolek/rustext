@@ -1948,7 +1948,8 @@ impl Editor {
             | crate::core::syntax::Language::Toml
             | crate::core::syntax::Language::Shell
             | crate::core::syntax::Language::Julia => ("# ", None),
-            crate::core::syntax::Language::Sql => ("-- ", None),
+            crate::core::syntax::Language::Sql
+            | crate::core::syntax::Language::Lua => ("-- ", None),
             crate::core::syntax::Language::Html
             | crate::core::syntax::Language::Markdown => ("<!-- ", Some(" -->")),
             crate::core::syntax::Language::Css => ("/* ", Some(" */")),
@@ -2755,6 +2756,10 @@ impl Editor {
                 crate::core::syntax::Language::Css => "css",
                 crate::core::syntax::Language::Json => "json",
                 crate::core::syntax::Language::Markdown => "markdown",
+                crate::core::syntax::Language::Julia => "julia",
+                crate::core::syntax::Language::Go => "go",
+                crate::core::syntax::Language::Zig => "zig",
+                crate::core::syntax::Language::Lua => "lua",
                 _ => return,
             };
             (path, lang_id, doc.buffer.to_string())
@@ -2812,6 +2817,10 @@ impl Editor {
                     crate::core::syntax::Language::Css => "css",
                     crate::core::syntax::Language::Json => "json",
                     crate::core::syntax::Language::Markdown => "markdown",
+                    crate::core::syntax::Language::Julia => "julia",
+                    crate::core::syntax::Language::Go => "go",
+                    crate::core::syntax::Language::Zig => "zig",
+                    crate::core::syntax::Language::Lua => "lua",
                     _ => continue,
                 };
                 self.lsp.notify_did_open(path, lang_id, &doc.buffer.to_string());

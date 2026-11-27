@@ -875,6 +875,9 @@ Rustext detecta automáticamente el lenguaje por extensión o nombre:
 - **SQL** (`.sql`)
 - **Markdown** (`.md`, `.markdown`)
 - **Julia** (`.jl`, `.JL`): Resaltador sintáctico especializado con soporte para comentarios de una línea (`#`), comentarios de bloque multilínea (`#= ... =#`), literales de cadena (`"..."`), caracteres (`'c'`), comandos de sistema entre comillas invertidas (`` `cmd` ``), macros nativas clasificadas como `TokenType::Macro` (`@inline`, `@time`, `@threads`, `@test`, etc.), palabras clave y tipos primitivos de la biblioteca base de Julia.
+- **Go** (`.go`): Palabras clave (`func`, `chan`, `defer`, `select`, etc.), tipos (`int`, `rune`, `string`, etc.), literales de cadena cruda con backticks (`` `...` ``) y formateador `gofmt`.
+- **Zig** (`.zig`): Palabras clave (`fn`, `pub`, `comptime`, `errdefer`, etc.), tipos primitivos (`u8`, `i32`, `usize`, etc.), builtins/macros con `@` (`@import`, etc.) y formateador `zig fmt`.
+- **Lua** (`.lua`): Palabras clave (`local`, `function`, `then`, etc.), comentarios de línea (`--`), comentarios de bloque multilínea (`--[[ ... ]]`) y formateador `stylua`.
 
 ### 10.3 Catálogo de Snippets Integrados:
 Escriba el disparador y presione `Tab` para expandirlo:
@@ -888,6 +891,18 @@ Escriba el disparador y presione `Tab` para expandirlo:
 | **Rust** | `impl` | Bloque implementación | `impl Type { ... }` |
 | **Rust** | `match` | Expresión match | `match expr { pattern => expr, _ => todo!() }` |
 | **Rust** | `test` | Test unitario | `#[test] fn test_name() { assert!(true); }` |
+| **Go** | `fn` | Función en Go | `func name(params) error { ... }` |
+| **Go** | `main` | Paquete y función main | `package main\n\nfunc main() { ... }` |
+| **Go** | `struct` | Definición de struct | `type Name struct { ... }` |
+| **Go** | `iferr` | Manejo if err != nil | `if err != nil { return err }` |
+| **Go** | `for` | Bucle for range | `for _, v := range slice { ... }` |
+| **Zig** | `fn` | Función pública | `pub fn name(params) !void { ... }` |
+| **Zig** | `main` | Punto de entrada main | `pub fn main() !void { ... }` |
+| **Zig** | `struct` | Estructura pública | `pub const Name = struct { ... };` |
+| **Zig** | `test` | Bloque test | `test "test_name" { ... }` |
+| **Lua** | `fn` | Función local | `local function name(args) ... end` |
+| **Lua** | `for` | Bucle for ipairs | `for i, v in ipairs(table) do ... end` |
+| **Lua** | `if` | Condicional if | `if condition then ... end` |
 | **Julia** | `fn` | Definición de función | `function name(args)\n ... \nend` |
 | **Julia** | `fun` | Función de una línea | `name(args) = expr` |
 | **Julia** | `struct` | Estructura inmutable | `struct Name\n ... \nend` |

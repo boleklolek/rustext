@@ -679,6 +679,84 @@ impl SnippetRegistry {
             Language::Julia,
         ),
 
+        // ==================== Go ====================
+        Snippet::new(
+            "fn",
+            "Función en Go",
+            "func ${1:name}(${2:params}) ${3:error} {\n    ${0}\n}",
+            Language::Go,
+        ),
+        Snippet::new(
+            "main",
+            "Función main y paquete en Go",
+            "package main\n\nfunc main() {\n    ${0}\n}",
+            Language::Go,
+        ),
+        Snippet::new(
+            "struct",
+            "Estructura en Go",
+            "type ${1:Name} struct {\n    ${0}\n}",
+            Language::Go,
+        ),
+        Snippet::new(
+            "iferr",
+            "Comprobación if err != nil en Go",
+            "if err != nil {\n    return ${0:err}\n}",
+            Language::Go,
+        ),
+        Snippet::new(
+            "for",
+            "Bucle for range en Go",
+            "for ${1:_, v} := range ${2:slice} {\n    ${0}\n}",
+            Language::Go,
+        ),
+
+        // ==================== Zig ====================
+        Snippet::new(
+            "fn",
+            "Función pública en Zig",
+            "pub fn ${1:name}(${2:params}) ${3:!void} {\n    ${0}\n}",
+            Language::Zig,
+        ),
+        Snippet::new(
+            "main",
+            "Punto de entrada pub fn main en Zig",
+            "pub fn main() !void {\n    ${0}\n}",
+            Language::Zig,
+        ),
+        Snippet::new(
+            "struct",
+            "Estructura pública en Zig",
+            "pub const ${1:Name} = struct {\n    ${0}\n};",
+            Language::Zig,
+        ),
+        Snippet::new(
+            "test",
+            "Bloque de test en Zig",
+            "test \"${1:test_name}\" {\n    ${0:try std.testing.expect(true);}\n}",
+            Language::Zig,
+        ),
+
+        // ==================== Lua ====================
+        Snippet::new(
+            "fn",
+            "Función local en Lua",
+            "local function ${1:name}(${2:args})\n    ${0}\nend",
+            Language::Lua,
+        ),
+        Snippet::new(
+            "for",
+            "Bucle for ipairs en Lua",
+            "for ${1:i}, ${2:v} in ipairs(${3:table}) do\n    ${0}\nend",
+            Language::Lua,
+        ),
+        Snippet::new(
+            "if",
+            "Condicional if en Lua",
+            "if ${1:condition} then\n    ${0}\nend",
+            Language::Lua,
+        ),
+
         // ==================== Plain Text ====================
         Snippet::new(
             "todo",

@@ -9,6 +9,14 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Expansión de Sintaxis y Lenguajes (Go, Zig, Lua)**:
+  - Soporte de primer nivel con cero dependencias en el lexer y tokenizador nativo para:
+    - **Go (`.go`)**: palabras clave (`func`, `defer`, `chan`, `go`, `package`, etc.), tipos integrados (`bool`, `int`, `rune`, `string`, etc.), literales de cadena multilínea en comillas invertidas (`` `raw string` ``) y comentarios de línea (`//`) y bloque (`/* ... */`).
+    - **Zig (`.zig`)**: palabras clave (`fn`, `pub`, `comptime`, `defer`, `errdefer`, etc.), tipos de tamaño fijo (`i32`, `u8`, `usize`, etc.), macros/funciones integradas con `@` (`@import`, `@as`, etc.) y comentarios de línea (`//`).
+    - **Lua (`.lua`)**: palabras clave (`local`, `function`, `then`, `end`, etc.), tipos base (`table`, `thread`, etc.), comentarios de línea (`--`) y comentarios de bloque multilínea (`--[[ ... ]]`).
+  - Configuración automática de tokens de comentario para alternar comentarios con `Ctrl+/` (`--` en Lua, `//` en Go y Zig).
+  - Catálogo de snippets integrados con Tabstops para Go (`fn`, `main`, `struct`, `iferr`, `for`), Zig (`fn`, `main`, `struct`, `test`) y Lua (`fn`, `for`, `if`).
+  - Sincronización e integración con formateadores externos del sistema (`gofmt`, `zig fmt`, `stylua`) mediante conductos estándar.
 - **Línea de Comandos Vim (`:`) y Operadores Avanzados**:
   - Modal interactivo de línea de comandos estilo Vim (`:`) que soporta comandos esenciales:
     - `:w` / `:write` y `:w <ruta>` para guardar el búfer activo o guardar en una ruta específica.

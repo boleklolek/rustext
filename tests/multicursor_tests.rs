@@ -336,6 +336,9 @@ fn test_new_languages_syntax_detection_and_tokenization() {
     assert_eq!(Language::from_path(Path::new("README.md")), Language::Markdown);
     assert_eq!(Language::from_path(Path::new("main.jl")), Language::Julia);
     assert_eq!(Language::from_path(Path::new("script.JL")), Language::Julia);
+    assert_eq!(Language::from_path(Path::new("server.go")), Language::Go);
+    assert_eq!(Language::from_path(Path::new("main.zig")), Language::Zig);
+    assert_eq!(Language::from_path(Path::new("init.lua")), Language::Lua);
 
     // 2. HTML Tokenizer: tags and attributes
     let html_tokens = SyntaxHighlighter::tokenize_line("<div class=\"main\">content</div>", Language::Html);
@@ -390,6 +393,31 @@ fn test_new_languages_syntax_detection_and_tokenization() {
 
     let jl_cmd = SyntaxHighlighter::tokenize_line("cmd = `echo hello`", Language::Julia);
     assert!(jl_cmd.iter().any(|t| t.text == "`echo hello`" && t.token_type == TokenType::StringLiteral));
+
+    // 9. Go Tokenizer: func, chan, types, comments, backtick strings
+    let go_tokens = SyntaxHighlighter::tokenize_line("func process(ch chan int) string { return `raw text` } // line comment", Language::Go);
+    assert!(go_tokens.iter().any(|t| t.text == "func" && t.token_type == TokenType::Keyword));
+    assert!(go_tokens.iter().any(|t| t.text == "chan" && t.token_type == TokenType::Keyword));
+    assert!(go_tokens.iter().any(|t| t.text == "int" && t.token_type == TokenType::Type));
+    assert!(go_tokens.iter().any(|t| t.text == "string" && t.token_type == TokenType::Type));
+    assert!(go_tokens.iter().any(|t| t.text == "`raw text`" && t.token_type == TokenType::StringLiteral));
+    assert!(go_tokens.iter().any(|t| t.text == "// line comment" && t.token_type == TokenType::Comment));
+
+    // 10. Zig Tokenizer: pub fn, @import, types, comments
+    let zig_tokens = SyntaxHighlighter::tokenize_line("pub fn add(a: i32, b: u8) !void { const std = @import(\"std\"); } // zig", Language::Zig);
+    assert!(zig_tokens.iter().any(|t| t.text == "pub" && t.token_type == TokenType::Keyword));
+    assert!(zig_tokens.iter().any(|t| t.text == "fn" && t.token_type == TokenType::Keyword));
+    assert!(zig_tokens.iter().any(|t| t.text == "i32" && t.token_type == TokenType::Type));
+    assert!(zig_tokens.iter().any(|t| t.text == "u8" && t.token_type == TokenType::Type));
+    assert!(zig_tokens.iter().any(|t| t.text == "@import" && t.token_type == TokenType::Macro));
+    assert!(zig_tokens.iter().any(|t| t.text == "// zig" && t.token_type == TokenType::Comment));
+
+    // 11. Lua Tokenizer: local, function, -- comments and --[[ block comments ]]
+    let lua_tokens = SyntaxHighlighter::tokenize_line("local function hello() --[[ block ]] -- line comment", Language::Lua);
+    assert!(lua_tokens.iter().any(|t| t.text == "local" && t.token_type == TokenType::Keyword));
+    assert!(lua_tokens.iter().any(|t| t.text == "function" && t.token_type == TokenType::Keyword));
+    assert!(lua_tokens.iter().any(|t| t.text == "--[[ block ]]" && t.token_type == TokenType::Comment));
+    assert!(lua_tokens.iter().any(|t| t.text == "-- line comment" && t.token_type == TokenType::Comment));
 }
 
 #[test]
@@ -410,6 +438,20 @@ fn test_snippets_for_new_languages() {
     assert!(SnippetRegistry::find(Language::Julia, "struct").is_some());
     assert!(SnippetRegistry::find(Language::Julia, "for").is_some());
     assert!(SnippetRegistry::find(Language::Julia, "test").is_some());
+
+    // Go snippets
+    assert!(SnippetRegistry::find(Language::Go, "fn").is_some());
+    assert!(SnippetRegistry::find(Language::Go, "main").is_some());
+    assert!(SnippetRegistry::find(Language::Go, "iferr").is_some());
+
+    // Zig snippets
+    assert!(SnippetRegistry::find(Language::Zig, "fn").is_some());
+    assert!(SnippetRegistry::find(Language::Zig, "main").is_some());
+    assert!(SnippetRegistry::find(Language::Zig, "test").is_some());
+
+    // Lua snippets
+    assert!(SnippetRegistry::find(Language::Lua, "fn").is_some());
+    assert!(SnippetRegistry::find(Language::Lua, "for").is_some());
 }
 
 
