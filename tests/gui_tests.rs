@@ -340,6 +340,89 @@ cmd_minify = Minificar JSON
 }
 
 #[test]
+fn test_extension_ipc_jsonrpc_protocol_and_actions() {
+    use rustext::plugin::{ExtensionAction, ExtensionIpcRequest, ExtensionIpcResponse};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    // 1. Serialization of ExtensionIpcRequest to JSON-RPC 2.0
+    let mut params = HashMap::new();
+    params.insert("mode".to_string(), "strict".to_string());
+
+    let req = ExtensionIpcRequest {
+        id: 42,
+        method: "execute".to_string(),
+        command: "format_code".to_string(),
+        file_path: Some(PathBuf::from("/path/to/test.rs")),
+        buffer_text: "fn main() { println!(\"Hola\"); }".to_string(),
+        selection_text: Some("println!(\"Hola\");".to_string()),
+        line_count: 1,
+        cursor_line: 0,
+        cursor_col: 12,
+        language: "Rust".to_string(),
+        params,
+    };
+
+    let serialized = req.to_json_string();
+    assert!(serialized.contains("\"jsonrpc\":\"2.0\""));
+    assert!(serialized.contains("\"id\":42"));
+    assert!(serialized.contains("\"method\":\"execute\""));
+    assert!(serialized.contains("\"command\":\"format_code\""));
+    assert!(serialized.contains("\"mode\":\"strict\""));
+
+    // 2. Deserialization of structured JSON-RPC response with multiple actions
+    let json_resp = r#"{
+        "jsonrpc": "2.0",
+        "id": 42,
+        "result": {
+            "replace_text": "println!(\"Rustext IPC\");",
+            "status": "Formateo exitoso",
+            "clipboard": "Texto copiado por plugin",
+            "panel": {
+                "title": "Diagnósticos del plugin",
+                "lines": ["Línea 1: OK", "Línea 2: Sin advertencias"]
+            }
+        }
+    }"#;
+
+    let parsed = ExtensionIpcResponse::parse(json_resp);
+    assert_eq!(parsed.id, 42);
+    assert_eq!(parsed.status.as_deref(), Some("Formateo exitoso"));
+    assert_eq!(parsed.error, None);
+    assert_eq!(parsed.actions.len(), 3);
+    assert_eq!(parsed.actions[0], ExtensionAction::ReplaceText("println!(\"Rustext IPC\");".to_string()));
+    assert_eq!(parsed.actions[1], ExtensionAction::SetClipboard("Texto copiado por plugin".to_string()));
+    assert_eq!(parsed.actions[2], ExtensionAction::OpenPanel {
+        title: "Diagnósticos del plugin".to_string(),
+        lines: vec!["Línea 1: OK".to_string(), "Línea 2: Sin advertencias".to_string()],
+    });
+
+    // 3. Fallback compatibility with raw plain-text output
+    let plain_output = "fn main() {\n    // Formateado plano\n}\n";
+    let fallback_parsed = ExtensionIpcResponse::parse(plain_output);
+    assert_eq!(fallback_parsed.id, 0);
+    assert_eq!(fallback_parsed.actions.len(), 1);
+    assert_eq!(fallback_parsed.actions[0], ExtensionAction::ReplaceText(plain_output.to_string()));
+
+    // 4. Test explicit actions array JSON format
+    let explicit_actions_json = r#"{
+        "jsonrpc": "2.0",
+        "id": 100,
+        "actions": [
+            { "type": "replace_buffer", "text": "Nuevo contenido total" },
+            { "type": "set_status", "text": "Búfer reemplazado" },
+            { "type": "clipboard", "text": "Clip data" }
+        ]
+    }"#;
+    let exp_parsed = ExtensionIpcResponse::parse(explicit_actions_json);
+    assert_eq!(exp_parsed.id, 100);
+    assert_eq!(exp_parsed.actions.len(), 3);
+    assert_eq!(exp_parsed.actions[0], ExtensionAction::ReplaceBuffer("Nuevo contenido total".to_string()));
+    assert_eq!(exp_parsed.actions[1], ExtensionAction::SetStatus("Búfer reemplazado".to_string()));
+    assert_eq!(exp_parsed.actions[2], ExtensionAction::SetClipboard("Clip data".to_string()));
+}
+
+#[test]
 fn test_extension_dialog_rendering_and_editor_mode() {
     use rustext::editor::app::{Editor, EditorMode};
     use rustext::editor::keymap::EditorAction;

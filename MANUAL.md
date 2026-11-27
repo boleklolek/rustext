@@ -1261,7 +1261,44 @@ on_save = false
 Al abrir la Paleta de Comandos (`Ctrl + P`), aparecerá automáticamente como:
 `[Ext] Ejecutar Mi Herramienta`
 
-### 3. Extensiones en el Proceso (`Plugin` Trait):
+### 3. Protocolo IPC y JSON-RPC 2.0 para Plugins Avanzados:
+Las extensiones externas pueden comunicarse con Rustext utilizando **JSON-RPC 2.0**:
+- Rustext envía a `stdin` una solicitud con el contexto completo:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "execute",
+  "params": {
+    "command": "mi_comando",
+    "file_path": "/ruta/al/archivo.rs",
+    "buffer_text": "...",
+    "selection_text": "...",
+    "cursor_line": 10,
+    "cursor_col": 4,
+    "language": "Rust"
+  }
+}
+```
+- La extensión puede responder con múltiples acciones estructuradas:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "replace_text": "Texto reemplazado",
+    "status": "Operación completada con éxito",
+    "clipboard": "Texto copiado",
+    "panel": {
+      "title": "Salida de Herramienta",
+      "lines": ["Resultado 1", "Resultado 2"]
+    }
+  }
+}
+```
+*(Nota: Las herramientas CLI clásicas que devuelven texto plano sin formato JSON continúan funcionando con compatibilidad del 100%).*
+
+### 4. Extensiones en el Proceso (`Plugin` Trait):
 Para integraciones ultra-rápidas en el código nativo:
 ```rust
 pub trait Plugin {
@@ -1274,7 +1311,7 @@ pub trait Plugin {
 }
 ```
 
-### 4. Sistema Dinámico de Temas (`.theme`) y Recarga en Caliente
+### 5. Sistema Dinámico de Temas (`.theme`) y Recarga en Caliente
 
 Rustext incluye un motor declarativo de temas que permite personalizar cualquier color del editor y del resaltado sintáctico sin necesidad de recompilar ni editar el código fuente:
 

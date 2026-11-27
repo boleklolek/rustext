@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::editor::keymap::EditorAction;
 use crate::ui::prompt::CommandItem;
 use super::process::ProcessPluginRunner;
+use super::ipc::{ExtensionAction, ExtensionIpcRequest, ExtensionIpcResponse};
 
 /// Command exposed by an extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,15 +170,47 @@ impl ExtensionInfo {
     }
 
     /// Executes the extension logic on `input_text`.
-    pub fn execute(&self, _cmd_id: &str, input_text: &str) -> Result<String, String> {
+    pub fn execute(&self, cmd_id: &str, input_text: &str) -> Result<String, String> {
+        let req = ExtensionIpcRequest {
+            id: 1,
+            method: "execute".to_string(),
+            command: cmd_id.to_string(),
+            file_path: None,
+            buffer_text: input_text.to_string(),
+            selection_text: None,
+            line_count: input_text.lines().count(),
+            cursor_line: 0,
+            cursor_col: 0,
+            language: "plaintext".to_string(),
+            params: std::collections::HashMap::new(),
+        };
+
+        let resp = self.execute_ipc(&req)?;
+        for action in resp.actions {
+            match action {
+                ExtensionAction::ReplaceText(t) | ExtensionAction::ReplaceBuffer(t) => return Ok(t),
+                _ => {}
+            }
+        }
+        Ok(input_text.to_string())
+    }
+
+    /// Executes the extension logic with a full structured IPC request.
+    pub fn execute_ipc(&self, request: &ExtensionIpcRequest) -> Result<ExtensionIpcResponse, String> {
         if !self.enabled {
             return Err("La extensión está desactivada".to_string());
         }
 
+        // Prepare input payload: JSON-RPC request string
+        let payload = request.to_json_string();
+
         // 1. If explicit exec command is provided
         if let Some(cmd) = &self.exec {
             let arg_refs: Vec<&str> = self.args.iter().map(|s| s.as_str()).collect();
-            return ProcessPluginRunner::pipe_through_command(cmd, &arg_refs, input_text);
+            // Try piping JSON payload first; if command fails or expects pure buffer, fallback logic is supported
+            let raw_output = ProcessPluginRunner::pipe_through_command(cmd, &arg_refs, &payload)
+                .or_else(|_| ProcessPluginRunner::pipe_through_command(cmd, &arg_refs, &request.buffer_text))?;
+            return Ok(ExtensionIpcResponse::parse(&raw_output));
         }
 
         // 2. Check for script files in the extension folder
@@ -192,7 +225,9 @@ impl ExtensionInfo {
                 } else {
                     (script_path.to_str().unwrap(), vec![])
                 };
-                return ProcessPluginRunner::pipe_through_command(cmd, &args, input_text);
+                let raw_output = ProcessPluginRunner::pipe_through_command(cmd, &args, &payload)
+                    .or_else(|_| ProcessPluginRunner::pipe_through_command(cmd, &args, &request.buffer_text))?;
+                return Ok(ExtensionIpcResponse::parse(&raw_output));
             }
         }
 
@@ -342,6 +377,23 @@ impl ExtensionManager {
             }
             if ext.commands.iter().any(|c| c.id == cmd_id) {
                 return Some(ext.execute(cmd_id, input_text));
+            }
+        }
+        None
+    }
+
+    /// Executes an extension command with a full structured IPC request.
+    pub fn execute_command_ipc(
+        &self,
+        cmd_id: &str,
+        request: &ExtensionIpcRequest,
+    ) -> Option<Result<ExtensionIpcResponse, String>> {
+        for ext in &self.extensions {
+            if !ext.enabled {
+                continue;
+            }
+            if ext.commands.iter().any(|c| c.id == cmd_id) {
+                return Some(ext.execute_ipc(request));
             }
         }
         None

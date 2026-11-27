@@ -3384,39 +3384,108 @@ impl Editor {
     /// Executes an extension command on the current selection or entire document buffer.
     pub fn execute_extension_command(&mut self, cmd_id: &str) {
         let has_sel = self.doc().cursors.primary().has_selection();
-        let input_text = if has_sel {
-            let range = self.doc().cursors.primary().selection_range();
-            self.doc().buffer.get_text_range(range.start, range.end)
+        let (selection_text, range) = if has_sel {
+            let r = self.doc().cursors.primary().selection_range();
+            (Some(self.doc().buffer.get_text_range(r.start, r.end)), Some(r))
         } else {
-            self.doc().buffer.to_string()
+            (None, None)
         };
 
-        match self.extension_manager.execute_command(cmd_id, &input_text) {
-            Some(Ok(output)) => {
-                let doc = self.doc_mut();
-                let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
-                if has_sel {
-                    let range = doc.cursors.primary().selection_range();
-                    let deleted = doc.buffer.get_text_range(range.start, range.end);
-                    doc.buffer.delete_range(range.start, range.end);
-                    tx.ops.push(EditOp::Delete { offset: range.start, text: deleted });
-                    doc.buffer.insert(range.start, &output);
-                    tx.ops.push(EditOp::Insert { offset: range.start, text: output.clone() });
-                    let new_end = range.start + output.chars().count();
-                    doc.cursors.set_single(new_end);
-                } else {
-                    let full_text = doc.buffer.to_string();
-                    let total_chars = doc.buffer.len_chars();
-                    doc.buffer.delete_range(0, total_chars);
-                    tx.ops.push(EditOp::Delete { offset: 0, text: full_text });
-                    doc.buffer.insert(0, &output);
-                    tx.ops.push(EditOp::Insert { offset: 0, text: output.clone() });
-                    let head = doc.cursors.primary().head.min(output.chars().count());
-                    doc.cursors.set_single(head);
+        let buffer_text = self.doc().buffer.to_string();
+        let file_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
+        let primary_head = self.doc().cursors.primary().head;
+        let pos = self.doc().buffer.char_to_position(primary_head);
+        let cursor_line = pos.line;
+        let cursor_col = pos.col;
+        let line_count = self.doc().buffer.len_lines();
+        let language = format!("{:?}", self.doc().language);
+
+        let request = crate::plugin::ExtensionIpcRequest {
+            id: 1,
+            method: "execute".to_string(),
+            command: cmd_id.to_string(),
+            file_path,
+            buffer_text,
+            selection_text,
+            line_count,
+            cursor_line,
+            cursor_col,
+            language,
+            params: std::collections::HashMap::new(),
+        };
+
+        match self.extension_manager.execute_command_ipc(cmd_id, &request) {
+            Some(Ok(response)) => {
+                let mut status_msg = None;
+
+                if let Some(err_msg) = response.error {
+                    self.set_status(format!("Error en extensión '{}': {}", cmd_id, err_msg));
+                    return;
                 }
-                tx.cursors_after = doc.cursors.cursors().to_vec();
-                doc.history.record(tx);
-                self.set_status(format!("Comando '{}' ejecutado", cmd_id));
+
+                if let Some(st) = response.status {
+                    status_msg = Some(st);
+                }
+
+                for action in response.actions {
+                    match action {
+                        crate::plugin::ExtensionAction::ReplaceText(output) => {
+                            let doc = self.doc_mut();
+                            let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                            if let Some(r) = range.clone() {
+                                let deleted = doc.buffer.get_text_range(r.start, r.end);
+                                doc.buffer.delete_range(r.start, r.end);
+                                tx.ops.push(EditOp::Delete { offset: r.start, text: deleted });
+                                doc.buffer.insert(r.start, &output);
+                                tx.ops.push(EditOp::Insert { offset: r.start, text: output.clone() });
+                                let new_end = r.start + output.chars().count();
+                                doc.cursors.set_single(new_end);
+                            } else {
+                                let full_text = doc.buffer.to_string();
+                                let total_chars = doc.buffer.len_chars();
+                                doc.buffer.delete_range(0, total_chars);
+                                tx.ops.push(EditOp::Delete { offset: 0, text: full_text });
+                                doc.buffer.insert(0, &output);
+                                tx.ops.push(EditOp::Insert { offset: 0, text: output.clone() });
+                                let head = doc.cursors.primary().head.min(output.chars().count());
+                                doc.cursors.set_single(head);
+                            }
+                            tx.cursors_after = doc.cursors.cursors().to_vec();
+                            doc.history.record(tx);
+                        }
+                        crate::plugin::ExtensionAction::ReplaceBuffer(output) => {
+                            let doc = self.doc_mut();
+                            let mut tx = Transaction::new(doc.cursors.cursors().to_vec());
+                            let full_text = doc.buffer.to_string();
+                            let total_chars = doc.buffer.len_chars();
+                            doc.buffer.delete_range(0, total_chars);
+                            tx.ops.push(EditOp::Delete { offset: 0, text: full_text });
+                            doc.buffer.insert(0, &output);
+                            tx.ops.push(EditOp::Insert { offset: 0, text: output.clone() });
+                            let head = doc.cursors.primary().head.min(output.chars().count());
+                            doc.cursors.set_single(head);
+                            tx.cursors_after = doc.cursors.cursors().to_vec();
+                            doc.history.record(tx);
+                        }
+                        crate::plugin::ExtensionAction::SetStatus(msg) => {
+                            status_msg = Some(msg);
+                        }
+                        crate::plugin::ExtensionAction::SetClipboard(text) => {
+                            self.clipboard.set_text(&text);
+                        }
+                        crate::plugin::ExtensionAction::OpenPanel { title, lines } => {
+                            let preview = lines.first().cloned().unwrap_or_default();
+                            status_msg = Some(format!("[{}] {} ({} líneas)", title, preview, lines.len()));
+                        }
+                        crate::plugin::ExtensionAction::None => {}
+                    }
+                }
+
+                if let Some(msg) = status_msg {
+                    self.set_status(msg);
+                } else {
+                    self.set_status(format!("Comando '{}' ejecutado", cmd_id));
+                }
             }
             Some(Err(e)) => {
                 self.set_status(format!("Error ejecutando '{}': {}", cmd_id, e));

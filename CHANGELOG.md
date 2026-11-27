@@ -9,6 +9,18 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ## [Sin publicar]
 
 ### ✨ Añadido (Added)
+- **Protocolo IPC Estructurado y JSON-RPC 2.0 para Plugins y Extensiones**:
+  - Implementación completa de [`src/plugin/ipc.rs`](src/plugin/ipc.rs) con cero dependencias externas, utilizando el analizador JSON AST nativo (`JsonValue`).
+  - Solicitudes estructuradas con contexto ampliado del editor: `ExtensionIpcRequest` transmite ID de solicitud, método, comando invocado, ruta del archivo, contenido del búfer, texto seleccionado, posición del cursor (`line`, `col`), total de líneas, lenguaje activo y parámetros personalizados.
+  - Soporte de múltiples acciones en respuestas (`ExtensionIpcResponse` y `ExtensionAction`):
+    - `ReplaceText`: reemplazo del texto seleccionado o búfer actual.
+    - `ReplaceBuffer`: reemplazo incondicional del búfer completo.
+    - `SetStatus`: actualización del mensaje en la barra de estado inferior.
+    - `SetClipboard`: copia de texto al portapapeles del sistema/editor.
+    - `OpenPanel`: apertura de panel informativo con título y lista de líneas.
+  - Compatibilidad total hacia atrás: si un comando externo (CLI simple como `tr`, `sed`, `sh` o scripts heredados) devuelve texto plano en lugar de JSON-RPC, el editor interpreta la salida de manera transparente como reemplazo de texto.
+  - Integración nativa en `ExtensionManager::execute_command_ipc` y ejecución en `Editor::execute_extension_command`.
+
 - **Backend Gráfico Nativo para macOS (`CocoaWindow`)**:
   - Implementación completa sin dependencias externas de `CocoaWindow` en [`src/window/macos.rs`](src/window/macos.rs) utilizando AppKit y CoreGraphics mediante el runtime de Objective-C (`objc_msgSend`).
   - Creación y activación de ventana nativa `NSWindow` con estilo estándar (cerrar, minimizar, redimensionar, pantalla completa) y soporte Retina hidpi (`scale_factor`).
