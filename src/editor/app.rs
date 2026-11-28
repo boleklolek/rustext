@@ -1831,8 +1831,15 @@ impl Editor {
                             let line_idx = loc.range.start.line;
                             let line_text = if let Some(open_doc) = self.documents.iter().find(|d| d.buffer.file_path() == Some(&loc.path)) {
                                 open_doc.buffer.line(line_idx).unwrap_or_default().trim().to_string()
-                            } else if let Ok(content) = std::fs::read_to_string(&loc.path) {
-                                content.lines().nth(line_idx).unwrap_or("").trim().to_string()
+                            } else if let Ok(file) = std::fs::File::open(&loc.path) {
+                                use std::io::BufRead;
+                                std::io::BufReader::new(file)
+                                    .lines()
+                                    .nth(line_idx)
+                                    .and_then(|res| res.ok())
+                                    .unwrap_or_default()
+                                    .trim()
+                                    .to_string()
                             } else {
                                 String::new()
                             };
@@ -1944,14 +1951,15 @@ impl Editor {
     /// Executes an extension command on the current selection or entire document buffer.
     pub fn execute_extension_command(&mut self, cmd_id: &str) {
         let has_sel = self.doc().cursors.primary().has_selection();
-        let (selection_text, range) = if has_sel {
+        let (selection_text, range, buffer_text) = if has_sel {
             let r = self.doc().cursors.primary().selection_range();
-            (Some(self.doc().buffer.get_text_range(r.start, r.end)), Some(r))
+            let sel = self.doc().buffer.get_text_range(r.start, r.end);
+            (Some(sel.clone()), Some(r), sel)
         } else {
-            (None, None)
+            let full = self.doc().buffer.to_string();
+            (None, None, full)
         };
 
-        let buffer_text = self.doc().buffer.to_string();
         let file_path = self.doc().buffer.file_path().map(|p| p.to_path_buf());
         let primary_head = self.doc().cursors.primary().head;
         let pos = self.doc().buffer.char_to_position(primary_head);
